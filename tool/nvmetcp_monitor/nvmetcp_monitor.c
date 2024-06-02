@@ -1,29 +1,30 @@
 #include <linux/module.h>
 #include <linux/blkdev.h>
 #include <linux/tracepoint.h>
-#include <linux/perf_event.h>
 #include <linux/uaccess.h>
 #include <linux/fs.h>
 #include <linux/mm.h>
 #include <linux/slab.h>
 #include <linux/proc_fs.h>
 #include <trace/events/block.h>
+#include <linux/vmalloc.h>
+#include <linux/spinlock.h>
+#include "nvmetcp_monitor.h"
 
 #define BUFFER_SIZE PAGE_SIZE
 
-static unsigned long io_request_count = 0;
-static char *buffer;
+static struct nvmetcp_tr *tr_data;
 static int record_enabled = 0; // 控制记录开关
-static struct mutex buffer_mutex;
+static spinlock_t io_count_spinlock;
 
 void nvmetcp_monitor_trace_func(void *data, struct request *rq)
 {
     if (record_enabled) {
-        mutex_lock(&buffer_mutex);
-        io_request_count++;
-        snprintf(buffer, BUFFER_SIZE, "I/O request captured. Count: %lu\n", io_request_count);
-        pr_info("%s", buffer);
-        mutex_unlock(&buffer_mutex);
+        unsigned long flags;
+        spin_lock_irqsave(&io_count_spinlock, flags);
+        tr_data->io_request_count++;
+        spin_unlock_irqrestore(&io_count_spinlock, flags);
+        // pr_info("I/O request captured. Count: %llu\n", tr_data->io_request_count);
     }
 }
 
@@ -48,7 +49,7 @@ static ssize_t nvmetcp_monitor_write(struct file *file, const char __user *buffe
 
 static int nvmetcp_monitor_mmap(struct file *filp, struct vm_area_struct *vma)
 {
-    if (remap_pfn_range(vma, vma->vm_start, virt_to_phys(buffer) >> PAGE_SHIFT,
+    if (remap_pfn_range(vma, vma->vm_start, vmalloc_to_pfn(tr_data),
                         vma->vm_end - vma->vm_start, vma->vm_page_prot))
         return -EAGAIN;
     return 0;
@@ -64,16 +65,18 @@ static int __init nvmetcp_monitor_init(void)
     int ret;
     struct proc_dir_entry *entry;
 
-    buffer = kmalloc(BUFFER_SIZE, GFP_KERNEL);
-    if (!buffer)
+    spin_lock_init(&io_count_spinlock);
+
+    tr_data = vmalloc(sizeof(*tr_data));
+    if (!tr_data)
         return -ENOMEM;
 
-    mutex_init(&buffer_mutex);
+    tr_data->io_request_count = 0;
 
     ret = tracepoint_probe_register(&__tracepoint_block_rq_insert, nvmetcp_monitor_trace_func, NULL);
     if (ret) {
         pr_err("Failed to register tracepoint\n");
-        kfree(buffer);
+        vfree(tr_data);
         return ret;
     }
 
@@ -81,7 +84,7 @@ static int __init nvmetcp_monitor_init(void)
     if (!entry) {
         pr_err("Failed to create proc entry\n");
         tracepoint_probe_unregister(&__tracepoint_block_rq_insert, nvmetcp_monitor_trace_func, NULL);
-        kfree(buffer);
+        vfree(tr_data);
         return -ENOMEM;
     }
 
@@ -93,7 +96,7 @@ static void __exit nvmetcp_monitor_exit(void)
 {
     remove_proc_entry("nvmetcp_monitor", NULL);
     tracepoint_probe_unregister(&__tracepoint_block_rq_insert, nvmetcp_monitor_trace_func, NULL);
-    kfree(buffer);
+    vfree(tr_data);
     pr_info("nvmetcp_monitor module unloaded\n");
 }
 

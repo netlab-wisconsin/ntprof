@@ -8,6 +8,8 @@
 #include <errno.h>
 #include <sys/user.h>  // 包含 PAGE_SIZE 定义
 
+#include "nvmetcp_monitor.h"
+
 #define BUFFER_SIZE PAGE_SIZE
 
 static volatile int keep_running = 1;
@@ -18,7 +20,7 @@ void int_handler(int dummy) {
 
 int main(int argc, char **argv) {
     int control_fd, mmap_fd;
-    char *buffer;
+    struct nvmetcp_tr *tr_data;
 
     signal(SIGINT, int_handler);
 
@@ -29,8 +31,8 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-    buffer = mmap(NULL, BUFFER_SIZE, PROT_READ, MAP_SHARED, mmap_fd, 0);
-    if (buffer == MAP_FAILED) {
+    tr_data = mmap(NULL, sizeof(struct nvmetcp_tr), PROT_READ, MAP_SHARED, mmap_fd, 0);
+    if (tr_data == MAP_FAILED) {
         perror("mmap");
         close(mmap_fd);
         exit(EXIT_FAILURE);
@@ -40,7 +42,7 @@ int main(int argc, char **argv) {
     control_fd = open("/proc/nvmetcp_monitor", O_WRONLY);
     if (control_fd == -1) {
         perror("open");
-        munmap(buffer, BUFFER_SIZE);
+        munmap(tr_data, sizeof(struct nvmetcp_tr));
         close(mmap_fd);
         exit(EXIT_FAILURE);
     }
@@ -48,7 +50,7 @@ int main(int argc, char **argv) {
     close(control_fd);
 
     while (keep_running) {
-        printf("%s", buffer);
+        printf("I/O request count: %llu\n", tr_data->io_request_count);
         sleep(1);
     }
 
@@ -56,7 +58,7 @@ int main(int argc, char **argv) {
     control_fd = open("/proc/nvmetcp_monitor", O_WRONLY);
     if (control_fd == -1) {
         perror("open");
-        munmap(buffer, BUFFER_SIZE);
+        munmap(tr_data, sizeof(struct nvmetcp_tr));
         close(mmap_fd);
         exit(EXIT_FAILURE);
     }
@@ -66,17 +68,17 @@ int main(int argc, char **argv) {
     FILE *data_file = fopen("nvmetcp_monitor.data", "w");
     if (!data_file) {
         perror("fopen");
-        munmap(buffer, BUFFER_SIZE);
+        munmap(tr_data, sizeof(struct nvmetcp_tr));
         close(mmap_fd);
         exit(EXIT_FAILURE);
     }
 
-    fprintf(data_file, "Final I/O Requests Count:\n%s", buffer);
+    fprintf(data_file, "Final I/O Requests Count: %llu\n", tr_data->io_request_count);
     fclose(data_file);
 
     printf("Data saved to nvmetcp_monitor.data\n");
 
-    munmap(buffer, BUFFER_SIZE);
+    munmap(tr_data, sizeof(struct nvmetcp_tr));
     close(mmap_fd);
 
     return 0;
