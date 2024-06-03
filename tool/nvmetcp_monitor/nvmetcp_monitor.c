@@ -13,13 +13,66 @@
 #define BUFFER_SIZE PAGE_SIZE
 
 static struct nvmetcp_tr *tr_data;
-static int record_enabled = 0; // 控制记录开关
+static int record_enabled = 0; 
 
 void nvmetcp_monitor_trace_func(void *data, struct request *rq)
 {
     if (record_enabled) {
-        atomic64_inc(&tr_data->io_request_count);
-        pr_info("I/O request captured. Count: %llu\n", atomic64_read(&tr_data->io_request_count));
+        unsigned int size = blk_rq_bytes(rq);
+
+        if (rq_data_dir(rq) == READ) {
+            atomic64_inc(&tr_data->read_count);
+            if (size < 4096) {
+                INC_READ_LT_4K(tr_data);
+            } else if (size == 4096) {
+                INC_READ_4K(tr_data);
+            } else if (size == 8192) {
+                INC_READ_8K(tr_data);
+            } else if (size == 16384) {
+                INC_READ_16K(tr_data);
+            } else if (size == 32768) {
+                INC_READ_32K(tr_data);
+            } else if (size == 65536) {
+                INC_READ_64K(tr_data);
+            } else if (size == 131072) {
+                INC_READ_128K(tr_data);
+            } else if (size > 131072) {
+                INC_READ_GT_128K(tr_data);
+            } else {
+                INC_READ_OTHERS(tr_data);
+            }
+        } else {
+            atomic64_inc(&tr_data->write_count);
+            if (size < 4096) {
+                INC_WRITE_LT_4K(tr_data);
+            } else if (size == 4096) {
+                INC_WRITE_4K(tr_data);
+            } else if (size == 8192) {
+                INC_WRITE_8K(tr_data);
+            } else if (size == 16384) {
+                INC_WRITE_16K(tr_data);
+            } else if (size == 32768) {
+                INC_WRITE_32K(tr_data);
+            } else if (size == 65536) {
+                INC_WRITE_64K(tr_data);
+            } else if (size == 131072) {
+                INC_WRITE_128K(tr_data);
+            } else if (size > 131072) {
+                INC_WRITE_GT_128K(tr_data);
+            } else {
+                INC_WRITE_OTHERS(tr_data);
+            }
+        }
+
+        // This is wrong.
+        size_t ql = atomic_read(&rq->q->nr_active_requests_shared_sbitmap);
+        if(ql != 0){
+            pr_info("queue length: %lu\n", ql);
+        }
+        SET_QUEUE_LENGTH(tr_data, atomic_read(&rq->q->nr_active_requests_shared_sbitmap));
+
+
+
     }
 }
 
@@ -64,7 +117,7 @@ static int __init nvmetcp_monitor_init(void)
     if (!tr_data)
         return -ENOMEM;
 
-    atomic64_set(&tr_data->io_request_count, 0);
+    init_nvmetcp_tr(tr_data);
 
     ret = tracepoint_probe_register(&__tracepoint_block_rq_insert, nvmetcp_monitor_trace_func, NULL);
     if (ret) {
@@ -97,5 +150,5 @@ module_init(nvmetcp_monitor_init);
 module_exit(nvmetcp_monitor_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Your Name");
+MODULE_AUTHOR("yuyuan");
 MODULE_DESCRIPTION("Lightweight NVMeTCP Monitoring Module");

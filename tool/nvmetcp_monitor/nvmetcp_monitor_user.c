@@ -17,13 +17,13 @@ void int_handler(int dummy) {
     keep_running = 0;
 }
 
+
 int main(int argc, char **argv) {
     int control_fd, mmap_fd;
     struct nvmetcp_tr *tr_data;
 
     signal(SIGINT, int_handler);
 
-    // 打开并映射缓冲区
     mmap_fd = open("/proc/nvmetcp_monitor", O_RDONLY);
     if (mmap_fd == -1) {
         perror("open");
@@ -37,7 +37,6 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-    // 启用记录
     control_fd = open("/proc/nvmetcp_monitor", O_WRONLY);
     if (control_fd == -1) {
         perror("open");
@@ -49,11 +48,10 @@ int main(int argc, char **argv) {
     close(control_fd);
 
     while (keep_running) {
-        printf("I/O request count: %llu\n", atomic_load(&tr_data->io_request_count));
+        print_tr(tr_data);
         sleep(1);
     }
 
-    // 禁用记录
     control_fd = open("/proc/nvmetcp_monitor", O_WRONLY);
     if (control_fd == -1) {
         perror("open");
@@ -72,7 +70,6 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-    fprintf(data_file, "Final I/O Requests Count: %llu\n", atomic_load(&tr_data->io_request_count));
     fclose(data_file);
 
     printf("Data saved to nvmetcp_monitor.data\n");
