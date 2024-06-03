@@ -8,23 +8,18 @@
 #include <linux/proc_fs.h>
 #include <trace/events/block.h>
 #include <linux/vmalloc.h>
-#include <linux/spinlock.h>
 #include "nvmetcp_monitor.h"
 
 #define BUFFER_SIZE PAGE_SIZE
 
 static struct nvmetcp_tr *tr_data;
 static int record_enabled = 0; // 控制记录开关
-static spinlock_t io_count_spinlock;
 
 void nvmetcp_monitor_trace_func(void *data, struct request *rq)
 {
     if (record_enabled) {
-        unsigned long flags;
-        spin_lock_irqsave(&io_count_spinlock, flags);
-        tr_data->io_request_count++;
-        spin_unlock_irqrestore(&io_count_spinlock, flags);
-        // pr_info("I/O request captured. Count: %llu\n", tr_data->io_request_count);
+        atomic64_inc(&tr_data->io_request_count);
+        pr_info("I/O request captured. Count: %llu\n", atomic64_read(&tr_data->io_request_count));
     }
 }
 
@@ -65,13 +60,11 @@ static int __init nvmetcp_monitor_init(void)
     int ret;
     struct proc_dir_entry *entry;
 
-    spin_lock_init(&io_count_spinlock);
-
     tr_data = vmalloc(sizeof(*tr_data));
     if (!tr_data)
         return -ENOMEM;
 
-    tr_data->io_request_count = 0;
+    atomic64_set(&tr_data->io_request_count, 0);
 
     ret = tracepoint_probe_register(&__tracepoint_block_rq_insert, nvmetcp_monitor_trace_func, NULL);
     if (ret) {

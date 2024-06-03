@@ -6,8 +6,7 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <errno.h>
-#include <sys/user.h>  // 包含 PAGE_SIZE 定义
-
+#include <stdatomic.h>
 #include "nvmetcp_monitor.h"
 
 #define BUFFER_SIZE PAGE_SIZE
@@ -50,7 +49,7 @@ int main(int argc, char **argv) {
     close(control_fd);
 
     while (keep_running) {
-        printf("I/O request count: %llu\n", tr_data->io_request_count);
+        printf("I/O request count: %llu\n", atomic_load(&tr_data->io_request_count));
         sleep(1);
     }
 
@@ -73,7 +72,7 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-    fprintf(data_file, "Final I/O Requests Count: %llu\n", tr_data->io_request_count);
+    fprintf(data_file, "Final I/O Requests Count: %llu\n", atomic_load(&tr_data->io_request_count));
     fclose(data_file);
 
     printf("Data saved to nvmetcp_monitor.data\n");
