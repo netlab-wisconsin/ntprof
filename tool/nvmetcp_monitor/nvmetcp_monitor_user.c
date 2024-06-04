@@ -20,7 +20,7 @@ void int_handler(int dummy) {
 
 int main(int argc, char **argv) {
     int control_fd, mmap_fd;
-    struct nvmetcp_tr *tr_data;
+    struct blk_tr *tr_data;
 
     signal(SIGINT, int_handler);
 
@@ -30,7 +30,7 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-    tr_data = mmap(NULL, sizeof(struct nvmetcp_tr), PROT_READ, MAP_SHARED, mmap_fd, 0);
+    tr_data = mmap(NULL, sizeof(struct blk_tr), PROT_READ, MAP_SHARED, mmap_fd, 0);
     if (tr_data == MAP_FAILED) {
         perror("mmap");
         close(mmap_fd);
@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
     control_fd = open("/proc/nvmetcp_monitor", O_WRONLY);
     if (control_fd == -1) {
         perror("open");
-        munmap(tr_data, sizeof(struct nvmetcp_tr));
+        munmap(tr_data, sizeof(struct blk_tr));
         close(mmap_fd);
         exit(EXIT_FAILURE);
     }
@@ -48,14 +48,14 @@ int main(int argc, char **argv) {
     close(control_fd);
 
     while (keep_running) {
-        print_tr(tr_data);
+        pr_blk_tr(tr_data);
         sleep(1);
     }
 
     control_fd = open("/proc/nvmetcp_monitor", O_WRONLY);
     if (control_fd == -1) {
         perror("open");
-        munmap(tr_data, sizeof(struct nvmetcp_tr));
+        munmap(tr_data, sizeof(struct blk_tr));
         close(mmap_fd);
         exit(EXIT_FAILURE);
     }
@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
     FILE *data_file = fopen("nvmetcp_monitor.data", "w");
     if (!data_file) {
         perror("fopen");
-        munmap(tr_data, sizeof(struct nvmetcp_tr));
+        munmap(tr_data, sizeof(struct blk_tr));
         close(mmap_fd);
         exit(EXIT_FAILURE);
     }
@@ -74,7 +74,7 @@ int main(int argc, char **argv) {
 
     printf("Data saved to nvmetcp_monitor.data\n");
 
-    munmap(tr_data, sizeof(struct nvmetcp_tr));
+    munmap(tr_data, sizeof(struct blk_tr));
     close(mmap_fd);
 
     return 0;

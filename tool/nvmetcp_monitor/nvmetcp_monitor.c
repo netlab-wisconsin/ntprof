@@ -12,66 +12,60 @@
 
 #define BUFFER_SIZE PAGE_SIZE
 
-static struct nvmetcp_tr *tr_data;
+static struct _blk_tr *_tr_data;
+static struct blk_tr *tr_data;
+
 static int record_enabled = 0; 
 
 void nvmetcp_monitor_trace_func(void *data, struct request *rq)
 {
     if (record_enabled) {
+
+        atomic64_t* arr = NULL;
+        if (rq_data_dir(rq) == READ) {
+            arr = _tr_data->read_io;
+            atomic64_inc(&_tr_data->read_count);
+        } else {
+            arr = _tr_data->write_io;
+            atomic64_inc(&_tr_data->write_count);
+        }
+        if(!arr){
+            pr_info("io is neither read nor write.");
+            return;
+        }
+
         unsigned int size = blk_rq_bytes(rq);
 
-        if (rq_data_dir(rq) == READ) {
-            atomic64_inc(&tr_data->read_count);
-            if (size < 4096) {
-                INC_READ_LT_4K(tr_data);
-            } else if (size == 4096) {
-                INC_READ_4K(tr_data);
-            } else if (size == 8192) {
-                INC_READ_8K(tr_data);
-            } else if (size == 16384) {
-                INC_READ_16K(tr_data);
-            } else if (size == 32768) {
-                INC_READ_32K(tr_data);
-            } else if (size == 65536) {
-                INC_READ_64K(tr_data);
-            } else if (size == 131072) {
-                INC_READ_128K(tr_data);
-            } else if (size > 131072) {
-                INC_READ_GT_128K(tr_data);
+        switch (size) {
+        case 4096:
+            atomic64_inc(&arr[_4K]);
+            break;
+        case 8192:
+            atomic64_inc(&arr[_8K]);
+            break;
+        case 16384:
+            atomic64_inc(&arr[_16K]);
+            break;
+        case 32768:
+            atomic64_inc(&arr[_32K]);
+            break;
+        case 65536:
+            atomic64_inc(&arr[_64K]);
+            break;
+        case 131072:
+            atomic64_inc(&arr[_128K]);
+            break;
+        default:
+            if(size < 4096){
+                atomic64_inc(&arr[_LT_4K]);
+            } else if(size > 131072){
+                atomic64_inc(&arr[_GT_128K]);
             } else {
-                INC_READ_OTHERS(tr_data);
-            }
-        } else {
-            atomic64_inc(&tr_data->write_count);
-            if (size < 4096) {
-                INC_WRITE_LT_4K(tr_data);
-            } else if (size == 4096) {
-                INC_WRITE_4K(tr_data);
-            } else if (size == 8192) {
-                INC_WRITE_8K(tr_data);
-            } else if (size == 16384) {
-                INC_WRITE_16K(tr_data);
-            } else if (size == 32768) {
-                INC_WRITE_32K(tr_data);
-            } else if (size == 65536) {
-                INC_WRITE_64K(tr_data);
-            } else if (size == 131072) {
-                INC_WRITE_128K(tr_data);
-            } else if (size > 131072) {
-                INC_WRITE_GT_128K(tr_data);
-            } else {
-                INC_WRITE_OTHERS(tr_data);
+                atomic64_inc(&arr[_OTHERS]);
             }
         }
 
-        // This is wrong.
-        size_t ql = atomic_read(&rq->q->nr_active_requests_shared_sbitmap);
-        if(ql != 0){
-            pr_info("queue length: %lu\n", ql);
-        }
-        SET_QUEUE_LENGTH(tr_data, atomic_read(&rq->q->nr_active_requests_shared_sbitmap));
-
-
+        copy_blk_tr(tr_data, _tr_data);
 
     }
 }
@@ -113,11 +107,16 @@ static int __init nvmetcp_monitor_init(void)
     int ret;
     struct proc_dir_entry *entry;
 
+    _tr_data = vmalloc(sizeof(*_tr_data));
+    if (!_tr_data)
+        return -ENOMEM;
+    _init_blk_tr(_tr_data);
+
     tr_data = vmalloc(sizeof(*tr_data));
     if (!tr_data)
         return -ENOMEM;
 
-    init_nvmetcp_tr(tr_data);
+    init_blk_tr(tr_data);
 
     ret = tracepoint_probe_register(&__tracepoint_block_rq_insert, nvmetcp_monitor_trace_func, NULL);
     if (ret) {
@@ -143,6 +142,7 @@ static void __exit nvmetcp_monitor_exit(void)
     remove_proc_entry("nvmetcp_monitor", NULL);
     tracepoint_probe_unregister(&__tracepoint_block_rq_insert, nvmetcp_monitor_trace_func, NULL);
     vfree(tr_data);
+    vfree(_tr_data);
     pr_info("nvmetcp_monitor module unloaded\n");
 }
 

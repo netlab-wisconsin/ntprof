@@ -1,132 +1,134 @@
-#ifndef _NVMETCP_TR_H
-#define _NVMETCP_TR_H
-
 #ifdef __KERNEL__
+#include <linux/types.h>
 #include <linux/atomic.h>
+#include <linux/spinlock.h>
 #else
-#include <stdatomic.h>
+#include <stdio.h>
 #endif
 
-struct nvmetcp_tr {
 #ifdef __KERNEL__
+struct _blk_tr {
+    /** every io */
     atomic64_t read_count;
     atomic64_t write_count;
-    // use an array to represent the slots
-    // 0: <4k, 1: 4k, 2: 8k, 3: 16k, 4: 32k, 5: 64k, 6: 128k, 7: >128k, 8: others
+    
+    /** sampled io */
     atomic64_t read_io[9];
     atomic64_t write_io[9];
+
+    /** just once */
     atomic64_t queue_length;
-#else
-    atomic_ullong read_count;
-    atomic_ullong write_count;
-    // use an array to represend the slots
-    // 0: <4k, 1: 4k, 2: 8k, 3: 16k, 4: 32k, 5: 64k, 6: 128k, 7: >128k, 8: others
-    atomic_ullong read_io[9];
-    atomic_ullong write_io[9];
-    atomic_ullong queue_length;
-#endif
 };
+#define _LT_4K 0
+#define _4K 1
+#define _8K 2
+#define _16K 3
+#define _32K 4
+#define _64K 5
+#define _128K 6
+#define _GT_128K 7
+#define _OTHERS 8
 
-#ifdef __KERNEL__
-#define INC_READ_LT_4K(tr) atomic64_inc(&tr->read_io[0])
-#define INC_READ_4K(tr) atomic64_inc(&tr->read_io[1])
-#define INC_READ_8K(tr) atomic64_inc(&tr->read_io[2])
-#define INC_READ_16K(tr) atomic64_inc(&tr->read_io[3])
-#define INC_READ_32K(tr) atomic64_inc(&tr->read_io[4])
-#define INC_READ_64K(tr) atomic64_inc(&tr->read_io[5])
-#define INC_READ_128K(tr) atomic64_inc(&tr->read_io[6])
-#define INC_READ_GT_128K(tr) atomic64_inc(&tr->read_io[7])
-#define INC_READ_OTHERS(tr) atomic64_inc(&tr->read_io[8])
-#define INC_WRITE_LT_4K(tr) atomic64_inc(&tr->write_io[0])
-#define INC_WRITE_4K(tr) atomic64_inc(&tr->write_io[1])
-#define INC_WRITE_8K(tr) atomic64_inc(&tr->write_io[2])
-#define INC_WRITE_16K(tr) atomic64_inc(&tr->write_io[3])
-#define INC_WRITE_32K(tr) atomic64_inc(&tr->write_io[4])
-#define INC_WRITE_64K(tr) atomic64_inc(&tr->write_io[5])
-#define INC_WRITE_128K(tr) atomic64_inc(&tr->write_io[6])
-#define INC_WRITE_GT_128K(tr) atomic64_inc(&tr->write_io[7])
-#define INC_WRITE_OTHERS(tr) atomic64_inc(&tr->write_io[8])
-#define SET_QUEUE_LENGTH(tr, len) atomic64_set(&tr->queue_length, len)
-
-static void init_nvmetcp_tr(struct nvmetcp_tr *tr) {
+static void _init_blk_tr(struct _blk_tr *tr) {
     atomic64_set(&tr->read_count, 0);
     atomic64_set(&tr->write_count, 0);
-    int i = 0;
-    for(i = 0; i < 9; i++) {
+    int i;
+    for (i = 0; i < 9; i++) {
         atomic64_set(&tr->read_io[i], 0);
         atomic64_set(&tr->write_io[i], 0);
     }
+    atomic64_set(&tr->queue_length, 0);
 }
+
+#endif
+
+struct blk_tr {
+    /** mutex */
+    // spinlock_t lock;
+
+    /** every io */
+    unsigned long long read_count;
+    unsigned long long write_count;
+    
+    /** sampled io */
+    unsigned long long read_io[9];
+    unsigned long long write_io[9];
+
+    /** just once */
+    unsigned long long queue_length;
+};
+
+#ifdef __KERNEL__
+
+static void copy_blk_tr(struct blk_tr *dst, struct _blk_tr *src) {
+    // spin_lock(&dst->lock);
+    // read atomic data
+    dst->read_count = atomic64_read(&src->read_count);
+    dst->write_count = atomic64_read(&src->write_count);
+    int i;
+    for (i = 0; i < 9; i++) {
+        dst->read_io[i] = atomic64_read(&src->read_io[i]);
+        dst->write_io[i] = atomic64_read(&src->write_io[i]);
+    }
+    dst->queue_length = atomic64_read(&src->queue_length);
+    // spin_unlock(&dst->lock);
+}
+
+static void init_blk_tr(struct blk_tr *tr) {
+    // spin_lock_init(&tr->lock);
+    tr->read_count = 0;
+    tr->write_count = 0;
+    int i;
+    for (i = 0; i < 9; i++) {
+        tr->read_io[i] = 0;
+        tr->write_io[i] = 0;
+    }
+    tr->queue_length = 0;
+}
+
 #else
-#define GET_READ_LT_4K(tr) atomic_load(&tr->read_io[0])
-#define GET_READ_4K(tr) atomic_load(&tr->read_io[1])
-#define GET_READ_8K(tr) atomic_load(&tr->read_io[2])
-#define GET_READ_16K(tr) atomic_load(&tr->read_io[3])
-#define GET_READ_32K(tr) atomic_load(&tr->read_io[4])
-#define GET_READ_64K(tr) atomic_load(&tr->read_io[5])
-#define GET_READ_128K(tr) atomic_load(&tr->read_io[6])
-#define GET_READ_GT_128K(tr) atomic_load(&tr->read_io[7])
-#define GET_READ_OTHERS(tr) atomic_load(&tr->read_io[8])
-#define GET_WRITE_LT_4K(tr) atomic_load(&tr->write_io[0])
-#define GET_WRITE_4K(tr) atomic_load(&tr->write_io[1])
-#define GET_WRITE_8K(tr) atomic_load(&tr->write_io[2])
-#define GET_WRITE_16K(tr) atomic_load(&tr->write_io[3])
-#define GET_WRITE_32K(tr) atomic_load(&tr->write_io[4])
-#define GET_WRITE_64K(tr) atomic_load(&tr->write_io[5])
-#define GET_WRITE_128K(tr) atomic_load(&tr->write_io[6])
-#define GET_WRITE_GT_128K(tr) atomic_load(&tr->write_io[7])
-#define GET_WRITE_OTHERS(tr) atomic_load(&tr->write_io[8])
 
-static void print_tr(struct nvmetcp_tr* tr){
-    printf("Read count: %llu\n", atomic_load(&tr->read_count));
-    // print the distribution, ratio of different size
-    printf("read distr: [<4K: %.2f], [4K: %.2f], [8K: %.2f], [16K: %.2f], [32K: %.2f], [64K: %.2f], [128K: %.2f], [>128K: %.2f], [others: %.2f]\n",
-            (float)atomic_load(&tr->read_io[0]) / atomic_load(&tr->read_count),
-            (float)atomic_load(&tr->read_io[1]) / atomic_load(&tr->read_count),
-            (float)atomic_load(&tr->read_io[2]) / atomic_load(&tr->read_count),
-            (float)atomic_load(&tr->read_io[3]) / atomic_load(&tr->read_count),
-            (float)atomic_load(&tr->read_io[4]) / atomic_load(&tr->read_count),
-            (float)atomic_load(&tr->read_io[5]) / atomic_load(&tr->read_count),
-            (float)atomic_load(&tr->read_io[6]) / atomic_load(&tr->read_count),
-            (float)atomic_load(&tr->read_io[7]) / atomic_load(&tr->read_count),
-            (float)atomic_load(&tr->read_io[8]) / atomic_load(&tr->read_count)
-            );
-    printf("read cnt: [<4K: %llu], [4K: %llu], [8K: %llu], [16K: %llu], [32K: %llu], [64K: %llu], [128K: %llu], [>128K: %llu], [others: %llu]\n",
-            atomic_load(&tr->read_io[0]),
-            atomic_load(&tr->read_io[1]),
-            atomic_load(&tr->read_io[2]),
-            atomic_load(&tr->read_io[3]),
-            atomic_load(&tr->read_io[4]),
-            atomic_load(&tr->read_io[5]),
-            atomic_load(&tr->read_io[6]),
-            atomic_load(&tr->read_io[7]),
-            atomic_load(&tr->read_io[8])
-            );
+static void pr_blk_tr(struct blk_tr *tr) {
+    char *dis_header[9] = {"<4KB", "4KB", "8KB", "16KB", "32KB", "64KB", "128KB", ">128KB", "others"};
+    // spin_lock(&tr->lock);
+    printf("blk_tr report>>>>>>>>>>>>>>>>>\n");
+    printf("read total: %llu\n", tr->read_count);
+    printf("read cnt");
+    int i;
+    for (i = 0; i < 9; i++) {
+        printf(", [%s: %llu]", dis_header[i], tr->read_io[i]);
+    }
+    printf("\nread dis");
+    for (i = 0; i < 9; i++) {
+        printf(", [%s: %.2f]", dis_header[i], (float)tr->read_io[i] / tr->read_count);
+    }
+    printf("\nwrite total: %llu\n", tr->write_count);
+    printf("write cnt");
+    for (i = 0; i < 9; i++) {
+        printf(", [%s: %llu]", dis_header[i], tr->write_io[i]);
+    }
+    printf("\nwrite dis");
+    for (i = 0; i < 9; i++) {
+        printf(", [%s: %.2f]", dis_header[i], (float)tr->write_io[i] / tr->write_count);
+    }
+    printf("\n");
+    // spin_unlock(&tr->lock);
+}
 
-    printf("Write count: %llu\n", atomic_load(&tr->write_count));
-    printf("write distr: [4K: %.2f], [8K: %.2f], [16K: %.2f], [32K: %.2f], [64K: %.2f], [128K: %.2f], [>128K: %.2f], [others: %.2f]\n",
-            (float)atomic_load(&tr->write_io[1]) / atomic_load(&tr->write_count),
-            (float)atomic_load(&tr->write_io[2]) / atomic_load(&tr->write_count),
-            (float)atomic_load(&tr->write_io[3]) / atomic_load(&tr->write_count),
-            (float)atomic_load(&tr->write_io[4]) / atomic_load(&tr->write_count),
-            (float)atomic_load(&tr->write_io[5]) / atomic_load(&tr->write_count),
-            (float)atomic_load(&tr->write_io[6]) / atomic_load(&tr->write_count),
-            (float)atomic_load(&tr->write_io[7]) / atomic_load(&tr->write_count),
-            (float)atomic_load(&tr->write_io[8]) / atomic_load(&tr->write_count)
-            );
-    printf("write cnt: [4K: %llu], [8K: %llu], [16K: %llu], [32K: %llu], [64K: %llu], [128K: %llu], [>128K: %llu], [others: %llu]\n",
-            atomic_load(&tr->write_io[1]),
-            atomic_load(&tr->write_io[2]),
-            atomic_load(&tr->write_io[3]),
-            atomic_load(&tr->write_io[4]),
-            atomic_load(&tr->write_io[5]),
-            atomic_load(&tr->write_io[6]),
-            atomic_load(&tr->write_io[7]),
-            atomic_load(&tr->write_io[8])
-            );
+static void serialize_blk_tr(struct blk_tr *tr, FILE *file) {
+    // serialize the struct to a binary file
+    size_t f = fwrite(tr, sizeof(struct blk_tr), 1, file);
+    if (f != 1) {
+        perror("fwrite");
+    }
+}
 
-    printf("Queue length: %llu\n", atomic_load(&tr->queue_length));
-
+static void deserialize_blk_tr(struct blk_tr *tr, FILE *file) {
+    // deserialize the struct from a binary file
+    size_t t = fread(tr, sizeof(struct blk_tr), 1, file);
+    if (t != 1) {
+        perror("fread");
+    }
 }
 
 #endif
@@ -135,4 +137,7 @@ static void print_tr(struct nvmetcp_tr* tr){
 
 
 
-#endif // _NVMETCP_TR_H
+
+
+
+
