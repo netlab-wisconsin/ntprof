@@ -17,17 +17,20 @@ struct _blk_tr {
     atomic64_t write_io[9];
 
     /** just once */
-    atomic64_t queue_length;
+    atomic64_t pending_rq;
 };
-#define _LT_4K 0
-#define _4K 1
-#define _8K 2
-#define _16K 3
-#define _32K 4
-#define _64K 5
-#define _128K 6
-#define _GT_128K 7
-#define _OTHERS 8
+
+enum SIZE_TYPE {
+    _LT_4K,
+    _4K,
+    _8K,
+    _16K,
+    _32K,
+    _64K,
+    _128K,
+    _GT_128K,
+    _OTHERS
+};
 
 static void _init_blk_tr(struct _blk_tr *tr) {
     atomic64_set(&tr->read_count, 0);
@@ -37,7 +40,7 @@ static void _init_blk_tr(struct _blk_tr *tr) {
         atomic64_set(&tr->read_io[i], 0);
         atomic64_set(&tr->write_io[i], 0);
     }
-    atomic64_set(&tr->queue_length, 0);
+    atomic64_set(&tr->pending_rq, 0);
 }
 
 #endif
@@ -54,8 +57,7 @@ struct blk_tr {
     unsigned long long read_io[9];
     unsigned long long write_io[9];
 
-    /** just once */
-    unsigned long long queue_length;
+    unsigned long long pending_rq;
 };
 
 #ifdef __KERNEL__
@@ -70,7 +72,7 @@ static void copy_blk_tr(struct blk_tr *dst, struct _blk_tr *src) {
         dst->read_io[i] = atomic64_read(&src->read_io[i]);
         dst->write_io[i] = atomic64_read(&src->write_io[i]);
     }
-    dst->queue_length = atomic64_read(&src->queue_length);
+    // dst->queue_length = atomic64_read(&src->queue_length);
     // spin_unlock(&dst->lock);
 }
 
@@ -83,7 +85,7 @@ static void init_blk_tr(struct blk_tr *tr) {
         tr->read_io[i] = 0;
         tr->write_io[i] = 0;
     }
-    tr->queue_length = 0;
+    tr->pending_rq = 0;
 }
 
 #else
@@ -91,7 +93,6 @@ static void init_blk_tr(struct blk_tr *tr) {
 static void pr_blk_tr(struct blk_tr *tr) {
     char *dis_header[9] = {"<4KB", "4KB", "8KB", "16KB", "32KB", "64KB", "128KB", ">128KB", "others"};
     // spin_lock(&tr->lock);
-    printf("blk_tr report>>>>>>>>>>>>>>>>>\n");
     printf("read total: %llu\n", tr->read_count);
     printf("read cnt");
     int i;
@@ -112,6 +113,7 @@ static void pr_blk_tr(struct blk_tr *tr) {
         printf(", [%s: %.2f]", dis_header[i], (float)tr->write_io[i] / tr->write_count);
     }
     printf("\n");
+    printf("pending_rq: %llu\n", tr->pending_rq);
     // spin_unlock(&tr->lock);
 }
 
