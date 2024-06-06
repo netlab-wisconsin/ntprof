@@ -32,75 +32,111 @@ void arg_device_name(int argc, char **argv) {
   }
 }
 
-void print(struct blk_tr *tr_data) {
+void print(struct blk_stat *tr_data) {
   printf("\033[H\033[J");
   printf("device_name: %s\n", device_name);
   pr_blk_tr(tr_data);
 }
 
 int main(int argc, char **argv) {
-  // read the parameter
-  // there are named argment, for example, the user will input -d nvme0n1
-  // the parameter will be stored in device_name
-  // the device_name is used to filter the device name
-  // if the device name is not the same as the device name in the request, the
-  // request will be ignored
-
-  // start dealing with the parameter
-
   arg_device_name(argc, argv);
 
-  // pass the device name to the kernel module
-
-  int control_fd, mmap_fd, param_fd;
-  struct blk_tr *tr_data;
+  int control_fd, raw_blk_stat_fd, param_fd, sample_10s_fd, sample_2s_fd;
+  struct blk_stat *raw_blk_stat;
+  struct blk_stat *blk_stat_10s;
+  struct blk_stat *blk_stat_2s;
 
   signal(SIGINT, int_handler);
 
-  mmap_fd = open("/proc/nvmetcp_monitor_data", O_RDONLY);
-  if (mmap_fd == -1) {
+  /** map the raw_blk_stat*/
+  raw_blk_stat_fd = open("/proc/ntm_raw_blk_stat", O_RDONLY);
+  if (raw_blk_stat_fd == -1) {
     perror("open");
     exit(EXIT_FAILURE);
   }
 
-  tr_data =
-      mmap(NULL, sizeof(struct blk_tr), PROT_READ, MAP_SHARED, mmap_fd, 0);
-  if (tr_data == MAP_FAILED) {
+  raw_blk_stat =
+      mmap(NULL, sizeof(struct blk_stat), PROT_READ, MAP_SHARED, raw_blk_stat_fd, 0);
+  if (raw_blk_stat == MAP_FAILED) {
     perror("mmap");
-    close(mmap_fd);
+    close(raw_blk_stat_fd);
     exit(EXIT_FAILURE);
   }
 
-  param_fd = open("/proc/nvmetcp_monitor_params", O_WRONLY);
+  /** map the blk_stat_10s and blk_stat_2s */
+  sample_10s_fd = open("/proc/ntm_sample_10s", O_RDONLY);
+  if (sample_10s_fd == -1) {
+    perror("open");
+    munmap(raw_blk_stat, sizeof(struct blk_stat));
+    close(sample_10s_fd);
+    exit(EXIT_FAILURE);
+  }
+
+  blk_stat_10s =
+      mmap(NULL, sizeof(struct blk_stat), PROT_READ, MAP_SHARED, sample_10s_fd, 0);
+  if (blk_stat_10s == MAP_FAILED) {
+    perror("mmap");
+    munmap(raw_blk_stat, sizeof(struct blk_stat));
+    close(sample_10s_fd);
+    exit(EXIT_FAILURE);
+  }
+
+  sample_2s_fd = open("/proc/ntm_sample_2s", O_RDONLY);
+  if (sample_2s_fd == -1) {
+    perror("open");
+    munmap(raw_blk_stat, sizeof(struct blk_stat));
+    munmap(blk_stat_10s, sizeof(struct blk_stat));
+    close(sample_2s_fd);
+    exit(EXIT_FAILURE);
+  }
+
+  blk_stat_2s =
+      mmap(NULL, sizeof(struct blk_stat), PROT_READ, MAP_SHARED, sample_2s_fd, 0);
+  if (blk_stat_2s == MAP_FAILED) {
+    perror("mmap");
+    munmap(raw_blk_stat, sizeof(struct blk_stat));
+    munmap(blk_stat_10s, sizeof(struct blk_stat));
+    close(sample_2s_fd);
+    exit(EXIT_FAILURE);
+  }
+
+  /** map parameters*/
+  param_fd = open("/proc/ntm_params", O_WRONLY);
   if (param_fd == -1) {
     perror("open");
-    munmap(tr_data, sizeof(struct blk_tr));
-    close(mmap_fd);
+    munmap(raw_blk_stat, sizeof(struct blk_stat));
+    close(raw_blk_stat_fd);
     exit(EXIT_FAILURE);
   }
   write(param_fd, device_name, strlen(device_name));
   close(param_fd);
 
-  control_fd = open("/proc/nvmetcp_monitor_ctrl", O_WRONLY);
+  /** send control command = 1, start recording */
+  control_fd = open("/proc/ntm_ctrl", O_WRONLY);
   if (control_fd == -1) {
     perror("open");
-    munmap(tr_data, sizeof(struct blk_tr));
-    close(mmap_fd);
+    munmap(raw_blk_stat, sizeof(struct blk_stat));
+    close(control_fd);
     exit(EXIT_FAILURE);
   }
   write(control_fd, "1", 1);
   close(control_fd);
 
   while (keep_running) {
-    print(tr_data);
+    print(raw_blk_stat);
     sleep(1);
   }
 
-  control_fd = open("/proc/nvmetcp_monitor_ctrl", O_WRONLY);
+  /** send control command = 0, stop recording */
+  control_fd = open("/proc/ntm_ctrl", O_WRONLY);
   if (control_fd == -1) {
     perror("open");
-    munmap(tr_data, sizeof(struct blk_tr));
-    close(mmap_fd);
+    munmap(raw_blk_stat, sizeof(struct blk_stat));
+    munmap(blk_stat_10s, sizeof(struct blk_stat));
+    munmap(blk_stat_2s, sizeof(struct blk_stat));
+    close(raw_blk_stat_fd);
+    close(sample_10s_fd);
+    close(sample_2s_fd);
     exit(EXIT_FAILURE);
   }
   write(control_fd, "0", 1);
@@ -118,8 +154,8 @@ int main(int argc, char **argv) {
 
   printf("Data saved to nvmetcp_monitor.data\n");
 
-  munmap(tr_data, sizeof(struct blk_tr));
-  close(mmap_fd);
+  munmap(raw_blk_stat, sizeof(struct blk_stat));
+  close(raw_blk_stat_fd);
 
   return 0;
 }

@@ -1,10 +1,13 @@
 #include <linux/types.h>
 #include <linux/atomic.h>
 #include <linux/spinlock.h>
+#include <linux/list.h>
+#include <linux/blk_types.h>
+#include <linux/ktime.h>
 
 #include "nvmetcp_monitor_com.h"
 
-struct _blk_tr {
+struct _blk_stat {
     /** every io */
     atomic64_t read_count;
     atomic64_t write_count;
@@ -29,7 +32,30 @@ enum SIZE_TYPE {
     _OTHERS
 };
 
-static void _init_blk_tr(struct _blk_tr *tr) {
+/** sliding window on time */
+struct sliding_window {
+  /** a lock free linked list of <timestamp, request> */
+  struct list_head list;
+  /** count */
+  atomic64_t count;
+  spinlock_t lock;
+};
+
+struct bio_info {
+    struct list_head list;
+    u64 ts;
+    u64 size;
+    u64 pos;
+};
+
+static void extract_bio_info(struct bio_info *info, struct bio *bio) {
+    info->ts = ktime_get_ns();
+    info->size = bio->bi_iter.bi_size;
+    info->pos = bio->bi_iter.bi_sector;
+}
+
+
+static void _init_blk_tr(struct _blk_stat *tr) {
     atomic64_set(&tr->read_count, 0);
     atomic64_set(&tr->write_count, 0);
     int i;
@@ -40,7 +66,7 @@ static void _init_blk_tr(struct _blk_tr *tr) {
     atomic64_set(&tr->pending_rq, 0);
 }
 
-static void copy_blk_tr(struct blk_tr *dst, struct _blk_tr *src) {
+static void copy_blk_stat(struct blk_stat *dst, struct _blk_stat *src) {
     // spin_lock(&dst->lock);
     // read atomic data
     dst->read_count = atomic64_read(&src->read_count);
@@ -54,7 +80,7 @@ static void copy_blk_tr(struct blk_tr *dst, struct _blk_tr *src) {
     // spin_unlock(&dst->lock);
 }
 
-static void init_blk_tr(struct blk_tr *tr) {
+static void init_blk_tr(struct blk_stat *tr) {
     // spin_lock_init(&tr->lock);
     tr->read_count = 0;
     tr->write_count = 0;
@@ -64,4 +90,10 @@ static void init_blk_tr(struct blk_tr *tr) {
         tr->write_io[i] = 0;
     }
     tr->pending_rq = 0;
+}
+
+static void init_sliding_window(struct sliding_window *sw) {
+    INIT_LIST_HEAD(&sw->list);
+    atomic64_set(&sw->count, 0);
+    spin_lock_init(&sw->lock);
 }

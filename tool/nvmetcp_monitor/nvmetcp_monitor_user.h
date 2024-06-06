@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include "nvmetcp_monitor_com.h"
 
-static void pr_blk_tr(struct blk_tr *tr) {
+static void pr_blk_tr(struct blk_stat *tr) {
     char *dis_header[9] = {"<4KB", "4KB", "8KB", "16KB", "32KB", "64KB", "128KB", ">128KB", "others"};
     // spin_lock(&tr->lock);
     printf("read total: %llu\n", tr->read_count);
@@ -28,17 +28,17 @@ static void pr_blk_tr(struct blk_tr *tr) {
     // spin_unlock(&tr->lock);
 }
 
-static void serialize_blk_tr(struct blk_tr *tr, FILE *file) {
+static void serialize_blk_tr(struct blk_stat *tr, FILE *file) {
     // serialize the struct to a binary file
-    size_t f = fwrite(tr, sizeof(struct blk_tr), 1, file);
+    size_t f = fwrite(tr, sizeof(struct blk_stat), 1, file);
     if (f != 1) {
         perror("fwrite");
     }
 }
 
-static void deserialize_blk_tr(struct blk_tr *tr, FILE *file) {
+static void deserialize_blk_tr(struct blk_stat *tr, FILE *file) {
     // deserialize the struct from a binary file
-    size_t t = fread(tr, sizeof(struct blk_tr), 1, file);
+    size_t t = fread(tr, sizeof(struct blk_stat), 1, file);
     if (t != 1) {
         perror("fread");
     }

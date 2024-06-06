@@ -1,4 +1,4 @@
-struct blk_tr {
+struct blk_stat {
     /** mutex */
     // spinlock_t lock;
 
