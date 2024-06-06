@@ -8,7 +8,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#include "nvmetcp_monitor.h"
+#include "nvmetcp_monitor_user.h"
 
 #define BUFFER_SIZE PAGE_SIZE
 
