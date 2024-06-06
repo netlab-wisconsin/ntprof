@@ -1,5 +1,4 @@
-#include "nvmetcp_monitor_kernel.h"
-
+#include <linux/bio.h>
 #include <linux/blk-mq.h>
 #include <linux/blkdev.h>
 #include <linux/delay.h>
@@ -16,6 +15,11 @@
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
 #include <trace/events/block.h>
+#include <linux/random.h>
+
+#include "nvmetcp_monitor_kernel.h"
+
+#define SAMPLE_RATE 0.001
 
 static struct _blk_stat *_raw_blk_stat;
 static struct blk_stat *raw_blk_stat;
@@ -62,6 +66,12 @@ struct request_queue *device_name_to_queue(const char *dev_name) {
 
   blkdev_put(bdev, FMODE_READ);
   return q;
+}
+
+static bool to_sample(void){
+    unsigned int rand;
+    get_random_bytes(&rand, sizeof(rand));
+    return rand < SAMPLE_RATE * UINT_MAX;
 }
 
 unsigned int get_pending_requests(struct request_queue *q) {
@@ -133,6 +143,16 @@ void on_block_bio_queue(void *data, struct bio *bio) {
           atomic64_inc(&arr[_OTHERS]);
         }
     }
+
+    if(to_sample()){
+      struct bio_info *info = kmalloc(sizeof(*info), GFP_KERNEL);
+      if (!info) {
+        pr_err("Failed to allocate memory for bio_info\n");
+        return;
+      }
+      extract_bio_info(info, bio);
+      insert_sw(sw, info);
+    }
   }
 }
 
@@ -162,6 +182,10 @@ static int update_routine_fn(void *data) {
     //     tr_data->pending_rq = get_pending_requests(q);
     //   }
     // }
+    u64 now = ktime_get_ns();
+    sw_remove_old(sw, now - 10 * NSEC_PER_SEC);
+    sw_all_to_blk_stat(sw, sample_10s);
+    sw_to_blk_stat(sw, sample_2s, now - 2 * NSEC_PER_SEC);
     msleep(1000);  // Sleep for 1 second
   }
   pr_info("update_routine_thread exiting\n");
@@ -361,7 +385,7 @@ int init_proc_entries(void) {
     return -ENOMEM;
   }
 
-  entry_sample_10s = proc_create("ntm_sample_10s", 0666, NULL, &nvmetcp_monitor_raw_blk_stat_ops);
+  entry_sample_10s = proc_create("ntm_sample_10s", 0666, NULL, &nvmetcp_monitor_sample_10s_ops);
   if (!entry_sample_10s) {
     pr_err("Failed to create proc entry for sample_10s\n");
     remove_proc_entry("ntm_params", NULL);
@@ -372,7 +396,7 @@ int init_proc_entries(void) {
     return -ENOMEM;
   }
 
-  entry_sample_2s = proc_create("ntm_sample_2s", 0666, NULL, &nvmetcp_monitor_raw_blk_stat_ops);
+  entry_sample_2s = proc_create("ntm_sample_2s", 0666, NULL, &nvmetcp_monitor_sample_2s_ops);
   if (!entry_sample_2s) {
     pr_err("Failed to create proc entry for sample_2s\n");
     remove_proc_entry("ntm_sample_10s", NULL);

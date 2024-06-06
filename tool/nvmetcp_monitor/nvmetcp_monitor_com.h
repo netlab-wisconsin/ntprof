@@ -12,3 +12,14 @@ struct blk_stat {
 
     unsigned long long pending_rq;
 };
+
+static void clean_blk_stat(struct blk_stat *tr) {
+    tr->read_count = 0;
+    tr->write_count = 0;
+    int i;
+    for (i = 0; i < 9; i++) {
+        tr->read_io[i] = 0;
+        tr->write_io[i] = 0;
+    }
+    tr->pending_rq = 0;
+}

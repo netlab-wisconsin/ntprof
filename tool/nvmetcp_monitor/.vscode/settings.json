@@ -1,0 +1,8 @@
+{
+  "files.associations": {
+    "bio.h": "c",
+    "kdev_t.h": "c",
+    "delay.h": "c",
+    "blk-mq.h": "c"
+  }
+}

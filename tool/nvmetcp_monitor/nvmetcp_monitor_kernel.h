@@ -46,11 +46,13 @@ struct bio_info {
     u64 ts;
     u64 size;
     u64 pos;
+    bool type;
 };
 
 static void extract_bio_info(struct bio_info *info, struct bio *bio) {
     info->ts = ktime_get_ns();
     info->size = bio->bi_iter.bi_size;
+    info->type = bio_data_dir(bio);
     info->pos = bio->bi_iter.bi_sector;
 }
 
@@ -96,4 +98,100 @@ static void init_sliding_window(struct sliding_window *sw) {
     INIT_LIST_HEAD(&sw->list);
     atomic64_set(&sw->count, 0);
     spin_lock_init(&sw->lock);
+}
+
+static void sw_all_to_blk_stat(struct sliding_window *sw, struct blk_stat *tr) {
+    clean_blk_stat(tr);
+    struct bio_info *info;
+    struct list_head *pos, *q;
+    
+    list_for_each_safe(pos, q, &sw->list) {
+        info = list_entry(pos, struct bio_info, list);
+        unsigned long long* cnt = info->type ? &tr->write_count : &tr->read_count;
+        unsigned long long* io = info->type ? tr->write_io : tr->read_io;
+        (*cnt)++;
+        if (info->size < 4096) {
+            io[_LT_4K]++;
+        } else if (info->size == 4096) {
+            io[_4K]++;
+        } else if (info->size == 8192) {
+            io[_8K]++;
+        } else if (info->size == 16384) {
+            io[_16K]++;
+        } else if (info->size == 32768) {
+            io[_32K]++;
+        } else if (info->size == 65536) {
+            io[_64K]++;
+        } else if (info->size == 131072) {
+            io[_128K]++;
+        } else if (info->size > 131072) {
+            io[_GT_128K]++;
+        } else {
+            io[_OTHERS]++;
+        }
+    }
+}
+
+static void sw_to_blk_stat(struct sliding_window *sw, struct blk_stat *tr, u64 expire) {
+    clean_blk_stat(tr);
+    struct bio_info *info;
+    struct list_head *pos, *q;
+    
+    // traverse the list in reverse order
+    list_for_each_prev_safe(pos, q, &sw->list) {
+        info = list_entry(pos, struct bio_info, list);
+        if (info->ts < expire) {
+            break;
+        }
+        unsigned long long* cnt = info->type ? &tr->write_count : &tr->read_count;
+        unsigned long long* io = info->type ? tr->write_io : tr->read_io;
+        (*cnt)++;
+        if (info->size < 4096) {
+            io[_LT_4K]++;
+        } else if (info->size == 4096) {
+            io[_4K]++;
+        } else if (info->size == 8192) {
+            io[_8K]++;
+        } else if (info->size == 16384) {
+            io[_16K]++;
+        } else if (info->size == 32768) {
+            io[_32K]++;
+        } else if (info->size == 65536) {
+            io[_64K]++;
+        } else if (info->size == 131072) {
+            io[_128K]++;
+        } else if (info->size > 131072) {
+            io[_GT_128K]++;
+        } else {
+            io[_OTHERS]++;
+        }
+    }
+}
+
+static void insert_sw(struct sliding_window *sw, struct bio_info *info) {
+    /** add the info to the tail of linked list */
+    spin_lock(&sw->lock);
+    list_add_tail(&info->list, &sw->list);
+    atomic64_inc(&sw->count);
+    spin_unlock(&sw->lock);
+}
+
+static u64 sw_remove_old(struct sliding_window *sw, u64 expire_ts){
+    struct bio_info *info;
+    struct list_head *pos, *q;
+    u64 cnt = 0;
+    spin_lock(&sw->lock);
+    list_for_each_safe(pos, q, &sw->list) {
+        info = list_entry(pos, struct bio_info, list);
+        if (info->ts < expire_ts) {
+            list_del(pos);
+            atomic64_dec(&sw->count);
+            kfree(info);
+            cnt++;
+        } else {
+            break;
+        }
+    }
+    spin_unlock(&sw->lock);
+    return cnt;
 }

@@ -7,6 +7,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <stdbool.h>
 
 #include "nvmetcp_monitor_user.h"
 
@@ -32,8 +33,10 @@ void arg_device_name(int argc, char **argv) {
   }
 }
 
-void print(struct blk_stat *tr_data) {
-  printf("\033[H\033[J");
+void print(struct blk_stat *tr_data, bool clear, char* header ) {
+  if(clear)
+    printf("\033[H\033[J");
+  printf("header: %s\n", header);
   printf("device_name: %s\n", device_name);
   pr_blk_tr(tr_data);
 }
@@ -123,7 +126,9 @@ int main(int argc, char **argv) {
   close(control_fd);
 
   while (keep_running) {
-    print(raw_blk_stat);
+    print(raw_blk_stat, true, "RAW BLK STAT");
+    print(blk_stat_10s, false, "LAST 10s");
+    print(blk_stat_2s, false, "LAST 2s");
     sleep(1);
   }
 

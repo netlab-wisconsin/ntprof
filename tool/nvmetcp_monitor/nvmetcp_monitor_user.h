@@ -23,8 +23,8 @@ static void pr_blk_tr(struct blk_stat *tr) {
     for (i = 0; i < 9; i++) {
         printf(", [%s: %.2f]", dis_header[i], (float)tr->write_io[i] / tr->write_count);
     }
-    printf("\n");
-    printf("pending_rq: %llu\n", tr->pending_rq);
+    printf("\n\n");
+    // printf("pending_rq: %llu\n", tr->pending_rq);
     // spin_unlock(&tr->lock);
 }
 
