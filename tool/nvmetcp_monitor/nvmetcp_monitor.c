@@ -14,8 +14,9 @@
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
 #include <trace/events/block.h>
-#include <linux/blk-mq.h>
 #include <linux/device.h>
+#include <linux/blk-mq.h>
+
 
 #define BUFFER_SIZE PAGE_SIZE
 
@@ -68,7 +69,6 @@ struct request_queue *get_request_queue_by_name(const char *dev_name)
     return q;
 }
 
-
 unsigned int get_pending_requests(struct request_queue *q) {
   // struct blk_mq_hw_ctx *hctx;
   // unsigned long i;
@@ -81,20 +81,24 @@ unsigned int get_pending_requests(struct request_queue *q) {
   // }
 
   // return pending_requests;
-  return atomic64_read(&q->pending_rq);
+  // struct block_device * bdev = q->disk->part0;
+  // if (queue_is_mq(q))
+	// 	return blk_mq_in_flight(q, q->disk->part0);
+
+  return 0;
 }
 
-void nvmetcp_monitor_trace_func(void *data, struct request *rq) {
+void nvmetcp_monitor_trace_func(void *data, struct bio *bio) {
   if (record_enabled) {
     atomic64_t *arr = NULL;
-    unsigned int size = blk_rq_bytes(rq);
-    const char *rq_disk_name = rq->q->disk->disk_name;
+    unsigned int size = bio->bi_iter.bi_size;
+    const char *rq_disk_name = bio->bi_bdev->bd_disk->disk_name;
 
     if (strcmp(device_name, rq_disk_name) != 0) {
       return;
     }
 
-    if (rq_data_dir(rq) == READ) {
+    if (bio_data_dir(bio) == READ) {
       arr = _tr_data->read_io;
       atomic64_inc(&_tr_data->read_count);
     } else {
@@ -139,6 +143,25 @@ void nvmetcp_monitor_trace_func(void *data, struct request *rq) {
     // unsigned long long v = atomic64_read(&rq->q->pending_rq);
     // pr_info("pending requests: %llu\n", v);
   }
+}
+
+void blk_add_trace_rq_insert_(void *ignore, struct request *rq){
+  return;
+}
+
+static void blk_register_tracepoints(void)
+{
+    int ret;
+    ret = register_trace_block_bio_queue(nvmetcp_monitor_trace_func, NULL);
+    WARN_ON(ret);
+    // ret = register_trace_block_rq_insert(blk_add_trace_rq_insert_, NULL);
+    // WARN_ON(ret);
+}
+
+static void blk_unregister_tracepoints(void)
+{
+    unregister_trace_block_bio_queue(nvmetcp_monitor_trace_func, NULL);
+    // unregister_trace_block_rq_insert(blk_add_trace_rq_insert_, NULL);
 }
 
 static int monitor_copy_thread_fn(void *data) {
@@ -257,20 +280,13 @@ static int __init nvmetcp_monitor_init(void) {
 
   init_blk_tr(tr_data);
 
-  ret = tracepoint_probe_register(&__tracepoint_block_rq_insert,
-                                  nvmetcp_monitor_trace_func, NULL);
-  if (ret) {
-    pr_err("Failed to register tracepoint\n");
-    vfree(tr_data);
-    return ret;
-  }
+  blk_register_tracepoints();
 
   entry_ctrl = proc_create("nvmetcp_monitor_ctrl", 0666, NULL,
                            &nvmetcp_monitor_ctrl_ops);
   if (!entry_ctrl) {
     pr_err("Failed to create proc entry for control\n");
-    tracepoint_probe_unregister(&__tracepoint_block_rq_insert,
-                                nvmetcp_monitor_trace_func, NULL);
+    blk_unregister_tracepoints();
     vfree(tr_data);
     return -ENOMEM;
   }
@@ -280,8 +296,7 @@ static int __init nvmetcp_monitor_init(void) {
   if (!entry_data) {
     pr_err("Failed to create proc entry for data\n");
     remove_proc_entry("nvmetcp_monitor_ctrl", NULL);
-    tracepoint_probe_unregister(&__tracepoint_block_rq_insert,
-                                nvmetcp_monitor_trace_func, NULL);
+    blk_unregister_tracepoints();
     vfree(tr_data);
     return -ENOMEM;
   }
@@ -292,8 +307,7 @@ static int __init nvmetcp_monitor_init(void) {
     pr_err("Failed to create proc entry for params\n");
     remove_proc_entry("nvmetcp_monitor_data", NULL);
     remove_proc_entry("nvmetcp_monitor_ctrl", NULL);
-    tracepoint_probe_unregister(&__tracepoint_block_rq_insert,
-                                nvmetcp_monitor_trace_func, NULL);
+    blk_unregister_tracepoints();
     vfree(tr_data);
     return -ENOMEM;
   }
@@ -310,8 +324,7 @@ static void __exit nvmetcp_monitor_exit(void) {
   remove_proc_entry("nvmetcp_monitor_data", NULL);
   remove_proc_entry("nvmetcp_monitor_ctrl", NULL);
   remove_proc_entry("nvmetcp_monitor_params", NULL);
-  tracepoint_probe_unregister(&__tracepoint_block_rq_insert,
-                              nvmetcp_monitor_trace_func, NULL);
+  blk_unregister_tracepoints();
   vfree(tr_data);
   vfree(_tr_data);
   pr_info("nvmetcp_monitor module unloaded\n");
