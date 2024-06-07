@@ -3,6 +3,12 @@
     "bio.h": "c",
     "kdev_t.h": "c",
     "delay.h": "c",
-    "blk-mq.h": "c"
+    "blk-mq.h": "c",
+    "ntm_kernel.h": "c",
+    "stdio.h": "c",
+    "blk_layer_user.h": "c",
+    "mman.h": "c",
+    "ntm_com.h": "c",
+    "signal.h": "c"
   }
 }

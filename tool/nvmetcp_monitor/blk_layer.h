@@ -10,14 +10,15 @@
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/proc_fs.h>
+#include <linux/random.h>
 #include <linux/slab.h>
 #include <linux/tracepoint.h>
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
 #include <trace/events/block.h>
-#include <linux/random.h>
+#include <trace/events/nvme_tcp.h>
 
-#include "nvmetcp_monitor_kernel.h"
+#include "ntm_kernel.h"
 
 #define SAMPLE_RATE 0.001
 
@@ -37,6 +38,7 @@ static struct task_struct *update_routine_thread;
 /**
  * communication entries
  */
+struct proc_dir_entry *parent_dir;
 struct proc_dir_entry *entry_ctrl;
 struct proc_dir_entry *entry_raw_blk_stat;
 struct proc_dir_entry *entry_params;
@@ -68,30 +70,13 @@ struct request_queue *device_name_to_queue(const char *dev_name) {
   return q;
 }
 
-static bool to_sample(void){
-    unsigned int rand;
-    get_random_bytes(&rand, sizeof(rand));
-    return rand < SAMPLE_RATE * UINT_MAX;
+static bool to_sample(void) {
+  unsigned int rand;
+  get_random_bytes(&rand, sizeof(rand));
+  return rand < SAMPLE_RATE * UINT_MAX;
 }
 
-unsigned int get_pending_requests(struct request_queue *q) {
-  // struct blk_mq_hw_ctx *hctx;
-  // unsigned long i;
-  // unsigned int pending_requests = 0;
-
-  // queue_for_each_hw_ctx(q, hctx, i) {
-  //   spin_lock(&hctx->lock);
-  //   pending_requests += hctx->dispatch_busy;
-  //   spin_unlock(&hctx->lock);
-  // }
-
-  // return pending_requests;
-  // struct block_device * bdev = q->disk->part0;
-  // if (queue_is_mq(q))
-  // 	return blk_mq_in_flight(q, q->disk->part0);
-
-  return 0;
-}
+unsigned int get_pending_requests(struct request_queue *q) { return 0; }
 
 void on_block_bio_queue(void *data, struct bio *bio) {
   if (record_enabled) {
@@ -144,7 +129,7 @@ void on_block_bio_queue(void *data, struct bio *bio) {
         }
     }
 
-    if(to_sample()){
+    if (to_sample()) {
       struct bio_info *info = kmalloc(sizeof(*info), GFP_KERNEL);
       if (!info) {
         pr_err("Failed to allocate memory for bio_info\n");
@@ -176,12 +161,14 @@ static void blk_unregister_tracepoints(void) {
 static int update_routine_fn(void *data) {
   while (!kthread_should_stop()) {
     copy_blk_stat(raw_blk_stat, _raw_blk_stat);
-    // if (device_name[0] != '\0') {
-    //   struct request_queue *q = device_name_to_queue(device_name);
-    //   if (q) {
-    //     tr_data->pending_rq = get_pending_requests(q);
-    //   }
-    // }
+    if (device_name[0] != '\0') {
+      struct request_queue *q = device_name_to_queue(device_name);
+      struct blk_mq_hw_ctx *hctx;
+      unsigned int i;
+      queue_for_each_hw_ctx(q, hctx, i) {
+        pr_info("nr_io : %d\n", hctx->nr_active);
+      }
+    }
     u64 now = ktime_get_ns();
     sw_remove_old(sw, now - 10 * NSEC_PER_SEC);
     sw_all_to_blk_stat(sw, sample_10s);
@@ -241,7 +228,7 @@ static ssize_t proc_ctrl_write(struct file *file, const char __user *buffer,
   return count;
 }
 
-static const struct proc_ops nvmetcp_monitor_ctrl_ops = {
+static const struct proc_ops ntm_ctrl_ops = {
     .proc_read = proc_ctrl_read,
     .proc_write = proc_ctrl_write,
 };
@@ -250,9 +237,8 @@ static const struct proc_ops nvmetcp_monitor_ctrl_ops = {
  * ---------------------- params command ----------------------
  */
 
-static ssize_t nvmetcp_monitor_params_write(struct file *file,
-                                            const char __user *buffer,
-                                            size_t count, loff_t *pos) {
+static ssize_t ntm_params_write(struct file *file, const char __user *buffer,
+                                size_t count, loff_t *pos) {
   char buf[32];
   if (count > sizeof(buf) - 1) return -EINVAL;
   if (copy_from_user(buf, buffer, count)) return -EFAULT;
@@ -268,8 +254,8 @@ static ssize_t nvmetcp_monitor_params_write(struct file *file,
   return count;
 }
 
-static const struct proc_ops nvmetcp_monitor_params_ops = {
-    .proc_write = nvmetcp_monitor_params_write,
+static const struct proc_ops ntm_params_ops = {
+    .proc_write = ntm_params_write,
 };
 
 /**
@@ -283,7 +269,7 @@ static int mmap_raw_blk_stat(struct file *filp, struct vm_area_struct *vma) {
   return 0;
 }
 
-static const struct proc_ops nvmetcp_monitor_raw_blk_stat_ops = {
+static const struct proc_ops ntm_raw_blk_stat_ops = {
     .proc_mmap = mmap_raw_blk_stat,
 };
 
@@ -297,7 +283,7 @@ static int mmap_sample_10s(struct file *filp, struct vm_area_struct *vma) {
   return 0;
 }
 
-static const struct proc_ops nvmetcp_monitor_sample_10s_ops = {
+static const struct proc_ops ntm_sample_10s_ops = {
     .proc_mmap = mmap_sample_10s,
 };
 
@@ -312,7 +298,7 @@ static int mmap_sample_2s(struct file *filp, struct vm_area_struct *vma) {
   return 0;
 }
 
-static const struct proc_ops nvmetcp_monitor_sample_2s_ops = {
+static const struct proc_ops ntm_sample_2s_ops = {
     .proc_mmap = mmap_sample_2s,
 };
 
@@ -346,7 +332,7 @@ int init_variables(void) {
   return 0;
 }
 
-int clean_variables(void){
+int clean_variables(void) {
   vfree(_raw_blk_stat);
   vfree(raw_blk_stat);
   vfree(sw);
@@ -356,53 +342,65 @@ int clean_variables(void){
 }
 
 int init_proc_entries(void) {
-  entry_ctrl = proc_create("ntm_ctrl", 0666, NULL, &nvmetcp_monitor_ctrl_ops);
+  parent_dir = proc_mkdir("ntm", NULL);
+  if (!parent_dir) {
+    pr_err("Failed to create /proc/ntm directory\n");
+    return -ENOMEM;
+  }
+
+  entry_ctrl = proc_create("ntm_ctrl", 0666, parent_dir, &ntm_ctrl_ops);
   if (!entry_ctrl) {
     pr_err("Failed to create proc entry for control\n");
+    remove_proc_entry("ntm", NULL);
     blk_unregister_tracepoints();
     vfree(raw_blk_stat);
     return -ENOMEM;
   }
 
-  entry_raw_blk_stat = proc_create("ntm_raw_blk_stat", 0666, NULL,
-                                   &nvmetcp_monitor_raw_blk_stat_ops);
+  entry_raw_blk_stat =
+      proc_create("ntm_raw_blk_stat", 0666, parent_dir, &ntm_raw_blk_stat_ops);
   if (!entry_raw_blk_stat) {
     pr_err("Failed to create proc entry for data\n");
-    remove_proc_entry("ntm_ctrl", NULL);
+    remove_proc_entry("ntm_ctrl", parent_dir);
+    remove_proc_entry("ntm", NULL);
     blk_unregister_tracepoints();
     vfree(raw_blk_stat);
     return -ENOMEM;
   }
 
-  entry_params =
-      proc_create("ntm_params", 0666, NULL, &nvmetcp_monitor_params_ops);
+  entry_params = proc_create("ntm_params", 0666, parent_dir, &ntm_params_ops);
   if (!entry_params) {
     pr_err("Failed to create proc entry for params\n");
-    remove_proc_entry("ntm_raw_blk_stat", NULL);
-    remove_proc_entry("ntm_ctrl", NULL);
+    remove_proc_entry("ntm_raw_blk_stat", parent_dir);
+    remove_proc_entry("ntm_ctrl", parent_dir);
+    remove_proc_entry("ntm", NULL);
     blk_unregister_tracepoints();
     vfree(raw_blk_stat);
     return -ENOMEM;
   }
 
-  entry_sample_10s = proc_create("ntm_sample_10s", 0666, NULL, &nvmetcp_monitor_sample_10s_ops);
+  entry_sample_10s =
+      proc_create("ntm_sample_10s", 0666, parent_dir, &ntm_sample_10s_ops);
   if (!entry_sample_10s) {
     pr_err("Failed to create proc entry for sample_10s\n");
-    remove_proc_entry("ntm_params", NULL);
-    remove_proc_entry("ntm_raw_blk_stat", NULL);
-    remove_proc_entry("ntm_ctrl", NULL);
+    remove_proc_entry("ntm_params", parent_dir);
+    remove_proc_entry("ntm_raw_blk_stat", parent_dir);
+    remove_proc_entry("ntm_ctrl", parent_dir);
+    remove_proc_entry("ntm", NULL);
     blk_unregister_tracepoints();
     vfree(raw_blk_stat);
     return -ENOMEM;
   }
 
-  entry_sample_2s = proc_create("ntm_sample_2s", 0666, NULL, &nvmetcp_monitor_sample_2s_ops);
+  entry_sample_2s =
+      proc_create("ntm_sample_2s", 0666, parent_dir, &ntm_sample_2s_ops);
   if (!entry_sample_2s) {
     pr_err("Failed to create proc entry for sample_2s\n");
-    remove_proc_entry("ntm_sample_10s", NULL);
-    remove_proc_entry("ntm_params", NULL);
-    remove_proc_entry("ntm_raw_blk_stat", NULL);
-    remove_proc_entry("ntm_ctrl", NULL);
+    remove_proc_entry("ntm_sample_10s", parent_dir);
+    remove_proc_entry("ntm_params", parent_dir);
+    remove_proc_entry("ntm_raw_blk_stat", parent_dir);
+    remove_proc_entry("ntm_ctrl", parent_dir);
+    remove_proc_entry("ntm", NULL);
     blk_unregister_tracepoints();
     vfree(raw_blk_stat);
     return -ENOMEM;
@@ -412,48 +410,37 @@ int init_proc_entries(void) {
 }
 
 static void remove_proc_entries(void) {
-    remove_proc_entry("ntm_raw_blk_stat", NULL);
-    remove_proc_entry("ntm_ctrl", NULL);
-    remove_proc_entry("ntm_params", NULL);
-    remove_proc_entry("ntm_sample_10s", NULL);
-    remove_proc_entry("ntm_sample_2s", NULL);
+  remove_proc_entry("ntm_raw_blk_stat", parent_dir);
+  remove_proc_entry("ntm_ctrl", parent_dir);
+  remove_proc_entry("ntm_params", parent_dir);
+  remove_proc_entry("ntm_sample_10s", parent_dir);
+  remove_proc_entry("ntm_sample_2s", parent_dir);
+  remove_proc_entry("ntm", NULL);
 }
 
-static int __init init_ntm_module(void) {
+static int _init_ntm_blk_layer(void) {
   int ret;
   ret = init_variables();
-  if (ret) 
-    return ret;
+  if (ret) return ret;
   ret = init_proc_entries();
   if (ret) {
     clean_variables();
     return ret;
   }
-    
+
   ret = blk_register_tracepoints();
   if (ret) {
     remove_proc_entries();
     clean_variables();
     return ret;
   }
-  pr_info("nvmetcp_monitor module loaded\n");
+  pr_info("ntm module loaded\n");
   return 0;
 }
 
-static void __exit exit_ntm_module(void) {
-  if (update_routine_thread) {
-    kthread_stop(update_routine_thread);
-  }
-
+static void _exit_ntm_blk_layer(void) {
   remove_proc_entries();
   blk_unregister_tracepoints();
   clean_variables();
-  pr_info("nvmetcp_monitor module unloaded\n");
+  pr_info("ntm module unloaded\n");
 }
-
-module_init(init_ntm_module);
-module_exit(exit_ntm_module);
-
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("yuyuan");
-MODULE_DESCRIPTION("Lightweight NVMeTCP Monitoring Module");
