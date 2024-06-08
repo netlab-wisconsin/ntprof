@@ -1,1 +1,0 @@
-cmd_/users/yuyuan/github/nvme-tcp/tool/nvmetcp_monitor/ntm_kernel.ko := ld -r -m elf_x86_64 -z noexecstack --build-id=sha1  -T scripts/module.lds -o /users/yuyuan/github/nvme-tcp/tool/nvmetcp_monitor/ntm_kernel.ko /users/yuyuan/github/nvme-tcp/tool/nvmetcp_monitor/ntm_kernel.o /users/yuyuan/github/nvme-tcp/tool/nvmetcp_monitor/ntm_kernel.mod.o;  true

@@ -1,1 +1,0 @@
-cmd_/users/yuyuan/github/nvme-tcp/tool/nvmetcp_monitor/Module.symvers := sed 's/\.ko$$/\.o/' /users/yuyuan/github/nvme-tcp/tool/nvmetcp_monitor/modules.order | scripts/mod/modpost -m -a  -o /users/yuyuan/github/nvme-tcp/tool/nvmetcp_monitor/Module.symvers -e -i Module.symvers   -T -
