@@ -1,24 +1,228 @@
+#ifndef _BLK_LAYER_H_
+#define _BLK_LAYER_H_
+
+#include <linux/atomic.h>
 #include <linux/bio.h>
 #include <linux/blk-mq.h>
-#include <linux/blkdev.h>
+#include <linux/blk_types.h>
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/fs.h>
 #include <linux/genhd.h>
 #include <linux/kdev_t.h>
-#include <linux/kthread.h>
+#include <linux/ktime.h>
+#include <linux/list.h>
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/proc_fs.h>
 #include <linux/random.h>
 #include <linux/slab.h>
+#include <linux/spinlock.h>
 #include <linux/tracepoint.h>
+#include <linux/types.h>
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
 #include <trace/events/block.h>
 #include <trace/events/nvme_tcp.h>
 
 #include "ntm_kernel.h"
+
+
+
+/**
+ * blk layer statistics, with atomic variables
+ * This is used for recording raw data in the kernel space
+ */
+struct _blk_stat {
+  /** total number of read io */
+  atomic64_t read_count;
+  /** total number of write io */
+  atomic64_t write_count;
+  /**
+   * read io number of different sizes
+   * the sizs are divided into 9 categories
+   * refers to enum SIZE_TYPE in ntm_com.h
+   */
+  atomic64_t read_io[9];
+  /** write io number of different sizes */
+  atomic64_t write_io[9];
+
+  /** TODO: number of io in-flight */
+  atomic64_t pending_rq;
+};
+
+/**
+ * initialize a _blk_stat structure
+ * set all atomic variables to 0
+ * @param tr: the _blk_stat to be initialized
+ */
+void _init_blk_tr(struct _blk_stat *tr) {
+  int i;
+  atomic64_set(&tr->read_count, 0);
+  atomic64_set(&tr->write_count, 0);
+  for (i = 0; i < 9; i++) {
+    atomic64_set(&tr->read_io[i], 0);
+    atomic64_set(&tr->write_io[i], 0);
+  }
+  atomic64_set(&tr->pending_rq, 0);
+}
+
+/**
+ * copy the data from _blk_stat to blk_stat
+ * This function is not thread safe
+*/
+void copy_blk_stat(struct blk_stat *dst, struct _blk_stat *src) {
+  int i;
+  dst->read_count = atomic64_read(&src->read_count);
+  dst->write_count = atomic64_read(&src->write_count);
+  for (i = 0; i < 9; i++) {
+    dst->read_io[i] = atomic64_read(&src->read_io[i]);
+    dst->write_io[i] = atomic64_read(&src->write_io[i]);
+  }
+}
+
+/** sliding window */
+struct sliding_window {
+  /** a lock free linked list of <timestamp, request> */
+  struct list_head list;
+  /** count */
+  atomic64_t count;
+  spinlock_t lock;
+};
+
+/**
+ * initialize a sliding window
+ * @param sw: the sliding window to be initialized
+*/
+void init_sliding_window(struct sliding_window *sw) {
+  INIT_LIST_HEAD(&sw->list);
+  atomic64_set(&sw->count, 0);
+  spin_lock_init(&sw->lock);
+}
+
+
+/** an abstract of an io, a node in the sliding window */
+struct bio_info {
+  struct list_head list;
+  u64 ts;
+  u64 size;
+  u64 pos;
+  bool type;
+};
+
+/**
+ * extract bio infor from a bio
+ * @param info: the bio_info to store the extracted information
+ * @param bio: the bio to extract information from
+ */
+void extract_bio_info(struct bio_info *info, struct bio *bio) {
+  info->ts = ktime_get_ns();
+  info->size = bio->bi_iter.bi_size;
+  info->type = bio_data_dir(bio);
+  info->pos = bio->bi_iter.bi_sector;
+}
+
+
+
+
+
+
+void sw_all_to_blk_stat(struct sliding_window *sw, struct blk_stat *tr) {
+  init_blk_tr(tr);
+  struct bio_info *info;
+  struct list_head *pos, *q;
+
+  list_for_each_safe(pos, q, &sw->list) {
+    info = list_entry(pos, struct bio_info, list);
+    unsigned long long *cnt = info->type ? &tr->write_count : &tr->read_count;
+    unsigned long long *io = info->type ? tr->write_io : tr->read_io;
+    (*cnt)++;
+    if (info->size < 4096) {
+      io[_LT_4K]++;
+    } else if (info->size == 4096) {
+      io[_4K]++;
+    } else if (info->size == 8192) {
+      io[_8K]++;
+    } else if (info->size == 16384) {
+      io[_16K]++;
+    } else if (info->size == 32768) {
+      io[_32K]++;
+    } else if (info->size == 65536) {
+      io[_64K]++;
+    } else if (info->size == 131072) {
+      io[_128K]++;
+    } else if (info->size > 131072) {
+      io[_GT_128K]++;
+    } else {
+      io[_OTHERS]++;
+    }
+  }
+}
+
+void sw_to_blk_stat(struct sliding_window *sw, struct blk_stat *tr,
+                           u64 expire) {
+  init_blk_tr(tr);
+  struct bio_info *info;
+  struct list_head *pos, *q;
+
+  // traverse the list in reverse order
+  list_for_each_prev_safe(pos, q, &sw->list) {
+    info = list_entry(pos, struct bio_info, list);
+    if (info->ts < expire) {
+      break;
+    }
+    unsigned long long *cnt = info->type ? &tr->write_count : &tr->read_count;
+    unsigned long long *io = info->type ? tr->write_io : tr->read_io;
+    (*cnt)++;
+    if (info->size < 4096) {
+      io[_LT_4K]++;
+    } else if (info->size == 4096) {
+      io[_4K]++;
+    } else if (info->size == 8192) {
+      io[_8K]++;
+    } else if (info->size == 16384) {
+      io[_16K]++;
+    } else if (info->size == 32768) {
+      io[_32K]++;
+    } else if (info->size == 65536) {
+      io[_64K]++;
+    } else if (info->size == 131072) {
+      io[_128K]++;
+    } else if (info->size > 131072) {
+      io[_GT_128K]++;
+    } else {
+      io[_OTHERS]++;
+    }
+  }
+}
+
+static void insert_sw(struct sliding_window *sw, struct bio_info *info) {
+  /** add the info to the tail of linked list */
+  spin_lock(&sw->lock);
+  list_add_tail(&info->list, &sw->list);
+  atomic64_inc(&sw->count);
+  spin_unlock(&sw->lock);
+}
+
+static u64 sw_remove_old(struct sliding_window *sw, u64 expire_ts) {
+  struct bio_info *info;
+  struct list_head *pos, *q;
+  u64 cnt = 0;
+  spin_lock(&sw->lock);
+  list_for_each_safe(pos, q, &sw->list) {
+    info = list_entry(pos, struct bio_info, list);
+    if (info->ts < expire_ts) {
+      list_del(pos);
+      atomic64_dec(&sw->count);
+      kfree(info);
+      cnt++;
+    } else {
+      break;
+    }
+  }
+  spin_unlock(&sw->lock);
+  return cnt;
+}
 
 #define SAMPLE_RATE 0.001
 
@@ -30,11 +234,6 @@ static struct blk_stat *sample_2s;
 
 static int record_enabled = 0;
 
-/** for storing the device name */
-static char device_name[32] = "";
-
-static struct task_struct *update_routine_thread;
-
 /**
  * communication entries
  */
@@ -45,30 +244,6 @@ struct proc_dir_entry *entry_params;
 struct proc_dir_entry *entry_sw;
 struct proc_dir_entry *entry_sample_10s;
 struct proc_dir_entry *entry_sample_2s;
-
-struct request_queue *device_name_to_queue(const char *dev_name) {
-  struct block_device *bdev;
-  struct request_queue *q = NULL;
-  struct inode *inode;
-  int error;
-
-  char full_name[32];
-  snprintf(full_name, sizeof(full_name), "/dev/%s", dev_name);
-
-  bdev = blkdev_get_by_path(full_name, FMODE_READ, NULL);
-  if (IS_ERR(bdev)) {
-    pr_err("Failed to get block device for device %s\n", full_name);
-    return NULL;
-  }
-
-  q = bdev_get_queue(bdev);
-  if (!q) {
-    pr_err("Failed to get request queue for device %s\n", full_name);
-  }
-
-  blkdev_put(bdev, FMODE_READ);
-  return q;
-}
 
 static bool to_sample(void) {
   unsigned int rand;
@@ -444,3 +619,5 @@ static void _exit_ntm_blk_layer(void) {
   clean_variables();
   pr_info("ntm module unloaded\n");
 }
+
+#endif // _BLK_LAYER_H_

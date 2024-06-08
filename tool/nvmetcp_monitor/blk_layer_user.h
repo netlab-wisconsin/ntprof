@@ -1,3 +1,6 @@
+#ifndef BLK_LAYER_USER_H
+#define BLK_LAYER_USER_H
+
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -9,8 +12,6 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include "ntm_com.h"
-
-
 
 
 struct blk_stat_set {
@@ -28,3 +29,5 @@ void deserialize_blk_tr(struct blk_stat *tr, FILE *file);
 void init_ntm_blk(char *dev_name, struct blk_stat_set *bs);
 void start_ntm_blk();
 void exit_ntm_blk();
+
+#endif // BLK_LAYER_USER_H

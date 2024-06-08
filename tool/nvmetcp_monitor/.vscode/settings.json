@@ -9,6 +9,8 @@
     "blk_layer_user.h": "c",
     "mman.h": "c",
     "ntm_com.h": "c",
-    "signal.h": "c"
+    "signal.h": "c",
+    "blk_types.h": "c",
+    "ntm_user.h": "c"
   }
 }

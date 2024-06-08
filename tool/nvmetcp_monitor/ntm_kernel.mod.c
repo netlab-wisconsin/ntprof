@@ -35,16 +35,13 @@ __used __section("__versions") = {
 	{ 0xa47006d6, "proc_mkdir" },
 	{ 0x999e8297, "vfree" },
 	{ 0xd6ee688f, "vmalloc" },
-	{ 0x54b1fac6, "__ubsan_handle_load_invalid_value" },
-	{ 0x87a21cb3, "__ubsan_handle_out_of_bounds" },
 	{ 0xf9a482f9, "msleep" },
 	{ 0x37a0cba, "kfree" },
 	{ 0xb3f7646e, "kthread_should_stop" },
+	{ 0x54b1fac6, "__ubsan_handle_load_invalid_value" },
 	{ 0x282174ed, "blkdev_put" },
 	{ 0x2ae0273b, "blkdev_get_by_path" },
-	{ 0x56470118, "__warn_printk" },
-	{ 0x6b10bee1, "_copy_to_user" },
-	{ 0x656e4a6e, "snprintf" },
+	{ 0x87a21cb3, "__ubsan_handle_out_of_bounds" },
 	{ 0xe51688c1, "pv_ops" },
 	{ 0xba8fbd64, "_raw_spin_lock" },
 	{ 0xb43f9365, "ktime_get" },
@@ -52,6 +49,9 @@ __used __section("__versions") = {
 	{ 0xc1f15dee, "kmalloc_caches" },
 	{ 0x41ed3709, "get_random_bytes" },
 	{ 0xe2d5255a, "strcmp" },
+	{ 0x56470118, "__warn_printk" },
+	{ 0x6b10bee1, "_copy_to_user" },
+	{ 0x656e4a6e, "snprintf" },
 	{ 0x23130f8f, "wake_up_process" },
 	{ 0x4d38f1af, "kthread_create_on_node" },
 	{ 0x31157ed9, "kthread_stop" },
@@ -70,4 +70,4 @@ __used __section("__versions") = {
 MODULE_INFO(depends, "");
 
 
-MODULE_INFO(srcversion, "82DDB4F596D7B5DB315FE04");
+MODULE_INFO(srcversion, "0623134A47E29D494D26206");

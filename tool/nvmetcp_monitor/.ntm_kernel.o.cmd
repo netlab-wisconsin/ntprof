@@ -18,14 +18,7 @@ deps_/users/yuyuan/github/nvme-tcp/tool/nvmetcp_monitor/ntm_kernel.o := \
     $(wildcard include/config/ARCH_USE_BUILTIN_BSWAP) \
     $(wildcard include/config/KCOV) \
   /users/yuyuan/github/nvme-tcp/tool/nvmetcp_monitor/blk_layer.h \
-  include/linux/bio.h \
-    $(wildcard include/config/BLK_DEV_INTEGRITY) \
-    $(wildcard include/config/BLK_CGROUP) \
-  include/linux/mempool.h \
-  include/linux/wait.h \
-    $(wildcard include/config/LOCKDEP) \
-  include/linux/list.h \
-    $(wildcard include/config/DEBUG_LIST) \
+  include/linux/atomic.h \
   include/linux/types.h \
     $(wildcard include/config/HAVE_UID16) \
     $(wildcard include/config/UID16) \
@@ -49,35 +42,7 @@ deps_/users/yuyuan/github/nvme-tcp/tool/nvmetcp_monitor/ntm_kernel.o := \
     $(wildcard include/config/X86_32) \
   arch/x86/include/uapi/asm/posix_types_64.h \
   include/uapi/asm-generic/posix_types.h \
-  include/linux/poison.h \
-    $(wildcard include/config/ILLEGAL_POINTER_VALUE) \
-  include/linux/const.h \
-  include/vdso/const.h \
-  include/uapi/linux/const.h \
-  include/linux/kernel.h \
-    $(wildcard include/config/PREEMPT_VOLUNTARY) \
-    $(wildcard include/config/PREEMPT_DYNAMIC) \
-    $(wildcard include/config/PREEMPT_) \
-    $(wildcard include/config/DEBUG_ATOMIC_SLEEP) \
-    $(wildcard include/config/SMP) \
-    $(wildcard include/config/MMU) \
-    $(wildcard include/config/PROVE_LOCKING) \
-    $(wildcard include/config/TRACING) \
-    $(wildcard include/config/FTRACE_MCOUNT_RECORD) \
-  include/linux/stdarg.h \
-  include/linux/align.h \
-  include/linux/limits.h \
-  include/uapi/linux/limits.h \
-  include/vdso/limits.h \
-  include/linux/linkage.h \
-    $(wildcard include/config/ARCH_USE_SYM_ANNOTATIONS) \
-  include/linux/stringify.h \
-  include/linux/export.h \
-    $(wildcard include/config/MODVERSIONS) \
-    $(wildcard include/config/MODULE_REL_CRCS) \
-    $(wildcard include/config/HAVE_ARCH_PREL32_RELOCATIONS) \
-    $(wildcard include/config/MODULES) \
-    $(wildcard include/config/TRIM_UNUSED_KSYMS) \
+  arch/x86/include/asm/atomic.h \
   include/linux/compiler.h \
     $(wildcard include/config/TRACE_BRANCH_PROFILING) \
     $(wildcard include/config/PROFILE_ALL_BRANCHES) \
@@ -91,39 +56,21 @@ deps_/users/yuyuan/github/nvme-tcp/tool/nvmetcp_monitor/ntm_kernel.o := \
   include/linux/kcsan-checks.h \
     $(wildcard include/config/KCSAN) \
     $(wildcard include/config/KCSAN_IGNORE_ATOMICS) \
-  arch/x86/include/asm/linkage.h \
-    $(wildcard include/config/X86_64) \
-    $(wildcard include/config/X86_ALIGNMENT_16) \
-    $(wildcard include/config/RETHUNK) \
-    $(wildcard include/config/SLS) \
-  include/linux/bitops.h \
-  include/linux/bits.h \
-  include/vdso/bits.h \
-  include/linux/build_bug.h \
-  include/linux/typecheck.h \
-  include/uapi/linux/kernel.h \
-  include/uapi/linux/sysinfo.h \
-  arch/x86/include/asm/bitops.h \
-    $(wildcard include/config/X86_CMOV) \
   arch/x86/include/asm/alternative.h \
+    $(wildcard include/config/SMP) \
+  include/linux/stringify.h \
   arch/x86/include/asm/asm.h \
     $(wildcard include/config/KPROBES) \
   arch/x86/include/asm/extable_fixup_types.h \
-  arch/x86/include/asm/rmwcc.h \
-    $(wildcard include/config/CC_HAS_ASM_GOTO) \
-  arch/x86/include/asm/barrier.h \
-  arch/x86/include/asm/nops.h \
-  include/asm-generic/barrier.h \
-  include/asm-generic/bitops/find.h \
-    $(wildcard include/config/GENERIC_FIND_FIRST_BIT) \
-  include/asm-generic/bitops/sched.h \
-  arch/x86/include/asm/arch_hweight.h \
+  arch/x86/include/asm/cmpxchg.h \
   arch/x86/include/asm/cpufeatures.h \
   arch/x86/include/asm/required-features.h \
     $(wildcard include/config/X86_MINIMUM_CPU_FAMILY) \
     $(wildcard include/config/MATH_EMULATION) \
     $(wildcard include/config/X86_PAE) \
+    $(wildcard include/config/X86_64) \
     $(wildcard include/config/X86_CMPXCHG64) \
+    $(wildcard include/config/X86_CMOV) \
     $(wildcard include/config/X86_USE_3DNOW) \
     $(wildcard include/config/X86_P6_NOP) \
     $(wildcard include/config/MATOM) \
@@ -134,11 +81,73 @@ deps_/users/yuyuan/github/nvme-tcp/tool/nvmetcp_monitor/ntm_kernel.o := \
     $(wildcard include/config/X86_INTEL_MEMORY_PROTECTION_KEYS) \
     $(wildcard include/config/X86_5LEVEL) \
     $(wildcard include/config/PAGE_TABLE_ISOLATION) \
+    $(wildcard include/config/RETHUNK) \
     $(wildcard include/config/CPU_UNRET_ENTRY) \
     $(wildcard include/config/X86_SGX) \
+  arch/x86/include/asm/cmpxchg_64.h \
+  arch/x86/include/asm/rmwcc.h \
+    $(wildcard include/config/CC_HAS_ASM_GOTO) \
+  arch/x86/include/asm/barrier.h \
+  arch/x86/include/asm/nops.h \
+  include/asm-generic/barrier.h \
+  arch/x86/include/asm/atomic64_64.h \
+  include/linux/atomic/atomic-arch-fallback.h \
+    $(wildcard include/config/GENERIC_ATOMIC64) \
+  include/linux/atomic/atomic-long.h \
+  include/linux/atomic/atomic-instrumented.h \
+  include/linux/build_bug.h \
+  include/linux/instrumented.h \
+  include/linux/bio.h \
+    $(wildcard include/config/BLK_DEV_INTEGRITY) \
+    $(wildcard include/config/BLK_CGROUP) \
+  include/linux/mempool.h \
+  include/linux/wait.h \
+    $(wildcard include/config/LOCKDEP) \
+  include/linux/list.h \
+    $(wildcard include/config/DEBUG_LIST) \
+  include/linux/poison.h \
+    $(wildcard include/config/ILLEGAL_POINTER_VALUE) \
+  include/linux/const.h \
+  include/vdso/const.h \
+  include/uapi/linux/const.h \
+  include/linux/kernel.h \
+    $(wildcard include/config/PREEMPT_VOLUNTARY) \
+    $(wildcard include/config/PREEMPT_DYNAMIC) \
+    $(wildcard include/config/PREEMPT_) \
+    $(wildcard include/config/DEBUG_ATOMIC_SLEEP) \
+    $(wildcard include/config/MMU) \
+    $(wildcard include/config/PROVE_LOCKING) \
+    $(wildcard include/config/TRACING) \
+    $(wildcard include/config/FTRACE_MCOUNT_RECORD) \
+  include/linux/stdarg.h \
+  include/linux/align.h \
+  include/linux/limits.h \
+  include/uapi/linux/limits.h \
+  include/vdso/limits.h \
+  include/linux/linkage.h \
+    $(wildcard include/config/ARCH_USE_SYM_ANNOTATIONS) \
+  include/linux/export.h \
+    $(wildcard include/config/MODVERSIONS) \
+    $(wildcard include/config/MODULE_REL_CRCS) \
+    $(wildcard include/config/HAVE_ARCH_PREL32_RELOCATIONS) \
+    $(wildcard include/config/MODULES) \
+    $(wildcard include/config/TRIM_UNUSED_KSYMS) \
+  arch/x86/include/asm/linkage.h \
+    $(wildcard include/config/X86_ALIGNMENT_16) \
+    $(wildcard include/config/SLS) \
+  include/linux/bitops.h \
+  include/linux/bits.h \
+  include/vdso/bits.h \
+  include/linux/typecheck.h \
+  include/uapi/linux/kernel.h \
+  include/uapi/linux/sysinfo.h \
+  arch/x86/include/asm/bitops.h \
+  include/asm-generic/bitops/find.h \
+    $(wildcard include/config/GENERIC_FIND_FIRST_BIT) \
+  include/asm-generic/bitops/sched.h \
+  arch/x86/include/asm/arch_hweight.h \
   include/asm-generic/bitops/const_hweight.h \
   include/asm-generic/bitops/instrumented-atomic.h \
-  include/linux/instrumented.h \
   include/asm-generic/bitops/instrumented-non-atomic.h \
     $(wildcard include/config/KCSAN_ASSUME_PLAIN_WRITES_ATOMIC) \
   include/asm-generic/bitops/instrumented-lock.h \
@@ -364,15 +373,6 @@ deps_/users/yuyuan/github/nvme-tcp/tool/nvmetcp_monitor/ntm_kernel.o := \
   arch/x86/include/asm/string_64.h \
     $(wildcard include/config/ARCH_HAS_UACCESS_FLUSHCACHE) \
   include/linux/fortify-string.h \
-  include/linux/atomic.h \
-  arch/x86/include/asm/atomic.h \
-  arch/x86/include/asm/cmpxchg.h \
-  arch/x86/include/asm/cmpxchg_64.h \
-  arch/x86/include/asm/atomic64_64.h \
-  include/linux/atomic/atomic-arch-fallback.h \
-    $(wildcard include/config/GENERIC_ATOMIC64) \
-  include/linux/atomic/atomic-long.h \
-  include/linux/atomic/atomic-instrumented.h \
   arch/x86/include/uapi/asm/msr.h \
   include/linux/tracepoint-defs.h \
   arch/x86/include/asm/paravirt.h \
@@ -1059,7 +1059,6 @@ deps_/users/yuyuan/github/nvme-tcp/tool/nvmetcp_monitor/ntm_kernel.o := \
   include/linux/delay.h \
   arch/x86/include/asm/delay.h \
   include/asm-generic/delay.h \
-  include/linux/kthread.h \
   include/linux/module.h \
     $(wildcard include/config/MODULES_TREE_LOOKUP) \
     $(wildcard include/config/STACKTRACE_BUILD_ID) \
@@ -1172,6 +1171,7 @@ deps_/users/yuyuan/github/nvme-tcp/tool/nvmetcp_monitor/ntm_kernel.o := \
   include/trace/events/nvme_tcp.h \
   include/linux/nvme.h \
   /users/yuyuan/github/nvme-tcp/tool/nvmetcp_monitor/ntm_kernel.h \
+  include/linux/kthread.h \
   /users/yuyuan/github/nvme-tcp/tool/nvmetcp_monitor/ntm_com.h \
 
 /users/yuyuan/github/nvme-tcp/tool/nvmetcp_monitor/ntm_kernel.o: $(deps_/users/yuyuan/github/nvme-tcp/tool/nvmetcp_monitor/ntm_kernel.o)
