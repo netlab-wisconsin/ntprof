@@ -22,8 +22,6 @@ static struct task_struct *update_routine_thread;
 struct request_queue *device_name_to_queue(const char *dev_name) {
   struct block_device *bdev;
   struct request_queue *q = NULL;
-  struct inode *inode;
-  int error;
 
   /** add /dev/ prefix */
   char full_name[32];

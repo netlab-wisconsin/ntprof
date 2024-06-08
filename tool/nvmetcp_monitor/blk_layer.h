@@ -27,8 +27,6 @@
 
 #include "ntm_kernel.h"
 
-
-
 /**
  * blk layer statistics, with atomic variables
  * This is used for recording raw data in the kernel space
@@ -52,6 +50,35 @@ struct _blk_stat {
 };
 
 /**
+ * Increase the count of a specific size category
+ * @param arr the array to store the count of different size categories
+ * @param size the size of the io
+ */
+void inc_cnt_atomic_arr(atomic64_t *arr, int size) {
+  if (size < 4096) {
+    atomic64_inc(&arr[_LT_4K]);
+  } else if (size == 4096) {
+    atomic64_inc(&arr[_4K]);
+  } else if (size == 8192) {
+    atomic64_inc(&arr[_8K]);
+  } else if (size == 16384) {
+    atomic64_inc(&arr[_16K]);
+  } else if (size == 32768) {
+    atomic64_inc(&arr[_32K]);
+  } else if (size == 65536) {
+    atomic64_inc(&arr[_64K]);
+  } else if (size == 131072) {
+    atomic64_inc(&arr[_128K]);
+  } else {
+    if (size > 131072) {
+      atomic64_inc(&arr[_GT_128K]);
+    } else {
+      atomic64_inc(&arr[_OTHERS]);
+    }
+  }
+}
+
+/**
  * initialize a _blk_stat structure
  * set all atomic variables to 0
  * @param tr: the _blk_stat to be initialized
@@ -70,7 +97,7 @@ void _init_blk_tr(struct _blk_stat *tr) {
 /**
  * copy the data from _blk_stat to blk_stat
  * This function is not thread safe
-*/
+ */
 void copy_blk_stat(struct blk_stat *dst, struct _blk_stat *src) {
   int i;
   dst->read_count = atomic64_read(&src->read_count);
@@ -93,13 +120,12 @@ struct sliding_window {
 /**
  * initialize a sliding window
  * @param sw: the sliding window to be initialized
-*/
+ */
 void init_sliding_window(struct sliding_window *sw) {
   INIT_LIST_HEAD(&sw->list);
   atomic64_set(&sw->count, 0);
   spin_lock_init(&sw->lock);
 }
-
 
 /** an abstract of an io, a node in the sliding window */
 struct bio_info {
@@ -122,80 +148,74 @@ void extract_bio_info(struct bio_info *info, struct bio *bio) {
   info->pos = bio->bi_iter.bi_sector;
 }
 
-
-
-
-
-
+/**
+ * make the statistic data for the whole sliding window
+ * the sliding window will be cleared first
+ * @param sw: the sliding window
+ * @param tr: the blk_stat to store the statistic data
+ */
 void sw_all_to_blk_stat(struct sliding_window *sw, struct blk_stat *tr) {
-  init_blk_tr(tr);
   struct bio_info *info;
   struct list_head *pos, *q;
 
+  init_blk_tr(tr);
   list_for_each_safe(pos, q, &sw->list) {
+    unsigned long long *cnt, *io;
     info = list_entry(pos, struct bio_info, list);
-    unsigned long long *cnt = info->type ? &tr->write_count : &tr->read_count;
-    unsigned long long *io = info->type ? tr->write_io : tr->read_io;
-    (*cnt)++;
-    if (info->size < 4096) {
-      io[_LT_4K]++;
-    } else if (info->size == 4096) {
-      io[_4K]++;
-    } else if (info->size == 8192) {
-      io[_8K]++;
-    } else if (info->size == 16384) {
-      io[_16K]++;
-    } else if (info->size == 32768) {
-      io[_32K]++;
-    } else if (info->size == 65536) {
-      io[_64K]++;
-    } else if (info->size == 131072) {
-      io[_128K]++;
-    } else if (info->size > 131072) {
-      io[_GT_128K]++;
+    if (info->type) {
+      cnt = &tr->write_count;
+      io = tr->write_io;
     } else {
-      io[_OTHERS]++;
+      cnt = &tr->read_count;
+      io = tr->read_io;
     }
+    (*cnt)++;
+    inc_cnt_arr(io, info->size);
   }
 }
 
+/**
+ * Make the statistic data for the sliding window in a specific time range
+ * The io before the expire time will be ignored
+ * Assuming the sliding window is sorted in ascending order, i.e., the latest io
+ * is at the tail of the list.
+ *
+ * @param sw: the sliding window
+ * @param tr: the blk_stat to store the statistic data
+ * @param expire: the expire time
+ */
 void sw_to_blk_stat(struct sliding_window *sw, struct blk_stat *tr,
-                           u64 expire) {
-  init_blk_tr(tr);
+                    u64 expire) {
   struct bio_info *info;
   struct list_head *pos, *q;
 
+  init_blk_tr(tr);
+  
   // traverse the list in reverse order
   list_for_each_prev_safe(pos, q, &sw->list) {
+    unsigned long long *cnt, *io;
     info = list_entry(pos, struct bio_info, list);
     if (info->ts < expire) {
       break;
     }
-    unsigned long long *cnt = info->type ? &tr->write_count : &tr->read_count;
-    unsigned long long *io = info->type ? tr->write_io : tr->read_io;
-    (*cnt)++;
-    if (info->size < 4096) {
-      io[_LT_4K]++;
-    } else if (info->size == 4096) {
-      io[_4K]++;
-    } else if (info->size == 8192) {
-      io[_8K]++;
-    } else if (info->size == 16384) {
-      io[_16K]++;
-    } else if (info->size == 32768) {
-      io[_32K]++;
-    } else if (info->size == 65536) {
-      io[_64K]++;
-    } else if (info->size == 131072) {
-      io[_128K]++;
-    } else if (info->size > 131072) {
-      io[_GT_128K]++;
+    if (info->type) {
+      cnt = &tr->write_count;
+      io = tr->write_io;
     } else {
-      io[_OTHERS]++;
+      cnt = &tr->read_count;
+      io = tr->read_io;
     }
+    (*cnt)++;
+    inc_cnt_arr(io, info->size);
   }
 }
 
+/**
+ * insert a bio_info to the sliding window
+ * This method is thread safe
+ * @param sw: the sliding window
+ * @param info: the bio_info to be inserted
+ */
 static void insert_sw(struct sliding_window *sw, struct bio_info *info) {
   /** add the info to the tail of linked list */
   spin_lock(&sw->lock);
@@ -204,6 +224,12 @@ static void insert_sw(struct sliding_window *sw, struct bio_info *info) {
   spin_unlock(&sw->lock);
 }
 
+/**
+ * remove the io before the expire time
+ * This method is thread safe
+ * @param sw: the sliding window
+ * @param expire_ts: the expire time
+ */
 static u64 sw_remove_old(struct sliding_window *sw, u64 expire_ts) {
   struct bio_info *info;
   struct list_head *pos, *q;
@@ -217,6 +243,7 @@ static u64 sw_remove_old(struct sliding_window *sw, u64 expire_ts) {
       kfree(info);
       cnt++;
     } else {
+      /** since we assume the sliding window is in order */
       break;
     }
   }
@@ -224,14 +251,35 @@ static u64 sw_remove_old(struct sliding_window *sw, u64 expire_ts) {
   return cnt;
 }
 
+/** sample rate for the sliding window */
 #define SAMPLE_RATE 0.001
 
+/**
+ * generate a random number and compare it with the sample rate
+ * @return true if the random number is less than the sample rate
+ */
+static bool to_sample(void) {
+  unsigned int rand;
+  get_random_bytes(&rand, sizeof(rand));
+  return rand < SAMPLE_RATE * UINT_MAX;
+}
+
+/** in-kernel strucutre to update blk layer statistics */
 static struct _blk_stat *_raw_blk_stat;
+
+/** raw blk layer statistics, shared in user space*/
 static struct blk_stat *raw_blk_stat;
+
+/** a sliding window to record bio in the last 10s */
 static struct sliding_window *sw;
+
+/** blk layer stat for sampled io, in last 10s, shared with user space */
 static struct blk_stat *sample_10s;
+
+/** blk layer stat for sampled io, in last 2s, shared with user space */
 static struct blk_stat *sample_2s;
 
+/** inticator, to record or not */
 static int record_enabled = 0;
 
 /**
@@ -245,24 +293,35 @@ struct proc_dir_entry *entry_sw;
 struct proc_dir_entry *entry_sample_10s;
 struct proc_dir_entry *entry_sample_2s;
 
-static bool to_sample(void) {
-  unsigned int rand;
-  get_random_bytes(&rand, sizeof(rand));
-  return rand < SAMPLE_RATE * UINT_MAX;
-}
-
+/**
+ * TODO: get the number of pending requests in the queue
+ */
 unsigned int get_pending_requests(struct request_queue *q) { return 0; }
 
-void on_block_bio_queue(void *data, struct bio *bio) {
+/**
+ * This function is triggered when a bio is queued. This is the main function to
+ * trace the io in the blk layer.
+ * @param ignore:
+ * @param bio: the bio to be traced
+ */
+void on_block_bio_queue(void *ignore, struct bio *bio) {
+  /** only take action when the record is enabled */
   if (record_enabled) {
     atomic64_t *arr = NULL;
-    unsigned int size = bio->bi_iter.bi_size;
+    unsigned int size;
+
+    /** read the disk name */
     const char *rq_disk_name = bio->bi_bdev->bd_disk->disk_name;
 
+    /** filter out the io from other devices */
     if (strcmp(device_name, rq_disk_name) != 0) {
       return;
     }
 
+    /** read the size of the io */
+    size = bio->bi_iter.bi_size;
+
+    /** read the io direction and increase the corresponding counter */
     if (bio_data_dir(bio) == READ) {
       arr = _raw_blk_stat->read_io;
       atomic64_inc(&_raw_blk_stat->read_count);
@@ -275,35 +334,10 @@ void on_block_bio_queue(void *data, struct bio *bio) {
       return;
     }
 
-    switch (size) {
-      case 4096:
-        atomic64_inc(&arr[_4K]);
-        break;
-      case 8192:
-        atomic64_inc(&arr[_8K]);
-        break;
-      case 16384:
-        atomic64_inc(&arr[_16K]);
-        break;
-      case 32768:
-        atomic64_inc(&arr[_32K]);
-        break;
-      case 65536:
-        atomic64_inc(&arr[_64K]);
-        break;
-      case 131072:
-        atomic64_inc(&arr[_128K]);
-        break;
-      default:
-        if (size < 4096) {
-          atomic64_inc(&arr[_LT_4K]);
-        } else if (size > 131072) {
-          atomic64_inc(&arr[_GT_128K]);
-        } else {
-          atomic64_inc(&arr[_OTHERS]);
-        }
-    }
+    /** increase the counter of the corresponding size category */
+    inc_cnt_atomic_arr(arr, size);
 
+    /** if sampled, insert to the sliding window */
     if (to_sample()) {
       struct bio_info *info = kmalloc(sizeof(*info), GFP_KERNEL);
       if (!info) {
@@ -316,6 +350,10 @@ void on_block_bio_queue(void *data, struct bio *bio) {
   }
 }
 
+/**
+ * register the tracepoints
+ * - block_bio_queue
+ */
 static int blk_register_tracepoints(void) {
   int ret;
   ret = register_trace_block_bio_queue(on_block_bio_queue, NULL);
@@ -326,6 +364,10 @@ static int blk_register_tracepoints(void) {
   return 0;
 }
 
+/**
+ * unregister the tracepoints
+ * - block_bio_queue
+ */
 static void blk_unregister_tracepoints(void) {
   unregister_trace_block_bio_queue(on_block_bio_queue, NULL);
 }
@@ -335,21 +377,35 @@ static void blk_unregister_tracepoints(void) {
  */
 static int update_routine_fn(void *data) {
   while (!kthread_should_stop()) {
-    copy_blk_stat(raw_blk_stat, _raw_blk_stat);
-    if (device_name[0] != '\0') {
-      struct request_queue *q = device_name_to_queue(device_name);
-      struct blk_mq_hw_ctx *hctx;
-      unsigned int i;
-      queue_for_each_hw_ctx(q, hctx, i) {
-        pr_info("nr_io : %d\n", hctx->nr_active);
-      }
-    }
     u64 now = ktime_get_ns();
+
+    /** update the raw blk layer statistic in the user space */
+    copy_blk_stat(raw_blk_stat, _raw_blk_stat);
+
+    /** TODO: get the number of io in-flight in the queue*/
+    // if (device_name[0] != '\0') {
+    //   struct request_queue *q = device_name_to_queue(device_name);
+    //   struct blk_mq_hw_ctx *hctx;
+    //   unsigned int i;
+    //   queue_for_each_hw_ctx(q, hctx, i) {
+    //     pr_info("nr_io : %d\n", hctx->nr_active);
+    //   }
+    // }
+
+    /** remove expired io in the sliding window */
     sw_remove_old(sw, now - 10 * NSEC_PER_SEC);
+
+    /** update the stat of sampled io in last 10s, shared in the user space */
     sw_all_to_blk_stat(sw, sample_10s);
+
+    /** update the stat of the sampled io in last 2s, shared in the user space
+     */
     sw_to_blk_stat(sw, sample_2s, now - 2 * NSEC_PER_SEC);
-    msleep(1000);  // Sleep for 1 second
+
+    /** wait for 1 second to start routine again */
+    msleep(1000);
   }
+  /** exit point */
   pr_info("update_routine_thread exiting\n");
   return 0;
 }
@@ -358,24 +414,55 @@ static int update_routine_fn(void *data) {
  * ---------------------- ctrl command ----------------------
  */
 
+/**
+ * This function defines how user space read record_enabled variable
+ * @param file: the file to read
+ * @param buffer: the buffer to store the content from the user space
+ * @param count: the size of the buffer
+ * @param pos: the position to read
+ */
 static ssize_t proc_ctrl_read(struct file *file, char __user *buffer,
                               size_t count, loff_t *pos) {
+  /** load the content of record_enabled to a tmp variable, buf*/
   char buf[4];
   int len = snprintf(buf, sizeof(buf), "%d\n", record_enabled);
   if (*pos >= len) return 0;
   if (count < len) return -EINVAL;
+
+  /** copy the content of the tmp variable, buf, to the user space file buffer
+   */
   if (copy_to_user(buffer, buf, len)) return -EFAULT;
   *pos += len;
   return len;
 }
 
+/**
+ * This function defines how user space write to record_enabled variable
+ * @param file: the file to write
+ * @param buffer: the buffer to store the content, it should be 0 or 1
+ * @param count: the size of the buffer
+ * @param pos: the position to write
+ */
 static ssize_t proc_ctrl_write(struct file *file, const char __user *buffer,
                                size_t count, loff_t *pos) {
+  /** initialize a temp buffer to store the msg from the user space */
   char buf[4];
   if (count > sizeof(buf) - 1) return -EINVAL;
+
+  /** copy the msg from thr user space to buf */
   if (copy_from_user(buf, buffer, count)) return -EFAULT;
+
+  /** set the end of the buf */
   buf[count] = '\0';
 
+  /**
+   * If the mesage is 1
+   *  - enable the record
+   *  - start the update_routine_thread
+   * If the message is 0
+   *  - disable the record
+   *  - stop the update_routine_thread
+   */
   if (buf[0] == '1') {
     if (!record_enabled) {
       record_enabled = 1;
@@ -397,46 +484,68 @@ static ssize_t proc_ctrl_write(struct file *file, const char __user *buffer,
       }
     }
   } else {
+    /** unknown msg from user space */
     return -EINVAL;
   }
 
   return count;
 }
 
+/**
+ * define the operations for the control command
+ * - proc_read: read the record_enabled variable
+ * - proc_write: write the record_enabled variable
+ */
 static const struct proc_ops ntm_ctrl_ops = {
     .proc_read = proc_ctrl_read,
     .proc_write = proc_ctrl_write,
 };
 
 /**
- * ---------------------- params command ----------------------
+ * This function defines how user space write to device_name variable
+ * @param file: the file to write
+ * @param buffer: the buffer to store the content in the user space, it should
+ * be the device name
+ * @param count: the size of the buffer
+ * @param pos: the position to write
  */
-
 static ssize_t ntm_params_write(struct file *file, const char __user *buffer,
                                 size_t count, loff_t *pos) {
+  /** initialize a tmp buffer to store the msg from user space */
   char buf[32];
   if (count > sizeof(buf) - 1) return -EINVAL;
+  /** copy the buffer content (device name) from the user space*/
   if (copy_from_user(buf, buffer, count)) return -EFAULT;
+  /** set the end of the string */
   buf[count] = '\0';
 
-  // if input is not empty, copy the whole input to the device_name
+  /** if input is not empty, copy the whole input to the device_name */
   if (count == 1) {
     return -EINVAL;
   } else {
+    /** set the device_name variable */
     strncpy(device_name, buf, sizeof(device_name));
     pr_info("device_name set to %s\n", device_name);
   }
   return count;
 }
 
+/**
+ * define the operations for the params command,
+ * user only need to write the device name, no need to read
+ * - proc_write: write the device name to the device_name variable
+ */
 static const struct proc_ops ntm_params_ops = {
     .proc_write = ntm_params_write,
 };
 
 /**
- * ---------------------- raw_blk_stat ----------------------
+ * This function defines how user space map the a variable to
+ * the kernel space variable, raw_blk_stat
+ * @param filp: the file to map
+ * @param vma: the virtual memory area to map
+ * @return 0 if success, -EAGAIN if failed
  */
-
 static int mmap_raw_blk_stat(struct file *filp, struct vm_area_struct *vma) {
   if (remap_pfn_range(vma, vma->vm_start, vmalloc_to_pfn(raw_blk_stat),
                       vma->vm_end - vma->vm_start, vma->vm_page_prot))
@@ -444,12 +553,20 @@ static int mmap_raw_blk_stat(struct file *filp, struct vm_area_struct *vma) {
   return 0;
 }
 
+/**
+ * define the operations for the raw_blk_stat command
+ * - proc_mmap: map the raw_blk_stat to the user space
+ */
 static const struct proc_ops ntm_raw_blk_stat_ops = {
     .proc_mmap = mmap_raw_blk_stat,
 };
 
 /**
- * ---------------------- sample_10s ----------------------
+ * This function defines how user space map the a variable to
+ * the kernel space variable, sample_10s
+ * @param filp: the file to map
+ * @param vma: the virtual memory area to map
+ * @return 0 if success, -EAGAIN if failed
  */
 static int mmap_sample_10s(struct file *filp, struct vm_area_struct *vma) {
   if (remap_pfn_range(vma, vma->vm_start, vmalloc_to_pfn(sample_10s),
@@ -458,14 +575,21 @@ static int mmap_sample_10s(struct file *filp, struct vm_area_struct *vma) {
   return 0;
 }
 
+/**
+ * define the operations for the sample_10s command
+ * - proc_mmap: map the sample_10s to the user space
+ */
 static const struct proc_ops ntm_sample_10s_ops = {
     .proc_mmap = mmap_sample_10s,
 };
 
 /**
- * ---------------------- sample_2s ----------------------
+ * This function defines how user space map the a variable to
+ * the kernel space variable, sample_2s
+ * @param filp: the file to map
+ * @param vma: the virtual memory area to map
+ * @return 0 if success, -EAGAIN if failed
  */
-
 static int mmap_sample_2s(struct file *filp, struct vm_area_struct *vma) {
   if (remap_pfn_range(vma, vma->vm_start, vmalloc_to_pfn(sample_2s),
                       vma->vm_end - vma->vm_start, vma->vm_page_prot))
@@ -473,14 +597,21 @@ static int mmap_sample_2s(struct file *filp, struct vm_area_struct *vma) {
   return 0;
 }
 
+/**
+ * define the operations for the sample_2s command
+ * - proc_mmap: map the sample_2s to the user space
+ */
 static const struct proc_ops ntm_sample_2s_ops = {
     .proc_mmap = mmap_sample_2s,
 };
 
 /**
- * ---------------------- initializing module ----------------------
+ * initialize the variables
+ * - set record_enabled to 0
+ * - set device_name to empty string
+ * - allocate memory for _raw_blk_stat, raw_blk_stat, sw, sample_10s, sample_2s
+ * - initialize the blk_stat structures
  */
-
 int init_variables(void) {
   record_enabled = 0;
   device_name[0] = '\0';
@@ -507,6 +638,10 @@ int init_variables(void) {
   return 0;
 }
 
+/**
+ * clean the variables
+ * - free the memory of _raw_blk_stat, raw_blk_stat, sw, sample_10s, sample_2s
+ */
 int clean_variables(void) {
   vfree(_raw_blk_stat);
   vfree(raw_blk_stat);
@@ -516,6 +651,15 @@ int clean_variables(void) {
   return 0;
 }
 
+/**
+ * initialize the proc entries
+ * - create /proc/ntm directory
+ * - create /proc/ntm/ntm_ctrl entry
+ * - create /proc/ntm/ntm_raw_blk_stat entry
+ * - create /proc/ntm/ntm_params entry
+ * - create /proc/ntm/ntm_sample_10s entry
+ * - create /proc/ntm/ntm_sample_2s entry
+ */
 int init_proc_entries(void) {
   parent_dir = proc_mkdir("ntm", NULL);
   if (!parent_dir) {
@@ -584,6 +728,15 @@ int init_proc_entries(void) {
   return 0;
 }
 
+/**
+ * remove the proc entries
+ * - remove /proc/ntm/ntm_raw_blk_stat entry
+ * - remove /proc/ntm/ntm_ctrl entry
+ * - remove /proc/ntm/ntm_params entry
+ * - remove /proc/ntm/ntm_sample_10s entry
+ * - remove /proc/ntm/ntm_sample_2s entry
+ * - remove /proc/ntm directory
+ */
 static void remove_proc_entries(void) {
   remove_proc_entry("ntm_raw_blk_stat", parent_dir);
   remove_proc_entry("ntm_ctrl", parent_dir);
@@ -593,6 +746,12 @@ static void remove_proc_entries(void) {
   remove_proc_entry("ntm", NULL);
 }
 
+/**
+ * initialize the ntm blk layer
+ * - initialize the variables
+ * - initialize the proc entries
+ * - register the tracepoints
+ */
 static int _init_ntm_blk_layer(void) {
   int ret;
   ret = init_variables();
@@ -613,6 +772,12 @@ static int _init_ntm_blk_layer(void) {
   return 0;
 }
 
+/**
+ * exit the ntm blk layer
+ * - remove the proc entries
+ * - unregister the tracepoints
+ * - clean the variables
+ */
 static void _exit_ntm_blk_layer(void) {
   remove_proc_entries();
   blk_unregister_tracepoints();
@@ -620,4 +785,4 @@ static void _exit_ntm_blk_layer(void) {
   pr_info("ntm module unloaded\n");
 }
 
-#endif // _BLK_LAYER_H_
+#endif  // _BLK_LAYER_H_

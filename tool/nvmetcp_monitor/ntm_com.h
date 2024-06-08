@@ -42,4 +42,31 @@ inline void init_blk_tr(struct blk_stat *tr) {
   tr->pending_rq = 0;
 }
 
+/**
+ * Increase the count of a specific size category
+ * @param arr the array to store the count of different size categories
+ * @param size the size of the io
+*/
+inline void inc_cnt_arr(unsigned long long *arr, int size) {
+  if (size < 4096) {
+    arr[_LT_4K]++;
+  } else if (size == 4096) {
+    arr[_4K]++;
+  } else if (size == 8192) {
+    arr[_8K]++;
+  } else if (size == 16384) {
+    arr[_16K]++;
+  } else if (size == 32768) {
+    arr[_32K]++;
+  } else if (size == 65536) {
+    arr[_64K]++;
+  } else if (size == 131072) {
+    arr[_128K]++;
+  } else if (size > 131072) {
+    arr[_GT_128K]++;
+  } else {
+    arr[_OTHERS]++;
+  } 
+}
+
 #endif // NTM_COM_H
