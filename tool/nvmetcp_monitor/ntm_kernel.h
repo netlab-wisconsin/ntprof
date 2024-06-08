@@ -14,6 +14,18 @@ static char device_name[32] = "";
 /** a thread, periodically update the communication data strucure */
 static struct task_struct *update_routine_thread;
 
+
+/** inticator, to record or not */
+static int record_enabled = 0;
+
+
+/**
+ * communication entries
+ */
+struct proc_dir_entry *parent_dir;
+struct proc_dir_entry *entry_ctrl;
+
+
 /**
  * Given a device name, return the request queue of the device.
  * @param dev_name the device name, e.g., nvme0n1

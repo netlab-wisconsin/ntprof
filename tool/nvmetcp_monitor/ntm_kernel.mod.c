@@ -29,15 +29,15 @@ static const struct modversion_info ____versions[]
 __used __section("__versions") = {
 	{ 0xdc658e53, "module_layout" },
 	{ 0x8a33fe02, "tracepoint_probe_register" },
+	{ 0xa47006d6, "proc_mkdir" },
 	{ 0x23928884, "tracepoint_probe_unregister" },
 	{ 0x849fce57, "__tracepoint_block_bio_queue" },
 	{ 0xef2141dc, "proc_create" },
-	{ 0xa47006d6, "proc_mkdir" },
 	{ 0x999e8297, "vfree" },
 	{ 0xd6ee688f, "vmalloc" },
+	{ 0xb3f7646e, "kthread_should_stop" },
 	{ 0xf9a482f9, "msleep" },
 	{ 0x37a0cba, "kfree" },
-	{ 0xb3f7646e, "kthread_should_stop" },
 	{ 0x54b1fac6, "__ubsan_handle_load_invalid_value" },
 	{ 0xe51688c1, "pv_ops" },
 	{ 0xba8fbd64, "_raw_spin_lock" },
@@ -70,4 +70,4 @@ __used __section("__versions") = {
 MODULE_INFO(depends, "");
 
 
-MODULE_INFO(srcversion, "0C0CC30D8C24D4037A691BE");
+MODULE_INFO(srcversion, "405C747A12592B51148BCA3");
