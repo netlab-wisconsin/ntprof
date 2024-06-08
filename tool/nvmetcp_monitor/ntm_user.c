@@ -8,6 +8,14 @@
 /** filters */
 static char device_name[32] = "";
 
+/** a set of blk layer statistics, each element is mapped with a /proc file */
+struct blk_stat_set blk_stat_set;
+
+/**
+ * read cmd line parameter -d device_name
+ * @param argc the number of arguments
+ * @param argv the arguments
+*/
 void arg_device_name(int argc, char **argv) {
   int i;
   for (i = 1; i < argc; i++) {
@@ -21,12 +29,15 @@ void arg_device_name(int argc, char **argv) {
   }
 }
 
-struct blk_stat_set blk_stat_set;
 
-void init_ntm() {
+/** 
+ * send message to the kernel to start recording
+ * - write device name to /proc/ntm/ntm_params
+ * - write 1 to /proc/ntm/ntm_ctrl
+*/
+void start_ntm() {
   int param_fd, control_fd;
 
-  signal(SIGINT, int_handler);
   /** write parameter name to the kernel */
   param_fd = open("/proc/ntm/ntm_params", O_WRONLY);
   if (param_fd == -1) {
@@ -65,18 +76,21 @@ int main(int argc, char **argv) {
   /** read cmdline parameter - device name */
   arg_device_name(argc, argv);
 
-  init_ntm();
+  signal(SIGINT, int_handler);
+
+  /** send msg to kernel space to start recording */
+  start_ntm();
 
   init_ntm_blk(device_name, &blk_stat_set);
 
-  start_ntm_blk();
+  map_ntm_blk_data();
 
   while (keep_running) {
     print_blk_stat_set(&blk_stat_set, true);
     sleep(1);
   }
 
-  exit_ntm_blk();
+  unmap_ntm_blk_data();
 
   exit_ntm();
   return 0;
