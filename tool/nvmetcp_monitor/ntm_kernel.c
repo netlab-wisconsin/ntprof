@@ -1,5 +1,5 @@
 #include "blk_layer.h"
-
+#include "nvmetcp_layer.h"
 
 /**
  * update data periodically with the user
@@ -8,6 +8,7 @@ static int update_routine_fn(void *data) {
   while (!kthread_should_stop()) {
     u64 now = ktime_get_ns();
     blk_stat_update(now);
+    nvmetcp_stat_update(now);
 
     /** TODO: get the number of io in-flight in the queue*/
     // if (device_name[0] != '\0') {
@@ -157,7 +158,6 @@ static const struct proc_ops ntm_params_ops = {
 
 
 
-
 /**
  * initialize the proc entries
  * - /proc/ntm/ntm_ctrl
@@ -218,6 +218,15 @@ static int __init init_ntm_module(void) {
     return ret;
   }
 
+  ret = _init_ntm_nvmetcp_layer();
+  if(ret) {
+    pr_err("Failed to initialize ntm_nvmetcp_layer\n");
+    _exit_ntm_blk_layer();
+    remove_proc_entry("ntm_ctrl", parent_dir);
+    remove_proc_entry("ntm_params", parent_dir);
+    remove_proc_entry("ntm", NULL);
+    return ret;
+  }
   return 0;
 }
 
@@ -228,6 +237,8 @@ static void __exit exit_ntm_module(void) {
 
   /** exit the blk layer monitor */
   _exit_ntm_blk_layer();
+
+  _exit_ntm_nvmetcp_layer();
 
   remove_proc_entry("ntm_ctrl", parent_dir);
   remove_proc_entry("ntm_params", parent_dir);

@@ -23,9 +23,9 @@
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
 #include <trace/events/block.h>
-#include <trace/events/nvme_tcp.h>
 
 #include "ntm_kernel.h"
+#include "util.h"
 
 /**
  * blk layer statistics, with atomic variables
@@ -108,29 +108,9 @@ void copy_blk_stat(struct blk_stat *dst, struct _blk_stat *src) {
   }
 }
 
-/** sliding window */
-struct sliding_window {
-  /** a lock free linked list of <timestamp, request> */
-  struct list_head list;
-  /** count */
-  atomic64_t count;
-  spinlock_t lock;
-};
-
-/**
- * initialize a sliding window
- * @param sw: the sliding window to be initialized
- */
-void init_sliding_window(struct sliding_window *sw) {
-  INIT_LIST_HEAD(&sw->list);
-  atomic64_set(&sw->count, 0);
-  spin_lock_init(&sw->lock);
-}
-
 /** an abstract of an io, a node in the sliding window */
 struct bio_info {
   struct list_head list;
-  u64 ts;
   u64 size;
   u64 pos;
   bool type;
@@ -142,7 +122,6 @@ struct bio_info {
  * @param bio: the bio to extract information from
  */
 void extract_bio_info(struct bio_info *info, struct bio *bio) {
-  info->ts = ktime_get_ns();
   info->size = bio->bi_iter.bi_size;
   info->type = bio_data_dir(bio);
   info->pos = bio->bi_iter.bi_sector;
@@ -155,13 +134,14 @@ void extract_bio_info(struct bio_info *info, struct bio *bio) {
  * @param tr: the blk_stat to store the statistic data
  */
 void sw_all_to_blk_stat(struct sliding_window *sw, struct blk_stat *tr) {
+  struct sw_node *node;
   struct bio_info *info;
   struct list_head *pos, *q;
 
   init_blk_tr(tr);
   list_for_each_safe(pos, q, &sw->list) {
     unsigned long long *cnt, *io;
-    info = list_entry(pos, struct bio_info, list);
+    info = (list_entry(pos, struct sw_node, list))->data;
     if (info->type) {
       cnt = &tr->write_count;
       io = tr->write_io;
@@ -186,6 +166,7 @@ void sw_all_to_blk_stat(struct sliding_window *sw, struct blk_stat *tr) {
  */
 void sw_to_blk_stat(struct sliding_window *sw, struct blk_stat *tr,
                     u64 expire) {
+  struct sw_node *node;
   struct bio_info *info;
   struct list_head *pos, *q;
 
@@ -194,8 +175,9 @@ void sw_to_blk_stat(struct sliding_window *sw, struct blk_stat *tr,
   // traverse the list in reverse order
   list_for_each_prev_safe(pos, q, &sw->list) {
     unsigned long long *cnt, *io;
-    info = list_entry(pos, struct bio_info, list);
-    if (info->ts < expire) {
+    node = list_entry(pos, struct sw_node, list);
+    info = node->data;
+    if (node->timestamp < expire) {
       break;
     }
     if (info->type) {
@@ -210,59 +192,7 @@ void sw_to_blk_stat(struct sliding_window *sw, struct blk_stat *tr,
   }
 }
 
-/**
- * insert a bio_info to the sliding window
- * This method is thread safe
- * @param sw: the sliding window
- * @param info: the bio_info to be inserted
- */
-static void insert_sw(struct sliding_window *sw, struct bio_info *info) {
-  /** add the info to the tail of linked list */
-  spin_lock(&sw->lock);
-  list_add_tail(&info->list, &sw->list);
-  atomic64_inc(&sw->count);
-  spin_unlock(&sw->lock);
-}
 
-/**
- * remove the io before the expire time
- * This method is thread safe
- * @param sw: the sliding window
- * @param expire_ts: the expire time
- */
-static u64 sw_remove_old(struct sliding_window *sw, u64 expire_ts) {
-  struct bio_info *info;
-  struct list_head *pos, *q;
-  u64 cnt = 0;
-  spin_lock(&sw->lock);
-  list_for_each_safe(pos, q, &sw->list) {
-    info = list_entry(pos, struct bio_info, list);
-    if (info->ts < expire_ts) {
-      list_del(pos);
-      atomic64_dec(&sw->count);
-      kfree(info);
-      cnt++;
-    } else {
-      /** since we assume the sliding window is in order */
-      break;
-    }
-  }
-  spin_unlock(&sw->lock);
-  return cnt;
-}
-
-/** sample rate for the sliding window */
-#define SAMPLE_RATE 0.001
-
-/**
- * generate a random number and compare it with the sample rate
- * @return true if the random number is less than the sample rate
- */
-static bool to_sample(void) {
-  unsigned int rand;
-  get_random_bytes(&rand, sizeof(rand));
-  return rand < SAMPLE_RATE * UINT_MAX;
-}
 
 /** in-kernel strucutre to update blk layer statistics */
 static struct _blk_stat *_raw_blk_stat;
@@ -340,7 +270,11 @@ void on_block_bio_queue(void *ignore, struct bio *bio) {
         return;
       }
       extract_bio_info(info, bio);
-      insert_sw(sw, info);
+      // use general function instead
+      struct sw_node *node = kmalloc(sizeof(*node), GFP_KERNEL);
+      node->timestamp = ktime_get_ns();
+      node->data = info;
+      add_to_sliding_window(sw, node);
     }
   }
 }
@@ -433,16 +367,15 @@ static const struct proc_ops ntm_sample_2s_ops = {
     .proc_mmap = mmap_sample_2s,
 };
 
-
 /**
  * update the blk layer statistic periodically
  * This function will be triggered in the main routine thread
-*/
+ */
 void blk_stat_update(u64 now) {
   /** update the raw blk layer statistic in the user space */
   copy_blk_stat(raw_blk_stat, _raw_blk_stat);
   /** remove expired io in the sliding window */
-  sw_remove_old(sw, now - 10 * NSEC_PER_SEC);
+  remove_from_sliding_window(sw, now - 10 * NSEC_PER_SEC);
   /** update the stat of sampled io in last 10s, shared in the user space */
   sw_all_to_blk_stat(sw, sample_10s);
   /** update the stat of the sampled io in last 2s, shared in the user space */
@@ -581,7 +514,7 @@ static void _exit_ntm_blk_layer(void) {
   remove_blk_proc_entries();
   blk_unregister_tracepoints();
   clean_variables();
-  pr_info("ntm module unloaded\n");
+  pr_info("stop blk module monitor\n");
 }
 
 #endif  // _BLK_LAYER_H_

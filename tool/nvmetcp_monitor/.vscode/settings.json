@@ -11,6 +11,7 @@
     "ntm_com.h": "c",
     "signal.h": "c",
     "blk_types.h": "c",
-    "ntm_user.h": "c"
+    "ntm_user.h": "c",
+    "random.h": "c"
   }
 }

@@ -7,6 +7,19 @@
 
 #include "ntm_com.h"
 
+/** sample rate for the sliding window */
+#define SAMPLE_RATE 0.001
+
+/**
+ * generate a random number and compare it with the sample rate
+ * @return true if the random number is less than the sample rate
+ */
+static bool to_sample(void) {
+  unsigned int rand;
+  get_random_bytes(&rand, sizeof(rand));
+  return rand < SAMPLE_RATE * UINT_MAX;
+}
+
 
 /** for storing the device name */
 static char device_name[32] = "";
