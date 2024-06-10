@@ -12,6 +12,7 @@
     "signal.h": "c",
     "blk_types.h": "c",
     "ntm_user.h": "c",
-    "random.h": "c"
+    "random.h": "c",
+    "nvmetcp_layer_user.h": "c"
   }
 }

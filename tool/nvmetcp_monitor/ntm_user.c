@@ -1,15 +1,22 @@
 
 #include "ntm_user.h"
 #include "blk_layer_user.h"
+#include "nvmetcp_layer_user.h"
 
 #define BUFFER_SIZE PAGE_SIZE
 
 
-/** filters */
-static char device_name[32] = "";
+static volatile int keep_running = 1;
+
+char device_name[32];
+
+
+void int_handler(int dummy) { keep_running = 0; }
 
 /** a set of blk layer statistics, each element is mapped with a /proc file */
 struct blk_stat_set blk_stat_set;
+
+struct nvmetcp_stat_set nvmetcp_stat_set;
 
 /**
  * read cmd line parameter -d device_name
@@ -81,16 +88,24 @@ int main(int argc, char **argv) {
   /** send msg to kernel space to start recording */
   start_ntm();
 
-  init_ntm_blk(device_name, &blk_stat_set);
-
+  init_ntm_blk(&blk_stat_set);
   map_ntm_blk_data();
 
+
+  init_ntm_nvmetcp(&nvmetcp_stat_set);
+  map_ntm_nvmetcp_data();
+
+  
   while (keep_running) {
     print_blk_stat_set(&blk_stat_set, true);
+    print_nvmetcp_stat_set(&nvmetcp_stat_set, false);
     sleep(1);
   }
 
   unmap_ntm_blk_data();
+  unmap_ntm_nvmetcp_data();
+
+  printf("start exit ntm_user\n");
 
   exit_ntm();
   return 0;

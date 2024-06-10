@@ -134,7 +134,6 @@ void extract_bio_info(struct bio_info *info, struct bio *bio) {
  * @param tr: the blk_stat to store the statistic data
  */
 void sw_all_to_blk_stat(struct sliding_window *sw, struct blk_stat *tr) {
-  struct sw_node *node;
   struct bio_info *info;
   struct list_head *pos, *q;
 
@@ -264,14 +263,17 @@ void on_block_bio_queue(void *ignore, struct bio *bio) {
 
     /** if sampled, insert to the sliding window */
     if (to_sample()) {
-      struct bio_info *info = kmalloc(sizeof(*info), GFP_KERNEL);
+      struct bio_info *info;
+      struct sw_node *node;
+      
+      info = kmalloc(sizeof(*info), GFP_KERNEL);
       if (!info) {
         pr_err("Failed to allocate memory for bio_info\n");
         return;
       }
       extract_bio_info(info, bio);
       // use general function instead
-      struct sw_node *node = kmalloc(sizeof(*node), GFP_KERNEL);
+      node = kmalloc(sizeof(*node), GFP_KERNEL);
       node->timestamp = ktime_get_ns();
       node->data = info;
       add_to_sliding_window(sw, node);
@@ -389,7 +391,7 @@ void blk_stat_update(u64 now) {
  * - allocate memory for _raw_blk_stat, raw_blk_stat, sw, sample_10s, sample_2s
  * - initialize the blk_stat structures
  */
-int init_variables(void) {
+int init_blk_variables(void) {
   /** _raw_blk_stat */
   _raw_blk_stat = vmalloc(sizeof(*_raw_blk_stat));
   if (!_raw_blk_stat) return -ENOMEM;
@@ -417,7 +419,7 @@ int init_variables(void) {
  * clean the variables
  * - free the memory of _raw_blk_stat, raw_blk_stat, sw, sample_10s, sample_2s
  */
-int clean_variables(void) {
+int clean_blk_variables(void) {
   vfree(_raw_blk_stat);
   vfree(raw_blk_stat);
   vfree(sw);
@@ -486,18 +488,18 @@ static void remove_blk_proc_entries(void) {
  */
 static int _init_ntm_blk_layer(void) {
   int ret;
-  ret = init_variables();
+  ret = init_blk_variables();
   if (ret) return ret;
   ret = init_blk_proc_entries();
   if (ret) {
-    clean_variables();
+    clean_blk_variables();
     return ret;
   }
 
   ret = blk_register_tracepoints();
   if (ret) {
     remove_blk_proc_entries();
-    clean_variables();
+    clean_blk_variables();
     return ret;
   }
   pr_info("ntm module loaded\n");
@@ -513,7 +515,7 @@ static int _init_ntm_blk_layer(void) {
 static void _exit_ntm_blk_layer(void) {
   remove_blk_proc_entries();
   blk_unregister_tracepoints();
-  clean_variables();
+  clean_blk_variables();
   pr_info("stop blk module monitor\n");
 }
 

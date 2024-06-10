@@ -1,8 +1,10 @@
 #ifndef NTM_USER_H
 #define NTM_USER_H
 
-static volatile int keep_running = 1;
 
-void int_handler(int dummy) { keep_running = 0; }
+
+/** filters */
+extern char device_name[32];
+
 
 #endif  // NTM_USER_H

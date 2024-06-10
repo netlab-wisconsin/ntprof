@@ -11,6 +11,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <stdbool.h>
+
 #include "ntm_com.h"
 
 /**
@@ -26,11 +27,10 @@ struct blk_stat_set {
 };
 
 static struct blk_stat_set *blk_set;
-static char* blk_dev_name;
 
 void print_blk_stat_set(struct blk_stat_set *bs, bool clear);
 
-void init_ntm_blk(char *dev_name, struct blk_stat_set *bs);
+void init_ntm_blk(struct blk_stat_set *bs);
 
 void map_ntm_blk_data();
 

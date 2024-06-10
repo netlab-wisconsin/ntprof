@@ -1,4 +1,5 @@
 #include "blk_layer_user.h"
+#include "ntm_user.h"
 
 /** 
  * print a blk_stat data structure
@@ -7,7 +8,7 @@
 */
 void print_blk_stat(struct blk_stat *b_stat, char *header) {
   printf("header: %s \t", header);
-  printf("device_name: %s\n", blk_dev_name);
+  printf("device_name: %s\n", device_name);
   char *dis_header[9] = {"<4KB", "4KB",   "8KB",    "16KB",  "32KB",
                          "64KB", "128KB", ">128KB", "others"};
   printf("read total: %llu\n", b_stat->read_count);
@@ -53,9 +54,8 @@ void print_blk_stat_set(struct blk_stat_set *bs, bool clear) {
 /**
  * set device name and blk_stat_set ptr
 */
-void init_ntm_blk(char *dev_name, struct blk_stat_set *bs) {
+void init_ntm_blk(struct blk_stat_set *bs) {
   blk_set = bs;
-  blk_dev_name = dev_name;
 }
 
 
@@ -68,7 +68,7 @@ void map_ntm_blk_data() {
     return;
   }
 
-  int  raw_blk_stat_fd, param_fd, sample_10s_fd, sample_2s_fd;
+  int  raw_blk_stat_fd, sample_10s_fd, sample_2s_fd;
 
   /** map the raw_blk_stat*/
   raw_blk_stat_fd = open("/proc/ntm/ntm_raw_blk_stat", O_RDONLY);

@@ -69,4 +69,21 @@ inline void inc_cnt_arr(unsigned long long *arr, int size) {
   } 
 }
 
+struct nvmetcp_stat{
+  unsigned long long sum_blk_layer_lat;
+  unsigned long long cnt;
+};
+
+inline void init_nvmetcp_stat(struct nvmetcp_stat *stat) {
+  stat->sum_blk_layer_lat = 0;
+  stat->cnt = 0;
+}
+
+struct normal_struct {
+  unsigned long item1;
+};
+
+inline void init_normal_struct(struct normal_struct *ns) {
+  ns->item1 = 0;
+}
 #endif // NTM_COM_H
