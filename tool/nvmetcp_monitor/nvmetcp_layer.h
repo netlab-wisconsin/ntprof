@@ -11,6 +11,127 @@
 
 // #include <linux/blk_types.h>
 
+/**
+ * SOME LOG EXAMPLES OF TRACE-CMD
+ * 
+ * 4K READ
+             fio-261972  [000] ..... 31675.858926: nvme_tcp_queue_rq: nvme4: disk=nvme4c4n1, qid=1, rtag=17, cmdid=0, slba=0, pos=0, length=4096, is_write=0, req_len=0, send_len=0
+             fio-261972  [000] ..... 31675.858939: [nvme_tcp_queue_request]: nvme4: disk=nvme4c4n1, qid=1, rtag=17, cmdid=4113, slba=0, pos=0, length=4096, is_write=0, req_len=0, send_len=0
+             fio-261972  [000] ..... 31675.858966: [nvme_tcp_try_send_cmd_pdu]: nvme4: disk=nvme4c4n1, qid=1, rtag=17, cmdid=4113, slba=0, request_length=4096, send_bytes=72, is_write=0
+             fio-261972  [000] ..... 31675.858967: nvme_tcp_done_send_req: nvme4: disk=nvme4c4n1, qid=1, rtag=17, cmdid=4113, slba=0, req_len=4096, is_write=0
+    kworker/0:1H-520     [000] ..... 31675.859507: nvme_tcp_try_recv: offset=0, len=4144, recv_stat=0, qid=1
+    kworker/0:1H-520     [000] ..... 31675.859513: [nvme_tcp_handle_c2h_data]: nvme4: disk=nvme4c4n1, qid=1, rtag=17, data_remain=4096, is_write=0, cmdid=4113
+    kworker/0:1H-520     [000] ..... 31675.859517: nvme_tcp_recv_data: nvme4: disk=nvme4c4n1, qid=1, rtag=17, cp_len=4096, is_write=0
+    kworker/0:1H-520     [000] ..... 31675.859518: [nvme_tcp_process_nvme_cqe]: nvme4: disk=nvme4c4n1, qid=1, rtag=17, cmdid=4113, slba=0, pos=0, length=4096, is_write=0
+ *
+ * 
+ * 128K READ
+ 
+             fio-262301  [000] ..... 32746.874173: nvme_tcp_queue_rq: nvme4: disk=nvme4c4n1, qid=1, rtag=21, cmdid=0, slba=0, pos=0, length=131072, is_write=0, req_len=0, send_len=0
+             fio-262301  [000] ..... 32746.874186: [nvme_tcp_queue_request]: nvme4: disk=nvme4c4n1, qid=1, rtag=21, cmdid=4117, slba=0, pos=0, length=131072, is_write=0, req_len=0, send_len=0
+             fio-262301  [000] ..... 32746.874212: [nvme_tcp_try_send_cmd_pdu]: nvme4: disk=nvme4c4n1, qid=1, rtag=21, cmdid=4117, slba=0, request_length=131072, send_bytes=72, is_write=0
+             fio-262301  [000] ..... 32746.874213: nvme_tcp_done_send_req: nvme4: disk=nvme4c4n1, qid=1, rtag=21, cmdid=4117, slba=0, req_len=131072, is_write=0
+    kworker/0:1H-520     [000] ..... 32746.875003: nvme_tcp_try_recv: offset=0, len=17896, recv_stat=0, qid=1
+    kworker/0:1H-520     [000] ..... 32746.875014: [nvme_tcp_handle_c2h_data]: nvme4: disk=nvme4c4n1, qid=1, rtag=21, data_remain=131072, is_write=0, cmdid=4117
+    kworker/0:1H-520     [000] ..... 32746.875025: nvme_tcp_recv_data: nvme4: disk=nvme4c4n1, qid=1, rtag=21, cp_len=17872, is_write=0
+    kworker/0:1H-520     [000] ..... 32746.875029: nvme_tcp_try_recv: offset=0, len=17896, recv_stat=1, qid=1
+    kworker/0:1H-520     [000] ..... 32746.875038: nvme_tcp_recv_data: nvme4: disk=nvme4c4n1, qid=1, rtag=21, cp_len=17896, is_write=0
+    kworker/0:1H-520     [000] ..... 32746.875039: nvme_tcp_try_recv: offset=0, len=17896, recv_stat=1, qid=1
+    kworker/0:1H-520     [000] ..... 32746.875046: nvme_tcp_recv_data: nvme4: disk=nvme4c4n1, qid=1, rtag=21, cp_len=17896, is_write=0
+    kworker/0:1H-520     [000] ..... 32746.875239: nvme_tcp_try_recv: offset=0, len=19504, recv_stat=1, qid=1
+    kworker/0:1H-520     [000] ..... 32746.875261: nvme_tcp_recv_data: nvme4: disk=nvme4c4n1, qid=1, rtag=21, cp_len=19504, is_write=0
+    kworker/0:1H-520     [000] ..... 32746.875266: nvme_tcp_try_recv: offset=0, len=7340, recv_stat=1, qid=1
+    kworker/0:1H-520     [000] ..... 32746.875269: nvme_tcp_recv_data: nvme4: disk=nvme4c4n1, qid=1, rtag=21, cp_len=7340, is_write=0
+    kworker/0:1H-520     [000] ..... 32746.875271: nvme_tcp_try_recv: offset=0, len=26844, recv_stat=1, qid=1
+    kworker/0:1H-520     [000] ..... 32746.875284: nvme_tcp_recv_data: nvme4: disk=nvme4c4n1, qid=1, rtag=21, cp_len=26844, is_write=0
+    kworker/0:1H-520     [000] ..... 32746.875286: nvme_tcp_try_recv: offset=0, len=19704, recv_stat=1, qid=1
+    kworker/0:1H-520     [000] ..... 32746.875294: nvme_tcp_recv_data: nvme4: disk=nvme4c4n1, qid=1, rtag=21, cp_len=19704, is_write=0
+    kworker/0:1H-520     [000] ..... 32746.875296: nvme_tcp_try_recv: offset=0, len=4040, recv_stat=1, qid=1
+    kworker/0:1H-520     [000] ..... 32746.875298: nvme_tcp_recv_data: nvme4: disk=nvme4c4n1, qid=1, rtag=21, cp_len=4016, is_write=0
+    kworker/0:1H-520     [000] ..... 32746.875299: [nvme_tcp_process_nvme_cqe]: nvme4: disk=nvme4c4n1, qid=1, rtag=21, cmdid=4117, slba=0, pos=0, length=131072, is_write=0
+
+ * 
+ * 4K WRITE
+             fio-262114  [000] ..... 31938.310311: nvme_tcp_queue_rq: nvme4: disk=nvme4c4n1, qid=1, rtag=19, cmdid=0, slba=0, pos=0, length=4096, is_write=1, req_len=0, send_len=0
+             fio-262114  [000] ..... 31938.310318: [nvme_tcp_queue_request]: nvme4: disk=nvme4c4n1, qid=1, rtag=19, cmdid=4115, slba=0, pos=0, length=4096, is_write=1, req_len=0, send_len=0
+             fio-262114  [000] ..... 31938.310326: [nvme_tcp_try_send_cmd_pdu]: nvme4: disk=nvme4c4n1, qid=1, rtag=19, cmdid=4115, slba=0, request_length=4096, send_bytes=72, is_write=1
+             fio-262114  [000] ..... 31938.310339: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=19, cmdid=4115, slba=0, req_len=4096, send_len=4096, is_write=1
+             fio-262114  [000] ..... 31938.310339: [nvme_tcp_done_send_req]: nvme4: disk=nvme4c4n1, qid=1, rtag=19, cmdid=4115, slba=0, req_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 31938.310729: nvme_tcp_try_recv: offset=0, len=24, recv_stat=0, qid=1
+    kworker/0:1H-520     [000] ..... 31938.310735: [nvme_tcp_process_nvme_cqe]: nvme4: disk=nvme4c4n1, qid=1, rtag=19, cmdid=4115, slba=0, pos=0, length=4096, is_write=1
+
+ * 
+ * 128K WRITE
+ * 
+             fio-262214  [000] ..... 32236.379415: nvme_tcp_queue_rq: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=0, slba=0, pos=0, length=131072, is_write=1, req_len=0, send_len=0
+             fio-262214  [000] ..... 32236.379421: [nvme_tcp_queue_request]: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=4116, slba=0, pos=0, length=131072, is_write=1, req_len=0, send_len=0
+             fio-262214  [000] ..... 32236.379440: [nvme_tcp_try_send_cmd_pdu]: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=4116, slba=0, request_length=131072, send_bytes=72, is_write=1
+             fio-262214  [000] ..... 32236.379440: nvme_tcp_done_send_req: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=4116, slba=0, req_len=131072, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379767: nvme_tcp_try_recv: offset=0, len=24, recv_stat=0, qid=1
+    kworker/0:1H-520     [000] ..... 32236.379774: [nvme_tcp_handle_r2t]: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=4116, slba=0, pos=0, length=131072, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379774: nvme_tcp_queue_request: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, pos=0, length=131072, is_write=1, req_len=0, send_len=0
+    kworker/0:1H-520     [000] ..... 32236.379786: nvme_tcp_try_send_data_pdu: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=24, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379787: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379788: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379789: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379789: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379790: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379790: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379801: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379802: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379803: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379803: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379803: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379804: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379804: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379807: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379807: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379808: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379808: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379809: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379809: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379810: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379810: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379811: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379811: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379811: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379812: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379812: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379813: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379814: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379814: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379814: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379815: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379816: nvme_tcp_try_send_data: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, send_len=4096, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.379816: [nvme_tcp_done_send_req]: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, req_len=131072, is_write=1
+    kworker/0:1H-520     [000] ..... 32236.380829: nvme_tcp_try_recv: offset=0, len=24, recv_stat=0, qid=1
+    kworker/0:1H-520     [000] ..... 32236.380838: [nvme_tcp_process_nvme_cqe]: nvme4: disk=nvme4c4n1, qid=1, rtag=20, cmdid=3, slba=0, pos=0, length=131072, is_write=1
+
+
+response type:
+(1) r2t
+(2) rsp
+(3) c2h data
+*/
+
+
+
+
+// enum stage{
+  
+// }
+
+// struct lifetime_record {
+//   /** the events recorded includes 
+//    *  - req tag
+//    *  - :nvme_tcp_queue_rq
+//    *  - :nvme_tcp_queue_request
+//    *  - :nvme_tcp_try_send_cmd_pdu
+//    *  - :
+//   */
+// }
+
+
 struct _nvmetcp_stat {
   atomic64_t sum_blk_layer_lat;
   atomic64_t cnt;
@@ -46,7 +167,7 @@ struct proc_dir_entry *entry_raw_nvmetcp_stat;
  * @param ignore: the first parameter of the tracepoint
  * @param req: the request
  */
-void on_nvme_tcp_queue_rq(void *ignore, struct request *req) {
+void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int len1, int len2, long long unsigned int time) {
   /** get queue id */
   u32 qid = (!req->q->queuedata) ? 0 : req->mq_hctx->queue_num + 1;
 

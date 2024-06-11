@@ -3,6 +3,8 @@
 
 #include "ntm_com.h"
 
+
+
 struct nvmetcp_stat_set {
   struct nvmetcp_stat *raw_nvmetcp_stat;
 };
@@ -15,8 +17,10 @@ void init_ntm_nvmetcp(struct nvmetcp_stat_set *_set) {
 
 void print_nvmetcp_stat(struct nvmetcp_stat *ns, char *header) {
   printf("header: %s \t", header);
-  printf("sum_blk_layer_lat: %llu\t", ns->sum_blk_layer_lat);
-  printf("cnt: %llu\n", ns->cnt);
+  printf("sum_blk_layer_lat(us): %llu\t", ns->sum_blk_layer_lat / 1000);
+  printf("cnt: %llu\t", ns->cnt);
+  if(ns->cnt > 0)
+    printf("average(us): %llu\n", ns->sum_blk_layer_lat / ns->cnt / 1000);
 }
 
 void print_nvmetcp_stat_set (struct nvmetcp_stat_set *ns, bool clear) {
