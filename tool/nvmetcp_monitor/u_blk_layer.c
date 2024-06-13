@@ -45,7 +45,13 @@ void print_blk_stat(struct blk_stat *b_stat, char *header) {
 void print_blk_stat_set(struct blk_stat_set *bs, bool clear) {
   if (clear) printf("\033[H\033[J");
   print_blk_stat(bs->raw_blk_stat, "RAW BLK STAT");
-  print_blk_stat(bs->blk_stat, "LAST seconds");
+  /** 
+   * TODO: make it a global variable, 
+   * instead of calling it repeatedly
+  */
+  char header[32];
+  sprintf(header, "LAST %ds", args->win); 
+  print_blk_stat(bs->blk_stat, header);
 }
 
 
