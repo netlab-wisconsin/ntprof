@@ -6,7 +6,7 @@
 /** filters */
 // extern char device_name[32];
 
-extern Arguments args;
+extern Arguments* args;
 
 
 #endif  // U_NTM_H

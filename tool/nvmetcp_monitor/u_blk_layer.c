@@ -8,7 +8,7 @@
 */
 void print_blk_stat(struct blk_stat *b_stat, char *header) {
   printf("header: %s \t", header);
-  printf("device_name: %s\n", args.dev);
+  printf("device_name: %s\n", args->dev);
   char *dis_header[9] = {"<4KB", "4KB",   "8KB",    "16KB",  "32KB",
                          "64KB", "128KB", ">128KB", "others"};
   printf("read total: %llu\n", b_stat->read_count);

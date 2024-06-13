@@ -17,6 +17,9 @@
     "u_ntm.h": "c",
     "u_nvmetcp_layer.h": "c",
     "u_blk_layer.h": "c",
-    "type_traits": "c"
+    "type_traits": "c",
+    "k_blk_layer.h": "c",
+    "k_nvmetcp_layer.h": "c",
+    "kernel.h": "c"
   }
 }

@@ -24,14 +24,14 @@ static bool to_sample(void) {
 /** for storing the device name */
 // static char device_name[32] = "";
 
-static Arguments args;
+static Arguments* args;
 
 /** a thread, periodically update the communication data strucure */
 static struct task_struct *update_routine_thread;
 
 
 /** inticator, to record or not */
-static int record_enabled = 0;
+static int ctrl = 0;
 
 
 /**
@@ -39,7 +39,7 @@ static int record_enabled = 0;
  */
 struct proc_dir_entry *parent_dir;
 struct proc_dir_entry *entry_ctrl;
-
+struct proc_dir_entry *entry_args;
 
 /**
  * Given a device name, return the request queue of the device.

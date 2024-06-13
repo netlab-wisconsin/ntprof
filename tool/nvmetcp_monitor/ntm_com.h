@@ -9,19 +9,29 @@ typedef enum {
     _BOTH
 } req_type;
 
+
+
 typedef struct {
+  /** device name */
     char dev[32];
+    /** sample rate */
     float rate;
+    /** io type, read or write */
     req_type io_type;
+    /** sliding window length */
     int win;
-    int size;
+    /** io size, in bytes */
+    int io_size;
+    /** queue id */
     int qid;
+    /** network packet sample rate */
     float nrate;
 } Arguments;
 
 
 
-enum SIZE_TYPE { _LT_4K, _4K, _8K, _16K, _32K, _64K, _128K, _GT_128K, _OTHERS };
+enum size_type { _LT_4K, _4K, _8K, _16K, _32K, _64K, _128K, _GT_128K, _OTHERS };
+
 
 /**
  * a data structure to store the blk layer statistics
@@ -36,7 +46,7 @@ struct blk_stat {
   /**
    * read io number of different sizes
    * the sizs are divided into 9 categories
-   * refers to enum SIZE_TYPE
+   * refers to enum size_type
    */
   unsigned long long read_io[9];
   /** write io number of different sizes */

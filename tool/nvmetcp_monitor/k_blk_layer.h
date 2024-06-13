@@ -39,7 +39,7 @@ struct _blk_stat {
   /**
    * read io number of different sizes
    * the sizs are divided into 9 categories
-   * refers to enum SIZE_TYPE in ntm_com.h
+   * refers to enum size_type in ntm_com.h
    */
   atomic64_t read_io[9];
   /** write io number of different sizes */
@@ -210,7 +210,6 @@ static struct blk_stat *sample;
  */
 struct proc_dir_entry *entry_blk_dir;
 struct proc_dir_entry *entry_raw_blk_stat;
-struct proc_dir_entry *entry_params;
 struct proc_dir_entry *entry_sw;
 struct proc_dir_entry *entry_sample;
 
@@ -227,7 +226,7 @@ unsigned int get_pending_requests(struct request_queue *q) { return 0; }
  */
 void on_block_bio_queue(void *ignore, struct bio *bio) {
   /** only take action when the record is enabled */
-  if (record_enabled) {
+  if (ctrl) {
     atomic64_t *arr = NULL;
     unsigned int size;
 
@@ -235,7 +234,7 @@ void on_block_bio_queue(void *ignore, struct bio *bio) {
     const char *rq_disk_name = bio->bi_bdev->bd_disk->disk_name;
 
     /** filter out the io from other devices */
-    if (strcmp(args.dev, rq_disk_name) != 0) {
+    if (strcmp(args->dev, rq_disk_name) != 0) {
       return;
     }
 
@@ -352,14 +351,14 @@ void blk_stat_update(u64 now) {
   /** update the raw blk layer statistic in the user space */
   copy_blk_stat(raw_blk_stat, _raw_blk_stat);
   /** remove expired io in the sliding window */
-  remove_from_sliding_window(sw, now - args.win * NSEC_PER_SEC);
+  remove_from_sliding_window(sw, now - args->win * NSEC_PER_SEC);
   /** update the stat of sampled io in last period, shared in the user space */
   sw_all_to_blk_stat(sw, sample);
 }
 
 /**
  * initialize the variables
- * - set record_enabled to 0
+ * - set ctrl to 0
  * - set device_name to empty string
  * - allocate memory for _raw_blk_stat, raw_blk_stat, sw, sample
  * - initialize the blk_stat structures
