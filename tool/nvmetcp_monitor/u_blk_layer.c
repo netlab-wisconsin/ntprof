@@ -1,5 +1,5 @@
-#include "blk_layer_user.h"
-#include "ntm_user.h"
+#include "u_blk_layer.h"
+#include "u_ntm.h"
 
 /** 
  * print a blk_stat data structure

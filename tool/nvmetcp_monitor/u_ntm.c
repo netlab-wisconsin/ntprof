@@ -1,9 +1,7 @@
 
-#include "ntm_user.h"
-#include "blk_layer_user.h"
-#include "nvmetcp_layer_user.h"
-
-#define BUFFER_SIZE PAGE_SIZE
+#include "u_ntm.h"
+#include "u_blk_layer.h"
+#include "u_nvmetcp_layer.h"
 
 
 static volatile int keep_running = 1;

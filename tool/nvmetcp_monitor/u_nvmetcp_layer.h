@@ -1,5 +1,5 @@
-#ifndef NVMETCP_LAYER_USER_H
-#define NVMETCP_LAYER_USER_H
+#ifndef U_NVMETCP_LAYER_H
+#define U_NVMETCP_LAYER_H
 
 #include "ntm_com.h"
 
@@ -70,4 +70,4 @@ void unmap_ntm_nvmetcp_data() {
   munmap(nvmetcp_set->raw_nvmetcp_stat, sizeof(struct nvmetcp_stat));
 }
 
-#endif  // NVMETCP_LAYER_USER_H
+#endif  // U_NVMETCP_LAYER_H

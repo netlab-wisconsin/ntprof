@@ -1,5 +1,5 @@
-#ifndef NVMETCP_LAYER_H
-#define NVMETCP_LAYER_H
+#ifndef K_NVMETCP_LAYER_H
+#define K_NVMETCP_LAYER_H
 
 #include <linux/blkdev.h>
 #include <linux/kernel.h>
@@ -318,4 +318,4 @@ void _exit_ntm_nvmetcp_layer(void) {
   pr_info("stop nvmetcp module monitor\n");
 }
 
-#endif  // NVMETCP_LAYER_H
+#endif  // K_NVMETCP_LAYER_H

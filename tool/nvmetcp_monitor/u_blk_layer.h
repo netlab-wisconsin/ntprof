@@ -1,5 +1,5 @@
-#ifndef BLK_LAYER_USER_H
-#define BLK_LAYER_USER_H
+#ifndef U_BLK_LAYER_H
+#define U_BLK_LAYER_H
 
 #include <errno.h>
 #include <fcntl.h>
@@ -36,4 +36,4 @@ void map_ntm_blk_data();
 
 void unmap_ntm_blk_data();
 
-#endif // BLK_LAYER_USER_H
+#endif // U_BLK_LAYER_H

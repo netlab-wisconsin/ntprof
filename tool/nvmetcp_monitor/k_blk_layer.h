@@ -1,5 +1,5 @@
-#ifndef _BLK_LAYER_H_
-#define _BLK_LAYER_H_
+#ifndef _K_BLK_LAYER_H_
+#define _K_BLK_LAYER_H_
 
 #include <linux/atomic.h>
 #include <linux/bio.h>
@@ -24,7 +24,7 @@
 #include <linux/vmalloc.h>
 #include <trace/events/block.h>
 
-#include "ntm_kernel.h"
+#include "k_ntm.h"
 #include "util.h"
 
 /**
@@ -519,4 +519,4 @@ static void _exit_ntm_blk_layer(void) {
   pr_info("stop blk module monitor\n");
 }
 
-#endif  // _BLK_LAYER_H_
+#endif  // _K_BLK_LAYER_H_

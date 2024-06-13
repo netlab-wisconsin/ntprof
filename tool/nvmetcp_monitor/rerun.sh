@@ -1,6 +1,6 @@
 make clean
 make
-sudo rmmod ntm_kernel
-sudo insmod ntm_kernel.ko
-sudo ./ntm_user -d nvme4n1
+sudo rmmod k_ntm
+sudo insmod k_ntm.ko
+sudo ./u_ntm -d nvme4n1
 

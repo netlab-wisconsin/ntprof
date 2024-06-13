@@ -1,5 +1,5 @@
-#ifndef NTM_KERNEL_H
-#define NTM_KERNEL_H
+#ifndef K_NTM_H
+#define K_NTM_H
 
 #include <linux/kernel.h>
 #include <linux/kthread.h>
@@ -67,4 +67,4 @@ struct request_queue *device_name_to_queue(const char *dev_name) {
   return q;
 }
 
-#endif // NTM_KERNEL_H
+#endif // K_NTM_H
