@@ -199,23 +199,20 @@ static struct _blk_stat *_raw_blk_stat;
 /** raw blk layer statistics, shared in user space*/
 static struct blk_stat *raw_blk_stat;
 
-/** a sliding window to record bio in the last 10s */
+/** a sliding window to record bio in the last period */
 static struct sliding_window *sw;
 
-/** blk layer stat for sampled io, in last 10s, shared with user space */
-static struct blk_stat *sample_10s;
-
-/** blk layer stat for sampled io, in last 2s, shared with user space */
-static struct blk_stat *sample_2s;
+/** blk layer stat for sampled io, in last period, shared with user space */
+static struct blk_stat *sample;
 
 /**
  * communication entries
  */
+struct proc_dir_entry *entry_blk_dir;
 struct proc_dir_entry *entry_raw_blk_stat;
 struct proc_dir_entry *entry_params;
 struct proc_dir_entry *entry_sw;
-struct proc_dir_entry *entry_sample_10s;
-struct proc_dir_entry *entry_sample_2s;
+struct proc_dir_entry *entry_sample;
 
 /**
  * TODO: get the number of pending requests in the queue
@@ -238,7 +235,7 @@ void on_block_bio_queue(void *ignore, struct bio *bio) {
     const char *rq_disk_name = bio->bi_bdev->bd_disk->disk_name;
 
     /** filter out the io from other devices */
-    if (strcmp(device_name, rq_disk_name) != 0) {
+    if (strcmp(args.dev, rq_disk_name) != 0) {
       return;
     }
 
@@ -327,46 +324,24 @@ static const struct proc_ops ntm_raw_blk_stat_ops = {
 
 /**
  * This function defines how user space map the a variable to
- * the kernel space variable, sample_10s
+ * the kernel space variable, sample
  * @param filp: the file to map
  * @param vma: the virtual memory area to map
  * @return 0 if success, -EAGAIN if failed
  */
-static int mmap_sample_10s(struct file *filp, struct vm_area_struct *vma) {
-  if (remap_pfn_range(vma, vma->vm_start, vmalloc_to_pfn(sample_10s),
+static int mmap_sample(struct file *filp, struct vm_area_struct *vma) {
+  if (remap_pfn_range(vma, vma->vm_start, vmalloc_to_pfn(sample),
                       vma->vm_end - vma->vm_start, vma->vm_page_prot))
     return -EAGAIN;
   return 0;
 }
 
 /**
- * define the operations for the sample_10s command
- * - proc_mmap: map the sample_10s to the user space
+ * define the operations for the sample command
+ * - proc_mmap: map the sample to the user space
  */
-static const struct proc_ops ntm_sample_10s_ops = {
-    .proc_mmap = mmap_sample_10s,
-};
-
-/**
- * This function defines how user space map the a variable to
- * the kernel space variable, sample_2s
- * @param filp: the file to map
- * @param vma: the virtual memory area to map
- * @return 0 if success, -EAGAIN if failed
- */
-static int mmap_sample_2s(struct file *filp, struct vm_area_struct *vma) {
-  if (remap_pfn_range(vma, vma->vm_start, vmalloc_to_pfn(sample_2s),
-                      vma->vm_end - vma->vm_start, vma->vm_page_prot))
-    return -EAGAIN;
-  return 0;
-}
-
-/**
- * define the operations for the sample_2s command
- * - proc_mmap: map the sample_2s to the user space
- */
-static const struct proc_ops ntm_sample_2s_ops = {
-    .proc_mmap = mmap_sample_2s,
+static const struct proc_ops ntm_sample_ops = {
+    .proc_mmap = mmap_sample,
 };
 
 /**
@@ -377,18 +352,16 @@ void blk_stat_update(u64 now) {
   /** update the raw blk layer statistic in the user space */
   copy_blk_stat(raw_blk_stat, _raw_blk_stat);
   /** remove expired io in the sliding window */
-  remove_from_sliding_window(sw, now - 10 * NSEC_PER_SEC);
-  /** update the stat of sampled io in last 10s, shared in the user space */
-  sw_all_to_blk_stat(sw, sample_10s);
-  /** update the stat of the sampled io in last 2s, shared in the user space */
-  sw_to_blk_stat(sw, sample_2s, now - 2 * NSEC_PER_SEC);
+  remove_from_sliding_window(sw, now - args.win * NSEC_PER_SEC);
+  /** update the stat of sampled io in last period, shared in the user space */
+  sw_all_to_blk_stat(sw, sample);
 }
 
 /**
  * initialize the variables
  * - set record_enabled to 0
  * - set device_name to empty string
- * - allocate memory for _raw_blk_stat, raw_blk_stat, sw, sample_10s, sample_2s
+ * - allocate memory for _raw_blk_stat, raw_blk_stat, sw, sample
  * - initialize the blk_stat structures
  */
 int init_blk_variables(void) {
@@ -404,39 +377,41 @@ int init_blk_variables(void) {
   sw = vmalloc(sizeof(*sw));
   if (!sw) return -ENOMEM;
   init_sliding_window(sw);
-  /** sample_10s */
-  sample_10s = vmalloc(sizeof(*sample_10s));
-  if (!sample_10s) return -ENOMEM;
-  init_blk_tr(sample_10s);
-  /** sample_2s */
-  sample_2s = vmalloc(sizeof(*sample_2s));
-  if (!sample_2s) return -ENOMEM;
-  init_blk_tr(sample_2s);
+  /** sample */
+  sample = vmalloc(sizeof(*sample));
+  if (!sample) return -ENOMEM;
+  init_blk_tr(sample);
   return 0;
 }
 
 /**
  * clean the variables
- * - free the memory of _raw_blk_stat, raw_blk_stat, sw, sample_10s, sample_2s
+ * - free the memory of _raw_blk_stat, raw_blk_stat, sw, sample
  */
 int clean_blk_variables(void) {
   vfree(_raw_blk_stat);
   vfree(raw_blk_stat);
   vfree(sw);
-  vfree(sample_10s);
-  vfree(sample_2s);
+  vfree(sample);
   return 0;
 }
 
 /**
  * initialize the proc entries
- * - create /proc/ntm/ntm_raw_blk_stat entry
- * - create /proc/ntm/ntm_sample_10s entry
- * - create /proc/ntm/ntm_sample_2s entry
+ * - create /proc/ntm/blk dir
+ * - create /proc/ntm/blk/ntm_raw_blk_stat entry
+ * - create /proc/ntm/blk/ntm_sample entry
  */
 int init_blk_proc_entries(void) {
+
+  entry_blk_dir = proc_mkdir("blk", parent_dir);
+  if (!entry_blk_dir) {
+    pr_err("Failed to create proc blk\n");
+    return -ENOMEM;
+  }
+
   entry_raw_blk_stat =
-      proc_create("ntm_raw_blk_stat", 0666, parent_dir, &ntm_raw_blk_stat_ops);
+      proc_create("ntm_raw_blk_stat", 0666, entry_blk_dir, &ntm_raw_blk_stat_ops);
   if (!entry_raw_blk_stat) {
     pr_err("Failed to create proc entry for data\n");
     blk_unregister_tracepoints();
@@ -444,22 +419,11 @@ int init_blk_proc_entries(void) {
     return -ENOMEM;
   }
 
-  entry_sample_10s =
-      proc_create("ntm_sample_10s", 0666, parent_dir, &ntm_sample_10s_ops);
-  if (!entry_sample_10s) {
-    pr_err("Failed to create proc entry for sample_10s\n");
-    remove_proc_entry("ntm_raw_blk_stat", parent_dir);
-    blk_unregister_tracepoints();
-    vfree(raw_blk_stat);
-    return -ENOMEM;
-  }
-
-  entry_sample_2s =
-      proc_create("ntm_sample_2s", 0666, parent_dir, &ntm_sample_2s_ops);
-  if (!entry_sample_2s) {
-    pr_err("Failed to create proc entry for sample_2s\n");
-    remove_proc_entry("ntm_sample_10s", parent_dir);
-    remove_proc_entry("ntm_raw_blk_stat", parent_dir);
+  entry_sample =
+      proc_create("ntm_sample", 0666, entry_blk_dir, &ntm_sample_ops);
+  if (!entry_sample) {
+    pr_err("Failed to create proc entry for sample\n");
+    remove_proc_entry("ntm_raw_blk_stat", entry_blk_dir);
     blk_unregister_tracepoints();
     vfree(raw_blk_stat);
     return -ENOMEM;
@@ -471,13 +435,13 @@ int init_blk_proc_entries(void) {
 /**
  * remove the proc entries
  * - remove /proc/ntm/ntm_raw_blk_stat entry
- * - remove /proc/ntm/ntm_sample_10s entry
- * - remove /proc/ntm/ntm_sample_2s entry
+ * - remove /proc/ntm/ntm_sample entry
+ * - remove /proc/ntm/blk dir
  */
 static void remove_blk_proc_entries(void) {
-  remove_proc_entry("ntm_raw_blk_stat", parent_dir);
-  remove_proc_entry("ntm_sample_10s", parent_dir);
-  remove_proc_entry("ntm_sample_2s", parent_dir);
+  remove_proc_entry("ntm_raw_blk_stat", entry_blk_dir);
+  remove_proc_entry("ntm_sample", entry_blk_dir);
+  remove_proc_entry("blk", parent_dir);
 }
 
 /**

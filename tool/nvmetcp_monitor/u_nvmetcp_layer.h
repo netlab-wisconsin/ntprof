@@ -44,15 +44,15 @@ void map_ntm_nvmetcp_data() {
   int raw_nvmetcp_stat_fd;
 
   /** map the raw_nvmetcp_stat */
-  raw_nvmetcp_stat_fd = open("/proc/ntm/ntm_raw_nvmetcp_stat", O_RDONLY);
+  raw_nvmetcp_stat_fd = open("/proc/ntm/nvmetcp/ntm_raw_nvmetcp_stat", O_RDONLY);
   if (raw_nvmetcp_stat_fd == -1) {
-    printf("Failed to open /proc/ntm/ntm_raw_nvmetcp_stat\n");
+    printf("Failed to open /proc/ntm/nvmetcp/ntm_raw_nvmetcp_stat\n");
     exit(EXIT_FAILURE);
   }
   nvmetcp_set->raw_nvmetcp_stat =mmap(NULL, sizeof(struct nvmetcp_stat), PROT_READ,
                                MAP_SHARED, raw_nvmetcp_stat_fd, 0);
   if (nvmetcp_set->raw_nvmetcp_stat == MAP_FAILED) {
-    printf("Failed to mmap /proc/ntm/ntm_raw_nvmetcp_stat\n");
+    printf("Failed to mmap /proc/ntm/nvmetcp/ntm_raw_nvmetcp_stat\n");
     close(raw_nvmetcp_stat_fd);
     exit(EXIT_FAILURE);
   }

@@ -1,6 +1,26 @@
 #ifndef NTM_COM_H
 #define NTM_COM_H
 
+
+
+typedef enum {
+    _READ,
+    _WRITE,
+    _BOTH
+} req_type;
+
+typedef struct {
+    char dev[32];
+    float rate;
+    req_type io_type;
+    int win;
+    int size;
+    int qid;
+    float nrate;
+} Arguments;
+
+
+
 enum SIZE_TYPE { _LT_4K, _4K, _8K, _16K, _32K, _64K, _128K, _GT_128K, _OTHERS };
 
 /**

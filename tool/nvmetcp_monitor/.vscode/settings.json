@@ -13,6 +13,10 @@
     "blk_types.h": "c",
     "ntm_user.h": "c",
     "random.h": "c",
-    "nvmetcp_layer_user.h": "c"
+    "nvmetcp_layer_user.h": "c",
+    "u_ntm.h": "c",
+    "u_nvmetcp_layer.h": "c",
+    "u_blk_layer.h": "c",
+    "type_traits": "c"
   }
 }

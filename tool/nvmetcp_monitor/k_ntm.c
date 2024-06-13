@@ -141,8 +141,8 @@ static ssize_t ntm_params_write(struct file *file, const char __user *buffer,
     return -EINVAL;
   } else {
     /** set the device_name variable */
-    strncpy(device_name, buf, sizeof(device_name));
-    pr_info("device_name set to %s\n", device_name);
+    strncpy(args.dev, buf, sizeof(args.dev));
+    pr_info("device_name set to %s\n", args.dev);
   }
   return count;
 }
@@ -202,7 +202,7 @@ static int __init init_ntm_module(void) {
    * - device_name
    */
   record_enabled = 0;
-  device_name[0] = '\0';
+  args.dev[0] = '\0';
 
   /** initialize the proc entries */
   ret = init_ntm_proc_entries();

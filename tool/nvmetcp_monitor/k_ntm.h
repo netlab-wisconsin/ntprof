@@ -22,7 +22,9 @@ static bool to_sample(void) {
 
 
 /** for storing the device name */
-static char device_name[32] = "";
+// static char device_name[32] = "";
+
+static Arguments args;
 
 /** a thread, periodically update the communication data strucure */
 static struct task_struct *update_routine_thread;

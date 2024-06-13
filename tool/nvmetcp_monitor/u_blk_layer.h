@@ -17,13 +17,11 @@
 /**
  * blk layer statistics set
  * - raw_blk_stat: the raw statistics
- * - blk_stat_10s: the statistics in the last 10s
- * - blk_stat_2s: the statistics in the last 2s
+ * - blk_stat: the statistics in the last x seconds
 */
 struct blk_stat_set {
   struct blk_stat *raw_blk_stat;
-  struct blk_stat *blk_stat_10s;
-  struct blk_stat *blk_stat_2s;
+  struct blk_stat *blk_stat;
 };
 
 static struct blk_stat_set *blk_set;
