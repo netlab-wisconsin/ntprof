@@ -55,7 +55,7 @@ void int_handler(int dummy) { keep_running = 0; }
 /** a set of blk layer statistics, each element is mapped with a /proc file */
 struct blk_stat_set blk_stat_set;
 
-struct nvmetcp_stat_set nvmetcp_stat_set;
+
 
 void print_usage() {
   printf("Usage: ntm track [options]\n");
@@ -222,14 +222,13 @@ int main(int argc, char **argv) {
 
   map_ntm_blk_data();
 
-  init_ntm_nvmetcp(&nvmetcp_stat_set);
   map_ntm_nvmetcp_data();
 
   while (keep_running) {
     printf("\033[H\033[J");
     print_args(args);
     print_blk_stat_set(&blk_stat_set, false);
-    print_nvmetcp_stat_set(&nvmetcp_stat_set, false);
+    print_nvme_tcp_stat();
     sleep(1);
   }
 

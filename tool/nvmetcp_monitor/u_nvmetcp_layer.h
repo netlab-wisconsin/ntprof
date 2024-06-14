@@ -3,71 +3,82 @@
 
 #include "ntm_com.h"
 
+static struct nvme_tcp_stat *nvme_tcp_stat;
 
-
-struct nvmetcp_stat_set {
-  struct nvmetcp_stat *raw_nvmetcp_stat;
-};
-
-static struct nvmetcp_stat_set *nvmetcp_set;
-
-void init_ntm_nvmetcp(struct nvmetcp_stat_set *_set) {
-  nvmetcp_set = _set;
+void print_blk_lat_stat(struct blk_lat_stat *ns) {
+  printf("blk lat: \t");
+  if (ns->cnt > 0)
+    printf("average(us): %.6f\n",
+           (float)ns->sum_blk_layer_lat / ns->cnt / 1000);
+  else
+    printf("average(us): cnt=0\n");
 }
 
-void print_nvmetcp_stat(struct nvmetcp_stat *ns, char *header) {
-  printf("header: %s \t", header);
-  printf("sum_blk_layer_lat(us): %llu\t", ns->sum_blk_layer_lat / 1000);
-  printf("cnt: %llu\t", ns->cnt);
-  if(ns->cnt > 0)
-    printf("average(us): %llu\n", ns->sum_blk_layer_lat / ns->cnt / 1000);
-}
-
-void print_nvmetcp_stat_set (struct nvmetcp_stat_set *ns, bool clear) {
-  if (clear) printf("\033[H\033[J");
-  if(!ns){
-    printf("nvmetcp_set is not initialized\n");
-  } else if (!ns->raw_nvmetcp_stat) {
-    printf("nvmetcp_set->raw_nvmetcp_stat is not initialized\n");
+void print_read_breakdown(struct nvmetcp_read_breakdown *ns) {
+  printf("read breakdown: \t");
+  if (ns->cnt) {
+    printf("cnt: %d\t", ns->cnt);
+    printf("t_inqueue(us): %.6f\t", (float)ns->t_inqueue / 1000 / ns->cnt);
+    printf("t_reqcopy(us): %.6f\t", (float)ns->t_reqcopy / 1000 / ns->cnt);
+    printf("t_datacopy(us): %.6f\t", (float)ns->t_datacopy / 1000 / ns->cnt);
+    printf("t_waiting(us): %.6f\t", (float)ns->t_waiting / 1000 / ns->cnt);
+    printf("t_endtoend(us): %.6f\n", (float)ns->t_endtoend / 1000 / ns->cnt);
+    printf("t_waitproc(us): %.6f\n", (float)ns->t_waitproc / 1000 / ns->cnt);
   } else {
-    print_nvmetcp_stat(ns->raw_nvmetcp_stat, "RAW NVMETCP STAT");
+    printf("cnt: %d\n", ns->cnt);
   }
-  // print_nvmetcp_stat(ns->raw_nvmetcp_stat, "RAW NVMETCP STAT");
+}
+
+void print_write_breakdown(struct nvmetcp_write_breakdown *ns) {
+  printf("write breakdown: \t");
+  if (ns->cnt) {
+    printf("cnt: %d\t", ns->cnt);
+    printf("t_inqueue(us): %.6f\t", (float)ns->t_inqueue / 1000 / ns->cnt);
+    printf("t_reqcopy(us): %.6f\t", (float)ns->t_reqcopy / 1000 / ns->cnt);
+    printf("t_datacopy(us): %.6f\t", (float)ns->t_datacopy / 1000 / ns->cnt);
+    printf("t_waiting(us): %.6f\t", (float)ns->t_waiting / 1000 / ns->cnt);
+    printf("t_endtoend(us): %.6f\n", (float)ns->t_endtoend / 1000 / ns->cnt);
+  } else {
+    printf("cnt: %d\n", ns->cnt);
+  }
+}
+
+void print_nvme_tcp_stat() {
+  if (nvme_tcp_stat) {
+    print_read_breakdown(&nvme_tcp_stat->read);
+    print_write_breakdown(&nvme_tcp_stat->write);
+    print_blk_lat_stat(&nvme_tcp_stat->blk_lat);
+  } else {
+    printf("nvme_tcp_stat is NULL\n");
+  }
 }
 
 void map_ntm_nvmetcp_data() {
-  if (!nvmetcp_set) {
-    printf("nvmetcp_set is not initialized\n");
-    return;
-  }
-
-  int raw_nvmetcp_stat_fd;
+  int fd;
 
   /** map the raw_nvmetcp_stat */
-  raw_nvmetcp_stat_fd = open("/proc/ntm/nvmetcp/ntm_raw_nvmetcp_stat", O_RDONLY);
-  if (raw_nvmetcp_stat_fd == -1) {
-    printf("Failed to open /proc/ntm/nvmetcp/ntm_raw_nvmetcp_stat\n");
+  fd = open("/proc/ntm/nvmetcp/stat", O_RDONLY);
+  if (fd == -1) {
+    printf("Failed to open /proc/ntm/nvmetcp/stat\n");
     exit(EXIT_FAILURE);
   }
-  nvmetcp_set->raw_nvmetcp_stat =mmap(NULL, sizeof(struct nvmetcp_stat), PROT_READ,
-                               MAP_SHARED, raw_nvmetcp_stat_fd, 0);
-  if (nvmetcp_set->raw_nvmetcp_stat == MAP_FAILED) {
-    printf("Failed to mmap /proc/ntm/nvmetcp/ntm_raw_nvmetcp_stat\n");
-    close(raw_nvmetcp_stat_fd);
+  nvme_tcp_stat =
+      mmap(NULL, sizeof(struct nvme_tcp_stat), PROT_READ, MAP_SHARED, fd, 0);
+
+  if (nvme_tcp_stat == MAP_FAILED) {
+    printf("Failed to mmap /proc/ntm/nvmetcp/stat\n");
+    close(fd);
     exit(EXIT_FAILURE);
   }
-  printf("nvmetcp_set result, cnt: %llu, sum_blk_layer_lat: %llu\n", nvmetcp_set->raw_nvmetcp_stat->cnt, nvmetcp_set->raw_nvmetcp_stat->sum_blk_layer_lat);
-  close(raw_nvmetcp_stat_fd);
+  close(fd);
 }
 
 void unmap_ntm_nvmetcp_data() {
   printf("unmmap_raw_nvmetcp_stat\n");
-  if (!nvmetcp_set) {
-    printf("nvmetcp_set is not initialized\n");
-    return;
-  }
 
-  munmap(nvmetcp_set->raw_nvmetcp_stat, sizeof(struct nvmetcp_stat));
+  if (nvme_tcp_stat) {
+    munmap(nvme_tcp_stat, sizeof(struct nvme_tcp_stat));
+  }
 }
 
 #endif  // U_NVMETCP_LAYER_H

@@ -99,12 +99,12 @@ inline void inc_cnt_arr(unsigned long long *arr, int size) {
   } 
 }
 
-struct nvmetcp_stat{
+struct blk_lat_stat{
   unsigned long long sum_blk_layer_lat;
   unsigned long long cnt;
 };
 
-inline void init_nvmetcp_stat(struct nvmetcp_stat *stat) {
+inline void init_blk_lat_stat(struct blk_lat_stat *stat) {
   stat->sum_blk_layer_lat = 0;
   stat->cnt = 0;
 }
@@ -124,6 +124,7 @@ struct nvmetcp_read_breakdown {
   unsigned long long t_reqcopy;
   unsigned long long t_datacopy;
   unsigned long long t_waiting;
+  unsigned long long t_waitproc;
   unsigned long long t_endtoend;
 };
 
@@ -136,6 +137,12 @@ struct nvmetcp_write_breakdown {
   unsigned long long t_datacopy;
   unsigned long long t_waiting;
   unsigned long long t_endtoend;
+};
+
+struct nvme_tcp_stat {
+  struct nvmetcp_read_breakdown read;
+  struct nvmetcp_write_breakdown write;
+  struct blk_lat_stat blk_lat;
 };
 
 
