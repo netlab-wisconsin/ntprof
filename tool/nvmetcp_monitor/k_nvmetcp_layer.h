@@ -10,7 +10,7 @@
 #include "ntm_com.h"
 #include "util.h"
 
-#define EVENT_NUM 32
+#define EVENT_NUM 64
 
 enum nvme_tcp_trpt {
   QUEUE_RQ,
@@ -76,11 +76,20 @@ void nvme_tcp_trpt_name(enum nvme_tcp_trpt trpt, char *name) {
 }
 
 struct nvme_tcp_io_instance {
+  bool is_write;
   int req_tag;
   int waitlist;
   u64 ts[EVENT_NUM];
   enum nvme_tcp_trpt trpt[EVENT_NUM];
   int cnt;
+
+  // this is only useful for read io, maybe separate read and write io
+  bool contains_c2h;
+  // this is only for write io
+  bool contains_r2t;
+
+  /** indicate the event number exceeds the capacity, this sample is useless*/
+  bool is_spoiled;
 };
 
 void print_io_instance(struct nvme_tcp_io_instance *inst) {
@@ -98,6 +107,7 @@ static struct nvme_tcp_io_instance *current_io = NULL;
 void append_event(struct nvme_tcp_io_instance *inst, u64 ts,
                   enum nvme_tcp_trpt trpt) {
   if (inst->cnt >= EVENT_NUM) {
+    inst->is_spoiled = true;
     pr_info("too many events for one instance\n");
     return;
   }
@@ -136,6 +146,10 @@ static struct _nvmetcp_stat *_raw_nvmetcp_stat;
 
 static struct nvmetcp_stat *raw_nvmetcp_stat;
 
+static struct nvmetcp_read_breakdown *read_breakdown;
+
+static struct nvmetcp_write_breakdown *write_breakdown;
+
 struct proc_dir_entry *entry_nvmetcp_dir;
 struct proc_dir_entry *entry_raw_nvmetcp_stat;
 
@@ -146,6 +160,10 @@ struct proc_dir_entry *entry_raw_nvmetcp_stat;
  */
 void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int len1, int len2,
                           long long unsigned int time) {
+  if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
+    return;
+  }
+
   /** get queue id */
   u32 qid = (!req->q->queuedata) ? 0 : req->mq_hctx->queue_num + 1;
 
@@ -181,14 +199,162 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int len1, int len2,
       if (current_io == NULL) {
         pr_info("initialize current_io\n");
         current_io = kmalloc(sizeof(struct nvme_tcp_io_instance), GFP_KERNEL);
+        current_io->is_write = (rq_data_dir(req) == WRITE);
         current_io->req_tag = req->tag;
         current_io->waitlist = len1 + len2;
+        current_io->contains_c2h = false;
+        current_io->contains_r2t = false;
+        current_io->is_spoiled = false;
         append_event(current_io, time, QUEUE_RQ);
       } else {
+        /**
+         * according the sample rate, we hope to keep info about this io,
+         * but we need to make sure the previous io is processed completely
+         * so we ignore this io
+         */
         pr_info("current_io is not NULL\n");
       }
     }
   }
+}
+
+void init_nvmetcp_write_breakdown(struct nvmetcp_write_breakdown *wb) {
+  wb->cnt = 0;
+  wb->t_inqueue = 0;
+  wb->t_reqcopy = 0;
+  wb->t_datacopy = 0;
+  wb->t_waiting = 0;
+  wb->t_endtoend = 0;
+}
+
+void init_nvmetcp_read_breakdown(struct nvmetcp_read_breakdown *rb) {
+  rb->cnt = 0;
+  rb->t_inqueue = 0;
+  rb->t_reqcopy = 0;
+  rb->t_datacopy = 0;
+  rb->t_waiting = 0;
+}
+
+/**
+ *
+ *  0	 QUEUE_RQ
+    1	 QUEUE_REQUEST
+    2	 TRY_SEND
+    3	 TRY_SEND_CMD_PDU
+    4	 DONE_SEND_REQ
+    5	 HANDLE_C2H_DATA
+    6	 RECV_DATA
+       ... extra <TRY_RECV, RECV_DATA>
+    7	 PROCESS_NVME_CQE
+*/
+void update_read_breakdown(struct nvme_tcp_io_instance *io,
+                           struct nvmetcp_read_breakdown *rb) {
+  int i;
+  rb->cnt++;
+  rb->t_inqueue += io->ts[2] - io->ts[1];
+  rb->t_reqcopy += io->ts[4] - io->ts[2];
+  rb->t_waiting += io->ts[5] - io->ts[4];
+  rb->t_datacopy += io->ts[6] - io->ts[5];
+  for (i = 7; i < io->cnt; i++) {
+    if (io->trpt[i] == TRY_RECV) {
+      rb->t_waiting += io->ts[i] - io->ts[i - 1];
+    } else if (io->trpt[i] == RECV_DATA) {
+      rb->t_datacopy += io->ts[i] - io->ts[i - 1];
+    } else {
+      if (io->trpt[i] != PROCESS_NVME_CQE) {
+        pr_err("unexpected trpt: %d\n", io->trpt[i]);
+      }
+    }
+  }
+  rb->t_endtoend += io->ts[io->cnt - 1] - io->ts[0];
+}
+
+/**
+ *
+ * 
+ * without r2t
+  0	 QUEUE_RQ
+  1	 QUEUE_REQUEST
+  2	 TRY_SEND
+  3	 TRY_SEND_CMD_PDU
+  4	 TRY_SEND_DATA
+    ... <TRY_SEND_DATA>
+  5	 DONE_SEND_REQ
+  6	 PROCESS_NVME_CQE
+
+  with r2t
+  0	 QUEUE_RQ
+  1	 QUEUE_REQUEST
+  2	 TRY_SEND
+  3	 TRY_SEND_CMD_PDU
+  4	 DONE_SEND_REQ
+  5	 HANDLE_R2T
+  6	 QUEUE_REQUEST
+  7	 TRY_SEND
+  8	 TRY_SEND_DATA_PDU
+  9	 TRY_SEND_DATA
+  10	 TRY_SEND_DATA
+  11	 TRY_SEND_DATA
+  12	 TRY_SEND_DATA
+  13	 TRY_SEND_DATA
+  14	 TRY_SEND_DATA
+  15	 TRY_SEND_DATA
+  16	 TRY_SEND_DATA
+  17	 TRY_SEND_DATA
+  18	 TRY_SEND_DATA
+  19	 TRY_SEND_DATA
+  20	 TRY_SEND_DATA
+  21	 TRY_SEND_DATA
+  22	 TRY_SEND_DATA
+  23	 TRY_SEND_DATA
+  24	 TRY_SEND_DATA
+  25	 DONE_SEND_REQ
+  26	 PROCESS_NVME_CQE
+
+ *
+*/
+void update_write_breakdown(struct nvme_tcp_io_instance *io,
+                            struct nvmetcp_write_breakdown *rb) {
+  int i;
+  if (io->contains_r2t) {
+    /** TODO: to remove the check when it is safe */
+    if(io->cnt < 11){
+      pr_err("event number for write containing r2t is < 11 \n");
+      return;
+    }
+    rb->t_inqueue += io->ts[2] - io->ts[1];
+    rb->t_inqueue += io->ts[7] - io->ts[6];
+    rb->t_reqcopy += io->ts[4] - io->ts[2];
+    rb->t_waiting += io->ts[5] - io->ts[4];
+    rb->t_waiting += io->ts[io->cnt - 1] - io->ts[io->cnt - 2];
+    rb->t_datacopy += io->ts[io->cnt - 2] - io->ts[7];
+
+  } else {
+    rb->t_inqueue += io->ts[2] - io->ts[1];
+    rb->t_reqcopy += io->ts[3] - io->ts[2];
+    rb->t_datacopy += io->ts[io->cnt - 2] - io->ts[3];
+    rb->t_waiting += io->ts[io->cnt - 1] - io->ts[io->cnt - 2];
+  }
+  rb->cnt++;
+}
+
+void analize_sw_latency_breakdown(struct sliding_window *sw) {
+  init_nvmetcp_read_breakdown(read_breakdown);
+  init_nvmetcp_write_breakdown(write_breakdown);
+  struct list_head *pos, *q;
+  /** traverse the linked list */
+  spin_lock(&sw->lock);
+  list_for_each_safe(pos, q, &sw->list) {
+    struct sw_node *node = list_entry(pos, struct sw_node, list);
+    struct nvme_tcp_io_instance *io = (struct nvme_tcp_io_instance *)node->data;
+    if (io->is_spoiled) continue;
+    if (io->is_write) {
+      update_write_breakdown(io, write_breakdown);
+    } else {
+      update_read_breakdown(io, read_breakdown);
+    }
+  }
+  spin_unlock(&sw->lock);
 }
 
 /**
@@ -197,9 +363,10 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int len1, int len2,
 void nvmetcp_stat_update(u64 now) {
   copy_nvmetcp_stat(_raw_nvmetcp_stat, raw_nvmetcp_stat);
   remove_from_sliding_window(sw_blk_layer_time, now - 10 * NSEC_PER_SEC);
-  // pr_info("current stat for user space: sum_blk_layer_lat: %llu, cnt:
-  // %llu\n",
-  //         raw_nvmetcp_stat->sum_blk_layer_lat, raw_nvmetcp_stat->cnt);
+
+  /** calculate the time of interest in the sliding window */
+  // analize_sw_latency_breakdown(sw_nvmetcp_io_samples);
+  remove_from_sliding_window(sw_nvmetcp_io_samples, now - 10 * NSEC_PER_SEC);
 }
 
 /**
@@ -207,6 +374,9 @@ void nvmetcp_stat_update(u64 now) {
  */
 void on_nvme_tcp_queue_request(void *ignore, struct request *req,
                                bool is_initial, long long unsigned int time) {
+  if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
+    return;
+  }
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, QUEUE_REQUEST);
   }
@@ -215,6 +385,9 @@ void on_nvme_tcp_queue_request(void *ignore, struct request *req,
 
 void on_nvme_tcp_try_send(void *ignore, struct request *req,
                           long long unsigned int time) {
+  if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
+    return;
+  }
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND);
   }
@@ -223,6 +396,9 @@ void on_nvme_tcp_try_send(void *ignore, struct request *req,
 
 void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int len,
                                   long long unsigned int time) {
+  if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
+    return;
+  }
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND_CMD_PDU);
   }
@@ -231,6 +407,9 @@ void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int len,
 
 void on_nvme_tcp_try_send_data_pdu(void *ignore, struct request *req, int len,
                                    long long unsigned int time) {
+  if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
+    return;
+  }
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND_DATA_PDU);
   }
@@ -239,6 +418,9 @@ void on_nvme_tcp_try_send_data_pdu(void *ignore, struct request *req, int len,
 
 void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int len,
                                long long unsigned int time) {
+  if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
+    return;
+  }
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND_DATA);
   }
@@ -247,6 +429,9 @@ void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int len,
 
 void on_nvme_tcp_done_send_req(void *ignore, struct request *req,
                                long long unsigned int time) {
+  if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
+    return;
+  }
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, DONE_SEND_REQ);
   }
@@ -259,6 +444,16 @@ void on_nvme_tcp_try_recv(void *ignore, int offset, size_t len, int recv_stat,
   // append_event(current_io, time, TRY_RECV);
   // }
   // pr_info("on_nvme_tcp_try_recv\n");
+  if (!ctrl) {
+    return;
+  }
+  if (current_io && current_io->contains_c2h) {
+    /* TODO: to remove this test */
+    if (current_io->is_write) {
+      pr_err("write io contains c2h data\n");
+    }
+    append_event(current_io, time, TRY_RECV);
+  }
 }
 
 void on_nvme_tcp_recv_pdu(void *ignore, int consumed, unsigned char pdu_type,
@@ -272,14 +467,21 @@ void on_nvme_tcp_recv_pdu(void *ignore, int consumed, unsigned char pdu_type,
 void on_nvme_tcp_handle_c2h_data(void *ignore, struct request *rq,
                                  int data_remain, int qid,
                                  unsigned long long time) {
+  if (!ctrl || args->io_type + rq_data_dir(rq) == 1) {
+    return;
+  }
   if (current_io && rq->tag == current_io->req_tag) {
     append_event(current_io, time, HANDLE_C2H_DATA);
+    current_io->contains_c2h = true;
   }
   // pr_info("on_nvme_tcp_handle_c2h_data\n");
 }
 
 void on_nvme_tcp_recv_data(void *ignore, struct request *rq, int cp_len,
                            int qid, unsigned long long time) {
+  if (!ctrl || args->io_type + rq_data_dir(rq) == 1) {
+    return;
+  }
   if (current_io && rq->tag == current_io->req_tag) {
     append_event(current_io, time, RECV_DATA);
   }
@@ -288,7 +490,11 @@ void on_nvme_tcp_recv_data(void *ignore, struct request *rq, int cp_len,
 
 void on_nvme_tcp_handle_r2t(void *ignore, struct request *req,
                             unsigned long long time) {
+  if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
+    return;
+  }
   if (current_io && req->tag == current_io->req_tag) {
+    current_io->contains_r2t = true;
     append_event(current_io, time, HANDLE_R2T);
   }
   // pr_info("on_nvme_tcp_handle_r2t\n");
@@ -296,6 +502,9 @@ void on_nvme_tcp_handle_r2t(void *ignore, struct request *req,
 
 void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
                                   unsigned long long time) {
+  if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
+    return;
+  }
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, PROCESS_NVME_CQE);
 
@@ -498,6 +707,20 @@ int init_nvmetcp_variables(void) {
   if (!raw_nvmetcp_stat) -ENOMEM;
   init_nvmetcp_stat(raw_nvmetcp_stat);
 
+  read_breakdown = kmalloc(sizeof(*read_breakdown), GFP_KERNEL);
+  if (!read_breakdown) {
+    pr_err("Failed to allocate memory for read_breakdown\n");
+    return -ENOMEM;
+  }
+  init_nvmetcp_read_breakdown(read_breakdown);
+
+  write_breakdown = kmalloc(sizeof(*write_breakdown), GFP_KERNEL);
+  if (!write_breakdown) {
+    pr_err("Failed to allocate memory for write_breakdown\n");
+    return -ENOMEM;
+  }
+  init_nvmetcp_write_breakdown(write_breakdown);
+
   sw_blk_layer_time = kmalloc(sizeof(*sw_blk_layer_time), GFP_KERNEL);
   if (!sw_blk_layer_time) {
     pr_err("Failed to allocate memory for sw_blk_layer_time\n");
@@ -527,6 +750,12 @@ int clear_nvmetcp_variables(void) {
   }
   if (sw_nvmetcp_io_samples) {
     kfree(sw_nvmetcp_io_samples);
+  }
+  if (read_breakdown) {
+    kfree(read_breakdown);
+  }
+  if (write_breakdown) {
+    kfree(write_breakdown);
   }
   return 0;
 }

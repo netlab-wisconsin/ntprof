@@ -220,8 +220,6 @@ int main(int argc, char **argv) {
 
   init_ntm_blk(&blk_stat_set);
 
-
-
   map_ntm_blk_data();
 
   init_ntm_nvmetcp(&nvmetcp_stat_set);

@@ -116,4 +116,28 @@ struct normal_struct {
 inline void init_normal_struct(struct normal_struct *ns) {
   ns->item1 = 0;
 }
+
+
+struct nvmetcp_read_breakdown {
+  int cnt;
+  unsigned long long t_inqueue;
+  unsigned long long t_reqcopy;
+  unsigned long long t_datacopy;
+  unsigned long long t_waiting;
+  unsigned long long t_endtoend;
+};
+
+
+
+struct nvmetcp_write_breakdown {
+  int cnt;
+  unsigned long long t_inqueue;
+  unsigned long long t_reqcopy;
+  unsigned long long t_datacopy;
+  unsigned long long t_waiting;
+  unsigned long long t_endtoend;
+};
+
+
+
 #endif // NTM_COM_H

@@ -226,7 +226,7 @@ unsigned int get_pending_requests(struct request_queue *q) { return 0; }
  */
 void on_block_bio_queue(void *ignore, struct bio *bio) {
   /** only take action when the record is enabled */
-  if (ctrl) {
+  if (ctrl && args->io_type+bio_data_dir(bio) != 1) {
     atomic64_t *arr = NULL;
     unsigned int size;
 
