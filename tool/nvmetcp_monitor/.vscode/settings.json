@@ -20,6 +20,8 @@
     "type_traits": "c",
     "k_blk_layer.h": "c",
     "k_nvmetcp_layer.h": "c",
-    "kernel.h": "c"
+    "kernel.h": "c",
+    "nvme_tcp.h": "c",
+    "nvme.h": "c"
   }
 }

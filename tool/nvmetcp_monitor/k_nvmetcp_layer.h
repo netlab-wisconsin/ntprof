@@ -3,6 +3,7 @@
 
 #include <linux/blkdev.h>
 #include <linux/kernel.h>
+#include <linux/nvme.h>
 #include <linux/tracepoint.h>
 #include <trace/events/nvme_tcp.h>
 
@@ -76,15 +77,23 @@ void nvme_tcp_trpt_name(enum nvme_tcp_trpt trpt, char *name) {
 
 struct nvme_tcp_io_instance {
   int req_tag;
-  int cmd_id;
-  int qid;
   int waitlist;
   u64 ts[EVENT_NUM];
   enum nvme_tcp_trpt trpt[EVENT_NUM];
   int cnt;
 };
 
-static struct nvme_tcp_io_instance current_io;
+void print_io_instance(struct nvme_tcp_io_instance *inst) {
+  pr_info("req_tag: %d, waitlist: %d\n", inst->req_tag, inst->waitlist);
+  int i;
+  for (i = 0; i < inst->cnt; i++) {
+    char name[32];
+    nvme_tcp_trpt_name(inst->trpt[i], name);
+    pr_info("[%d] ts: %llu, trpt: %s\n", i, inst->ts[i], name);
+  }
+}
+
+static struct nvme_tcp_io_instance *current_io = NULL;
 
 void append_event(struct nvme_tcp_io_instance *inst, u64 ts,
                   enum nvme_tcp_trpt trpt) {
@@ -121,6 +130,8 @@ void copy_nvmetcp_stat(struct _nvmetcp_stat *src, struct nvmetcp_stat *dst) {
  */
 static struct sliding_window *sw_blk_layer_time;
 
+static struct sliding_window *sw_nvmetcp_io_samples;
+
 static struct _nvmetcp_stat *_raw_nvmetcp_stat;
 
 static struct nvmetcp_stat *raw_nvmetcp_stat;
@@ -143,14 +154,13 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int len1, int len2,
     return;
   }
 
-  u64 now = ktime_get_ns();
   u16 cnt = 0;
 
   struct bio *b;
   b = req->bio;
   while (b) {
     u64 _start = bio_issue_time(&b->bi_issue);
-    u64 _now = __bio_issue_time(now);
+    u64 _now = __bio_issue_time(time);
     /** the unit of lat is ns */
     u64 lat = _now - _start;
     cnt++;
@@ -164,8 +174,19 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int len1, int len2,
       (*p_lat) = lat;
       struct sw_node *node = kmalloc(sizeof(struct sw_node), GFP_KERNEL);
       node->data = p_lat;
-      node->timestamp = now;
+      node->timestamp = time;
       add_to_sliding_window(sw_blk_layer_time, node);
+
+      /** initialize current io */
+      if (current_io == NULL) {
+        pr_info("initialize current_io\n");
+        current_io = kmalloc(sizeof(struct nvme_tcp_io_instance), GFP_KERNEL);
+        current_io->req_tag = req->tag;
+        current_io->waitlist = len1 + len2;
+        append_event(current_io, time, QUEUE_RQ);
+      } else {
+        pr_info("current_io is not NULL\n");
+      }
     }
   }
 }
@@ -186,62 +207,108 @@ void nvmetcp_stat_update(u64 now) {
  */
 void on_nvme_tcp_queue_request(void *ignore, struct request *req,
                                bool is_initial, long long unsigned int time) {
+  if (current_io && req->tag == current_io->req_tag) {
+    append_event(current_io, time, QUEUE_REQUEST);
+  }
   // pr_info("on_nvme_tcp_queue_request\n");
 }
 
 void on_nvme_tcp_try_send(void *ignore, struct request *req,
                           long long unsigned int time) {
+  if (current_io && req->tag == current_io->req_tag) {
+    append_event(current_io, time, TRY_SEND);
+  }
   // pr_info("on_nvme_tcp_try_send\n");
 }
 
-void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req,
-                                  int len, long long unsigned int time) {
+void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int len,
+                                  long long unsigned int time) {
+  if (current_io && req->tag == current_io->req_tag) {
+    append_event(current_io, time, TRY_SEND_CMD_PDU);
+  }
   // pr_info("on_nvme_tcp_try_send_cmd_pdu\n");
 }
 
-void on_nvme_tcp_try_send_data_pdu(void *ignore, struct request *req,
-                                   int len, long long unsigned int time) {
+void on_nvme_tcp_try_send_data_pdu(void *ignore, struct request *req, int len,
+                                   long long unsigned int time) {
+  if (current_io && req->tag == current_io->req_tag) {
+    append_event(current_io, time, TRY_SEND_DATA_PDU);
+  }
   // pr_info("on_nvme_tcp_try_send_data_pdu\n");
 }
 
-void on_nvme_tcp_try_send_data(void *ignore, struct request *req,
-                               int len, long long unsigned int time) {
+void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int len,
+                               long long unsigned int time) {
+  if (current_io && req->tag == current_io->req_tag) {
+    append_event(current_io, time, TRY_SEND_DATA);
+  }
   // pr_info("on_nvme_tcp_try_send_data\n");
 }
 
 void on_nvme_tcp_done_send_req(void *ignore, struct request *req,
                                long long unsigned int time) {
+  if (current_io && req->tag == current_io->req_tag) {
+    append_event(current_io, time, DONE_SEND_REQ);
+  }
   // pr_info("on_nvme_tcp_done_send_req\n");
 }
 
 void on_nvme_tcp_try_recv(void *ignore, int offset, size_t len, int recv_stat,
                           int qid, unsigned long long time) {
+  // if (req->tag == current_io->req_tag) {
+  // append_event(current_io, time, TRY_RECV);
+  // }
   // pr_info("on_nvme_tcp_try_recv\n");
 }
 
 void on_nvme_tcp_recv_pdu(void *ignore, int consumed, unsigned char pdu_type,
                           int qid, unsigned long long time) {
+  // if (req->tag == current_io->req_tag) {
+  //   append_event(current_io, time, RECV_PDU);
+  // }
   // pr_info("on_nvme_tcp_recv_pdu\n");
 }
 
 void on_nvme_tcp_handle_c2h_data(void *ignore, struct request *rq,
                                  int data_remain, int qid,
                                  unsigned long long time) {
+  if (current_io && rq->tag == current_io->req_tag) {
+    append_event(current_io, time, HANDLE_C2H_DATA);
+  }
   // pr_info("on_nvme_tcp_handle_c2h_data\n");
 }
 
 void on_nvme_tcp_recv_data(void *ignore, struct request *rq, int cp_len,
                            int qid, unsigned long long time) {
+  if (current_io && rq->tag == current_io->req_tag) {
+    append_event(current_io, time, RECV_DATA);
+  }
   // pr_info("on_nvme_tcp_recv_data\n");
 }
 
 void on_nvme_tcp_handle_r2t(void *ignore, struct request *req,
                             unsigned long long time) {
+  if (current_io && req->tag == current_io->req_tag) {
+    append_event(current_io, time, HANDLE_R2T);
+  }
   // pr_info("on_nvme_tcp_handle_r2t\n");
 }
 
 void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
                                   unsigned long long time) {
+  if (current_io && req->tag == current_io->req_tag) {
+    append_event(current_io, time, PROCESS_NVME_CQE);
+
+    print_io_instance(current_io);
+
+    /** append the io instance to the sliding window */
+    struct sw_node *node = kmalloc(sizeof(struct sw_node), GFP_KERNEL);
+    node->data = current_io;
+    node->timestamp = current_io->ts[0];
+    add_to_sliding_window(sw_nvmetcp_io_samples, node);
+
+    current_io = NULL;
+  }
   // pr_info("on_nvme_tcp_process_nvme_cqe\n");
 }
 
@@ -423,7 +490,7 @@ static void unmmap_raw_nvmetcp_stat(struct file *file,
 }
 
 int init_nvmetcp_variables(void) {
-  _raw_nvmetcp_stat = vmalloc(sizeof(*_raw_nvmetcp_stat));
+  _raw_nvmetcp_stat = kmalloc(sizeof(*_raw_nvmetcp_stat), GFP_KERNEL);
   if (!_raw_nvmetcp_stat) -ENOMEM;
   _init_nvmetcp_stat(_raw_nvmetcp_stat);
 
@@ -431,25 +498,35 @@ int init_nvmetcp_variables(void) {
   if (!raw_nvmetcp_stat) -ENOMEM;
   init_nvmetcp_stat(raw_nvmetcp_stat);
 
-  sw_blk_layer_time = vmalloc(sizeof(*sw_blk_layer_time));
+  sw_blk_layer_time = kmalloc(sizeof(*sw_blk_layer_time), GFP_KERNEL);
   if (!sw_blk_layer_time) {
     pr_err("Failed to allocate memory for sw_blk_layer_time\n");
     return -ENOMEM;
   }
   init_sliding_window(sw_blk_layer_time);
+
+  sw_nvmetcp_io_samples = kmalloc(sizeof(*sw_nvmetcp_io_samples), GFP_KERNEL);
+  if (!sw_nvmetcp_io_samples) {
+    pr_err("Failed to allocate memory for sw_nvmetcp_io_samples\n");
+    return -ENOMEM;
+  }
+  init_sliding_window(sw_nvmetcp_io_samples);
   return 0;
 }
 
 int clear_nvmetcp_variables(void) {
   pr_info("clear_nvmetcp_variables\n");
   if (_raw_nvmetcp_stat) {
-    vfree(_raw_nvmetcp_stat);
+    kfree(_raw_nvmetcp_stat);
   }
   if (raw_nvmetcp_stat) {
     vfree(raw_nvmetcp_stat);
   }
   if (sw_blk_layer_time) {
-    vfree(sw_blk_layer_time);
+    kfree(sw_blk_layer_time);
+  }
+  if (sw_nvmetcp_io_samples) {
+    kfree(sw_nvmetcp_io_samples);
   }
   return 0;
 }
