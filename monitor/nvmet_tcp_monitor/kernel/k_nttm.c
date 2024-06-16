@@ -11,6 +11,8 @@
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
 
+#include "k_nvmet_tcp_layer.h"
+
 /**
  * update data periodically with the user
  */
@@ -183,6 +185,7 @@ static int __init init_nttm_module(void) {
   if(ret) return ret;
 
   /** initialize the monitor modules on different layers */
+  init_nvmet_tcp_layer();
 
   return 0;
 }
@@ -191,7 +194,7 @@ static void __exit exit_nttm_module(void) {
   pr_info("NVMeTCP monitoring module exited\n");
 
   /** exit monitor modules on different layers */
-
+  exit_nvmet_tcp_layer();
 
   remove_proc_entries();
   free_global_variables();

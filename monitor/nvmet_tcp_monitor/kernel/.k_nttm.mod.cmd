@@ -1,1 +1,0 @@
-cmd_/users/yuyuan/github/nvme-tcp/monitor/nvmet_tcp_monitor/kernel/k_nttm.mod := { echo  /users/yuyuan/github/nvme-tcp/monitor/nvmet_tcp_monitor/kernel/k_nttm.o;  echo; } > /users/yuyuan/github/nvme-tcp/monitor/nvmet_tcp_monitor/kernel/k_nttm.mod

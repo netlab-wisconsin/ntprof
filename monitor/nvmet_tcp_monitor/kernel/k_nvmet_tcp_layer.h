@@ -1,0 +1,373 @@
+#ifndef _K_NVME_TCP_LAYER_H_
+#define _K_NVME_TCP_LAYER_H_
+
+#include <linux/slab.h>
+#include <linux/string.h>
+#include <linux/tracepoint.h>
+#include <linux/types.h>
+#include <linux/vmalloc.h>
+#include <trace/events/nvmet_tcp.h>
+
+#include "nttm_com.h"
+#include "util.h"
+
+#define EVENT_NUM 64
+
+/**
+ * tracepoints:
+ * nvmet_tcp:nvmet_tcp_try_recv_pdu
+ * nvmet_tcp:nvmet_tcp_done_recv_pdu
+ * nvmet_tcp:nvmet_tcp_exec_read_req
+ * nvmet_tcp:nvmet_tcp_exec_write_req
+ * nvmet_tcp:nvmet_tcp_queue_response
+ * nvmet_tcp:nvmet_setup_c2h_data_pdu
+ * nvmet_tcp:nvmet_setup_r2t_pdu
+ * nvmet_tcp:nvmet_setup_response_pdu
+ * nvmet_tcp:nvmet_try_send_data_pdu
+ * nvmet_tcp:nvmet_try_send_r2t
+ * nvmet_tcp:nvmet_try_send_response
+ * nvmet_tcp:nvmet_try_send_data
+ * nvmet_tcp:nvmet_tcp_handle_h2c_data_pdu
+ * nvmet_tcp:nvmet_tcp_try_recv_data
+ *
+ */
+
+enum trpt {
+  TRY_RECV_PDU,
+  DONE_RECV_PDU,
+  EXEC_READ_REQ,
+  EXEC_WRITE_REQ,
+  QUEUE_RESPONSE,
+  SETUP_C2H_DATA_PDU,
+  SETUP_R2T_PDU,
+  SETUP_RESPONSE_PDU,
+  TRY_SEND_DATA_PDU,
+  TRY_SEND_R2T,
+  TRY_SEND_RESPONSE,
+  TRY_SEND_DATA,
+  HANDLE_H2C_DATA_PDU,
+  TRY_RECV_DATA
+};
+
+void nvmet_tcp_trpt_name(enum trpt p, char* name) {
+  switch (p) {
+    case TRY_RECV_PDU:
+      strcpy(name, "TRY_RECV_PDU");
+      break;
+    case DONE_RECV_PDU:
+      strcpy(name, "DONE_RECV_PDU");
+      break;
+    case EXEC_READ_REQ:
+      strcpy(name, "EXEC_READ_REQ");
+      break;
+    case EXEC_WRITE_REQ:
+      strcpy(name, "EXEC_WRITE_REQ");
+      break;
+    case QUEUE_RESPONSE:
+      strcpy(name, "QUEUE_RESPONSE");
+      break;
+    case SETUP_C2H_DATA_PDU:
+      strcpy(name, "SETUP_C2H_DATA_PDU");
+      break;
+    case SETUP_R2T_PDU:
+      strcpy(name, "SETUP_R2T_PDU");
+      break;
+    case SETUP_RESPONSE_PDU:
+      strcpy(name, "SETUP_RESPONSE_PDU");
+      break;
+    case TRY_SEND_DATA_PDU:
+      strcpy(name, "TRY_SEND_DATA_PDU");
+      break;
+    case TRY_SEND_R2T:
+      strcpy(name, "TRY_SEND_R2T");
+      break;
+    case TRY_SEND_RESPONSE:
+      strcpy(name, "TRY_SEND_RESPONSE");
+      break;
+    case TRY_SEND_DATA:
+      strcpy(name, "TRY_SEND_DATA");
+      break;
+    case HANDLE_H2C_DATA_PDU:
+      strcpy(name, "HANDLE_H2C_DATA_PDU");
+      break;
+    case TRY_RECV_DATA:
+      strcpy(name, "TRY_RECV_DATA");
+      break;
+    default:
+      strcpy(name, "UNKNOWN");
+      break;
+  }
+}
+
+struct nvmet_io_instance {
+  bool is_write;
+  u16 command_id;
+  u64 ts[EVENT_NUM];
+  enum trpt trpt[EVENT_NUM];
+  u8 cnt;
+  u32 size;
+  bool is_spoiled;
+};
+
+void init_nvmet_tcp_io_instance(struct nvmet_io_instance* io_instance,
+                                u16 command_id, bool is_write, u32 size) {
+  int i;
+  io_instance->is_write = is_write;
+  io_instance->command_id = command_id;
+  io_instance->size = size;
+  io_instance->cnt = 0;
+  io_instance->is_spoiled = false;
+  for (i = 0; i < EVENT_NUM; i++) {
+    io_instance->ts[i] = 0;
+  }
+}
+
+void append_event(struct nvmet_io_instance* io_instance, enum trpt trpt,
+                  u64 ts) {
+  if (io_instance->cnt < EVENT_NUM) {
+    io_instance->trpt[io_instance->cnt] = trpt;
+    io_instance->ts[io_instance->cnt] = ts;
+    io_instance->cnt++;
+  } else {
+    io_instance->is_spoiled = true;
+  }
+}
+
+void print_io_instance(struct nvmet_io_instance* io_instance) {
+  char name[32];
+  int i;
+  pr_info("command_id: %d, is_write: %d, size: %d, cnt: %d, is_spoiled: %d\n",
+          io_instance->command_id, io_instance->is_write, io_instance->size,
+          io_instance->cnt, io_instance->is_spoiled);
+  for (i = 0; i < io_instance->cnt; i++) {
+    nvmet_tcp_trpt_name(io_instance->trpt[i], name);
+    pr_info("event %d: %s, ts: %llu\n", i, name, io_instance->ts[i]);
+  }
+}
+
+static struct nvmet_tcp_io_instance* io_instance = NULL;
+
+static struct sliding_window* sw_nvmet_tcp_io_samples;
+
+static struct nvmet_tcp_stat* nvmet_tcp_stat;
+
+
+void on_try_recv_pdu(void* ignore, u16 pdu_type, u16 hdr_len, int queue_left,
+                     int qid, unsigned long long time) {
+  if (qid > 0)
+    pr_info(
+        "TRY_RECV_PDU: pdu_type: %d, hdr_len: %d, queue_left: %d, qid: %d, "
+        "time: %llu\n",
+        pdu_type, hdr_len, queue_left, qid, time);
+}
+
+void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
+                      unsigned long long time) {
+  if (qid > 0)
+    pr_info("DONE_RECV_PDU: cmd_id: %d, qid: %d, is_write: %d, time: %llu\n",
+            cmd_id, qid, is_write, time);
+}
+
+void on_exec_read_req(void* ignore, u16 cmd_id, int qid, bool is_write,
+                      unsigned long long time) {
+  if (qid > 0)
+    pr_info("EXEC_READ_REQ: cmd_id: %d, qid: %d, is_write: %d, time: %llu\n",
+            cmd_id, qid, is_write, time);
+}
+
+void on_exec_write_req(void* ignore, u16 cmd_id, int qid, bool is_write,
+                       unsigned long long time) {
+  if (qid > 0)
+    pr_info("EXEC_WRITE_REQ: cmd_id: %d, qid: %d, is_write: %d, time: %llu\n",
+            cmd_id, qid, is_write, time);
+}
+
+void on_queue_response(void* ignore, u16 cmd_id, int qid, bool is_write,
+                       unsigned long long time) {
+  if (qid > 0)
+    pr_info("QUEUE_RESPONSE: cmd_id: %d, qid: %d, is_write: %d, time: %llu\n",
+            cmd_id, qid, is_write, time);
+}
+
+void on_setup_c2h_data_pdu(void* ignore, u16 cmd_id, int qid,
+                           unsigned long long time) {
+  if (qid > 0)
+    pr_info("SETUP_C2H_DATA_PDU: cmd_id: %d, qid: %d, time: %llu\n", cmd_id,
+            qid, time);
+}
+
+void on_setup_r2t_pdu(void* ignore, u16 cmd_id, int qid,
+                      unsigned long long time) {
+  if (qid > 0)
+    pr_info("SETUP_R2T_PDU: cmd_id: %d, qid: %d, time: %llu\n", cmd_id, qid,
+            time);
+}
+
+void on_setup_response_pdu(void* ignore, u16 cmd_id, int qid,
+                           unsigned long long time) {
+  if (qid > 0)
+    pr_info("SETUP_RESPONSE_PDU: cmd_id: %d, qid: %d, time: %llu\n", cmd_id,
+            qid, time);
+}
+
+void on_try_send_data_pdu(void* ignore, u16 cmd_id, int qid, int cp_len,
+                          int left, unsigned long long time) {
+  if (qid > 0)
+    pr_info(
+        "TRY_SEND_DATA_PDU: cmd_id: %d, qid: %d, cp_len: %d, left: %d, time: "
+        "%llu\n",
+        cmd_id, qid, cp_len, left, time);
+}
+
+void on_try_send_r2t(void* ignore, u16 cmd_id, int qid, int cp_len, int left,
+                     unsigned long long time) {
+  if (qid > 0)
+    pr_info(
+        "TRY_SEND_R2T: cmd_id: %d, qid: %d, cp_len: %d, left: %d, time: "
+        "%llu\n",
+        cmd_id, qid, cp_len, left, time);
+}
+
+void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
+                          int left, unsigned long long time) {
+  if (qid > 0)
+    pr_info(
+        "TRY_SEND_RESPONSE: cmd_id: %d, qid: %d, cp_len: %d, left: %d, time: "
+        "%llu\n",
+        cmd_id, qid, cp_len, left, time);
+}
+
+void on_try_send_data(void* ignore, u16 cmd_id, int qid, int cp_len,
+                      unsigned long long time) {
+  if (qid > 0)
+    pr_info("TRY_SEND_DATA: cmd_id: %d, qid: %d, cp_len: %d, time: %llu\n",
+            cmd_id, qid, cp_len, time);
+}
+
+void on_try_recv_data(void* ignore, u16 cmd_id, int qid, int cp_len,
+                      unsigned long long time) {
+  if (qid > 0) {
+    pr_info("TRY_RECV_DATA: cmd_id: %d, qid: %d, cp_len: %d, time: %llu\n",
+            cmd_id, qid, cp_len, time);
+  }
+}
+
+void on_handle_h2c_data_pdu(void* ignore, u16 cmd_id, int qid, int datalen,
+                            unsigned long long time) {
+  if (qid > 0)
+    pr_info(
+        "HANDLE_H2C_DATA_PDU: cmd_id: %d, qid: %d, datalen: %d, time: %llu\n",
+        cmd_id, qid, datalen, time);
+}
+
+static int nvmet_tcp_register_tracepoints(void) {
+  int ret;
+
+  pr_info("register tracepoints\n");
+  pr_info("register try_recv_pdu\n");
+  ret = register_trace_nvmet_tcp_try_recv_pdu(on_try_recv_pdu, NULL);
+  if (ret) goto failed;
+  pr_info("register done_recv_pdu\n");
+  ret = register_trace_nvmet_tcp_done_recv_pdu(on_done_recv_pdu, NULL);
+  if (ret) goto unregister_try_recv_pdu;
+  pr_info("register exec_read_req\n");
+  ret = register_trace_nvmet_tcp_exec_read_req(on_exec_read_req, NULL);
+  if (ret) goto unregister_done_recv_pdu;
+  pr_info("register exec_write_req\n");
+  ret = register_trace_nvmet_tcp_exec_write_req(on_exec_write_req, NULL);
+  if (ret) goto unregister_exec_read_req;
+  pr_info("register queue_response\n");
+  ret = register_trace_nvmet_tcp_queue_response(on_queue_response, NULL);
+  if (ret) goto unregister_exec_write_req;
+  pr_info("register setup_c2h_data_pdu\n");
+  ret =
+      register_trace_nvmet_tcp_setup_c2h_data_pdu(on_setup_c2h_data_pdu, NULL);
+  if (ret) goto unregister_queue_response;
+  pr_info("register setup_r2t_pdu\n");
+  ret = register_trace_nvmet_tcp_setup_r2t_pdu(on_setup_r2t_pdu, NULL);
+  if (ret) goto unregister_setup_c2h_data_pdu;
+  pr_info("register setup_response_pdu\n");
+  ret =
+      register_trace_nvmet_tcp_setup_response_pdu(on_setup_response_pdu, NULL);
+  if (ret) goto unregister_setup_r2t_pdu;
+  pr_info("register try_send_data_pdu\n");
+  ret = register_trace_nvmet_tcp_try_send_data_pdu(on_try_send_data_pdu, NULL);
+  if (ret) goto unregister_setup_response_pdu;
+  pr_info("register try_send_r2t\n");
+  ret = register_trace_nvmet_tcp_try_send_r2t(on_try_send_r2t, NULL);
+  if (ret) goto unregister_try_send_data_pdu;
+  pr_info("register try_send_response\n");
+  ret = register_trace_nvmet_tcp_try_send_response(on_try_send_response, NULL);
+  if (ret) goto unregister_try_send_r2t;
+  pr_info("register try_send_data\n");
+  ret = register_trace_nvmet_tcp_try_send_data(on_try_send_data, NULL);
+  if (ret) goto unregister_try_send_response;
+  pr_info("register handle_h2c_data_pdu\n");
+  ret = register_trace_nvmet_tcp_handle_h2c_data_pdu(on_handle_h2c_data_pdu,
+                                                     NULL);
+  if (ret) goto unregister_try_send_data;
+  pr_info("register try_recv_data\n");
+  ret = register_trace_nvmet_tcp_try_recv_data(on_try_recv_data, NULL);
+  if (ret) goto unregister_handle_h2c_data_pdu;
+  
+  return 0;
+
+unregister_handle_h2c_data_pdu:
+  unregister_trace_nvmet_tcp_handle_h2c_data_pdu(on_handle_h2c_data_pdu, NULL);
+unregister_try_send_data:
+  unregister_trace_nvmet_tcp_try_send_data(on_try_send_data, NULL);
+unregister_try_send_response:
+  unregister_trace_nvmet_tcp_try_send_response(on_try_send_response, NULL);
+unregister_try_send_r2t:
+  unregister_trace_nvmet_tcp_try_send_r2t(on_try_send_r2t, NULL);
+unregister_try_send_data_pdu:
+  unregister_trace_nvmet_tcp_try_send_data_pdu(on_try_send_data_pdu, NULL);
+unregister_setup_response_pdu:
+  unregister_trace_nvmet_tcp_setup_response_pdu(on_setup_response_pdu, NULL);
+unregister_setup_r2t_pdu:
+  unregister_trace_nvmet_tcp_setup_r2t_pdu(on_setup_r2t_pdu, NULL);
+unregister_setup_c2h_data_pdu:
+  unregister_trace_nvmet_tcp_setup_c2h_data_pdu(on_setup_c2h_data_pdu, NULL);
+unregister_queue_response:
+  unregister_trace_nvmet_tcp_queue_response(on_queue_response, NULL);
+unregister_exec_write_req:
+  unregister_trace_nvmet_tcp_exec_write_req(on_exec_write_req, NULL);
+unregister_exec_read_req:
+  unregister_trace_nvmet_tcp_exec_read_req(on_exec_read_req, NULL);
+unregister_done_recv_pdu:
+  unregister_trace_nvmet_tcp_done_recv_pdu(on_done_recv_pdu, NULL);
+unregister_try_recv_pdu:
+  unregister_trace_nvmet_tcp_try_recv_pdu(on_try_recv_pdu, NULL);
+failed:
+  pr_info("failed to register tracepoints\n");
+  return ret;
+}
+
+void nvmet_tcp_unregister_tracepoints(void) {
+  pr_info("unregister tracepoints\n");
+  unregister_trace_nvmet_tcp_try_recv_pdu(on_try_recv_pdu, NULL);
+  unregister_trace_nvmet_tcp_done_recv_pdu(on_done_recv_pdu, NULL);
+  unregister_trace_nvmet_tcp_exec_read_req(on_exec_read_req, NULL);
+  unregister_trace_nvmet_tcp_exec_write_req(on_exec_write_req, NULL);
+  unregister_trace_nvmet_tcp_queue_response(on_queue_response, NULL);
+  unregister_trace_nvmet_tcp_setup_c2h_data_pdu(on_setup_c2h_data_pdu, NULL);
+  unregister_trace_nvmet_tcp_setup_r2t_pdu(on_setup_r2t_pdu, NULL);
+  unregister_trace_nvmet_tcp_setup_response_pdu(on_setup_response_pdu, NULL);
+  unregister_trace_nvmet_tcp_try_send_data_pdu(on_try_send_data_pdu, NULL);
+  unregister_trace_nvmet_tcp_try_send_r2t(on_try_send_r2t, NULL);
+  unregister_trace_nvmet_tcp_try_send_response(on_try_send_response, NULL);
+  unregister_trace_nvmet_tcp_try_send_data(on_try_send_data, NULL);
+  unregister_trace_nvmet_tcp_handle_h2c_data_pdu(on_handle_h2c_data_pdu, NULL);
+}
+
+void init_nvmet_tcp_layer(void) {
+  pr_info("init nvmet tcp layer\n");
+  nvmet_tcp_register_tracepoints();
+}
+
+void exit_nvmet_tcp_layer(void) {
+  pr_info("exit nvmet tcp layer\n");
+  nvmet_tcp_unregister_tracepoints();
+}
+
+#endif  // _K_NVME_TCP_LAYER_H_
