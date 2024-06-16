@@ -99,6 +99,13 @@ void init_nvme_tcp_io_instance(struct nvme_tcp_io_instance *inst,
                                bool _is_write, int _req_tag, int _waitlist,
                                int _cnt, bool _contains_c2h, bool _contains_r2t,
                                bool _is_spoiled, int _size) {
+  int i;
+  for (i = 0; i < EVENT_NUM; i++) {
+    inst->ts[i] = 0;
+    inst->ts2[i] = 0;
+    inst->trpt[i] = 0;
+    inst->sizs[i] = 0;
+  }
   inst->is_write = _is_write;
   inst->req_tag = _req_tag;
   inst->waitlist = _waitlist;
@@ -107,18 +114,11 @@ void init_nvme_tcp_io_instance(struct nvme_tcp_io_instance *inst,
   inst->is_spoiled = _is_spoiled;
   inst->cnt = _cnt;
   inst->size = _size;
-  int i;
-  for (i = 0; i < EVENT_NUM; i++) {
-    inst->ts[i] = 0;
-    inst->ts2[i] = 0;
-    inst->trpt[i] = 0;
-    inst->sizs[i] = 0;
-  }
 }
 
 void print_io_instance(struct nvme_tcp_io_instance *inst) {
-  pr_info("req_tag: %d, waitlist: %d\n", inst->req_tag, inst->waitlist);
   int i;
+  pr_info("req_tag: %d, waitlist: %d\n", inst->req_tag, inst->waitlist);
   for (i = 0; i < inst->cnt; i++) {
     char name[32];
     nvme_tcp_trpt_name(inst->trpt[i], name);
@@ -187,21 +187,24 @@ struct nvme_tcp_stat *nvme_tcp_stat;
  */
 void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int len1, int len2,
                           long long unsigned int time) {
+  u32 qid;
+  u16 cnt;
+  struct bio *b;
+
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
 
   /** get queue id */
-  u32 qid = (!req->q->queuedata) ? 0 : req->mq_hctx->queue_num + 1;
+  qid = (!req->q->queuedata) ? 0 : req->mq_hctx->queue_num + 1;
 
   /** ignore the request from the queue 0 (admin queue) */
   if (qid == 0) {
     return;
   }
 
-  u16 cnt = 0;
+  cnt = 0;
 
-  struct bio *b;
   b = req->bio;
   while (b) {
     u64 _start = bio_issue_time(&b->bi_issue);
@@ -216,8 +219,8 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int len1, int len2,
 
     if (to_sample()) {
       u64 *p_lat = kmalloc(sizeof(u64), GFP_KERNEL);
-      (*p_lat) = lat;
       struct sw_node *node = kmalloc(sizeof(struct sw_node), GFP_KERNEL);
+      (*p_lat) = lat;
       node->data = p_lat;
       node->timestamp = time;
       add_to_sliding_window(sw_blk_layer_time, node);
@@ -281,8 +284,8 @@ bool is_standard_read(struct nvme_tcp_io_instance *io) {
   }
   if (io->trpt[0] != QUEUE_RQ || io->trpt[1] != QUEUE_REQUEST ||
       io->trpt[2] != TRY_SEND || io->trpt[3] != TRY_SEND_CMD_PDU ||
-      io->trpt[4] != DONE_SEND_REQ || io->trpt[5] != HANDLE_C2H_DATA
-      || io->trpt[io->cnt-1] != PROCESS_NVME_CQE) {
+      io->trpt[4] != DONE_SEND_REQ || io->trpt[5] != HANDLE_C2H_DATA ||
+      io->trpt[io->cnt - 1] != PROCESS_NVME_CQE) {
     return false;
   }
   return true;
@@ -361,7 +364,6 @@ void update_read_breakdown(struct nvme_tcp_io_instance *io,
 */
 void update_write_breakdown(struct nvme_tcp_io_instance *io,
                             struct nvmetcp_write_breakdown *rb) {
-  int i;
   if (io->contains_r2t) {
     /** TODO: to remove the check when it is safe */
     if (io->cnt < 11) {
@@ -395,9 +397,9 @@ void update_write_breakdown(struct nvme_tcp_io_instance *io,
 }
 
 void analize_sw_latency_breakdown(struct sliding_window *sw) {
+  struct list_head *pos, *q;
   init_nvmetcp_read_breakdown(&nvme_tcp_stat->read);
   init_nvmetcp_write_breakdown(&nvme_tcp_stat->write);
-  struct list_head *pos, *q;
   /** traverse the linked list */
   spin_lock(&sw->lock);
   list_for_each_safe(pos, q, &sw->list) {
@@ -567,12 +569,13 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
     return;
   }
   if (current_io && req->tag == current_io->req_tag) {
+    struct sw_node *node;
     append_event(current_io, time, PROCESS_NVME_CQE, -1, recv_time);
 
     // print_io_instance(current_io);
 
     /** append the io instance to the sliding window */
-    struct sw_node *node = kmalloc(sizeof(struct sw_node), GFP_KERNEL);
+    node = kmalloc(sizeof(struct sw_node), GFP_KERNEL);
     node->data = current_io;
     node->timestamp = current_io->ts[0];
 
@@ -759,14 +762,9 @@ static void remove_nvmetcp_proc_entries(void) {
   remove_proc_entry("nvmetcp", parent_dir);
 }
 
-static void unmmap_raw_nvmetcp_stat(struct file *file,
-                                    struct vm_area_struct *vma) {
-  pr_info("unmmap_raw_nvmetcp_stat\n");
-}
-
 int init_nvmetcp_variables(void) {
   _raw_blk_lat_stat = kmalloc(sizeof(*_raw_blk_lat_stat), GFP_KERNEL);
-  if (!_raw_blk_lat_stat) -ENOMEM;
+  if (!_raw_blk_lat_stat) return -ENOMEM;
   _init_nvmetcp_stat(_raw_blk_lat_stat);
 
   nvme_tcp_stat = vmalloc(sizeof(*nvme_tcp_stat));
