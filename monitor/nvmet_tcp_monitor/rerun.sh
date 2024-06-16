@@ -6,4 +6,4 @@ sudo insmod k_nttm.ko
 cd ../user
 make clean
 make
-sudo ./u_nttm track -qid=1
+sudo ./u_nttm track -qid=1,2,3,10-18

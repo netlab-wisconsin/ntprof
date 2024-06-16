@@ -10,55 +10,59 @@ static volatile int keep_running = 1;
 
 Arguments* args;
 
+bool is_number(const char *str) {
+  while (*str) {
+    if (!isdigit(*str++)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * print the arguments in one line, separate different args with '\t'
-*/
+ */
 void print_args(Arguments *args) {
-    printf("dev: %s\t", args->dev);
-    printf("rate: %.3f\t", args->rate);
-    char io_type_str[32];
-    switch (args->io_type) {
-        case _READ:
-            strcpy(io_type_str, "READ");
-            break;
-        case _WRITE:
-            strcpy(io_type_str, "WRITE");
-            break;
-        case _BOTH:
-            strcpy(io_type_str, "ANY");
-            break;
-        default:
-            strcpy(io_type_str, "UNK");
-            break;
-    }
-    printf("io_type: %s\t", io_type_str);
-    printf("win: %d\t", args->win);
-    char io_size_str[32];
-    if (args->io_size == -1) {
-        strcpy(io_size_str, "ANY");
-    } else {
-        sprintf(io_size_str, "%d", args->io_size);
-    }
-    printf("io_size: %s\t", io_size_str);
-    char qid_str[32];
-    if (args->qid == -1) {
-        strcpy(qid_str, "ANY");
-    } else {
-        sprintf(qid_str, "%d", args->qid);
-    }
-    printf("qid: %s\t", qid_str);
-    printf("nrate: %.5f\n", args->nrate);
+  printf("dev: %s\t", args->dev);
+  printf("rate: %.3f\t", args->rate);
+  char io_type_str[32];
+  switch (args->io_type) {
+    case _READ:
+      strcpy(io_type_str, "READ");
+      break;
+    case _WRITE:
+      strcpy(io_type_str, "WRITE");
+      break;
+    case _BOTH:
+      strcpy(io_type_str, "ANY");
+      break;
+    default:
+      strcpy(io_type_str, "UNK");
+      break;
+  }
+  printf("io_type: %s\t", io_type_str);
+  printf("win: %d\t", args->win);
+  char io_size_str[32];
+  if (args->io_size == -1) {
+    strcpy(io_size_str, "ANY");
+  } else {
+    sprintf(io_size_str, "%d", args->io_size);
+  }
+
+  printf("io_size: %s\t", io_size_str);
+  printf("qid: %s\t", args->qstr);
+  /** only for debug */
+  // for (int i = 0; i < MAX_QID; i++) {
+  //   printf("%d, %d \t", i, args->qid[i]);
+  // }
+  // printf("\n");
+  printf("nrate: %.5f\n", args->nrate);
 }
 
 void int_handler(int dummy) { keep_running = 0; }
 
-/** a set of blk layer statistics, each element is mapped with a /proc file */
-struct blk_stat_set blk_stat_set;
-
-
-
 void print_usage() {
-  printf("Usage: ntm track [options]\n");
+  printf("Usage: nttm track [options]\n");
   printf("Options:\n");
   printf("  -dev=<device>       Device name (default: all devices)\n");
   printf("  -rate=<rate>        IO sample rate (default: 0.001)\n");
@@ -71,15 +75,42 @@ void print_usage() {
       "  -nrate=<nrate>      Network packet sample rate (default: 0.00001)\n");
 }
 
+void parse_qid(const char *qid_str, Arguments *args) {
+  memset(args->qid, 0, sizeof(args->qid));
+  char *token;
+  char *str = strdup(qid_str);
+  char *tofree = str;
+
+  /** copy the string */
+  strcpy(args->qstr, qid_str);
+
+  while ((token = strsep(&str, ",")) != NULL) {
+    if (strchr(token, '-') != NULL) {
+      int start, end;
+      sscanf(token, "%d-%d", &start, &end);
+      for (int i = start; i <= end && i < MAX_QID; i++) {
+        args->qid[i] = 1;
+      }
+    } else if (is_number(token)) {
+      int qid = atoi(token);
+      if (qid < MAX_QID) {
+        args->qid[qid] = 1;
+      }
+    }
+  }
+  free(tofree);
+}
+
 void parse_arguments(int argc, char *argv[], Arguments *args) {
+  /** setting default value */
   strcpy(args->dev, "all devices");
   args->rate = 0.001;
   args->io_type = _BOTH;
   args->win = 10;
-  /** io_size = -1 indicates all io_size are considered */
   args->io_size = -1;
-  /** qid == -1, indicates all queues are considered */
-  args->qid = -1;
+  memset(args->qid, 1, sizeof(args->qid));
+  args->qid[0] = 0;
+  args->qstr[0] = '\0';
   args->nrate = 0.00001;
 
   for (int i = 2; i < argc; i++) {
@@ -89,7 +120,6 @@ void parse_arguments(int argc, char *argv[], Arguments *args) {
       args->rate = atof(argv[i] + 6);
     } else if (strncmp(argv[i], "-type=", 6) == 0) {
       char *type = argv[i] + 6;
-      /** if upper case, conver to lower case */
       if (type[0] >= 'A' && type[0] <= 'Z') {
         type[0] += 32;
       }
@@ -109,7 +139,7 @@ void parse_arguments(int argc, char *argv[], Arguments *args) {
     } else if (strncmp(argv[i], "-size=", 6) == 0) {
       args->io_size = atoi(argv[i] + 6);
     } else if (strncmp(argv[i], "-qid=", 5) == 0) {
-      args->qid = atoi(argv[i] + 5);
+      parse_qid(argv[i] + 5, args);
     } else if (strncmp(argv[i], "-nrate=", 7) == 0) {
       args->nrate = atof(argv[i] + 7);
     } else {

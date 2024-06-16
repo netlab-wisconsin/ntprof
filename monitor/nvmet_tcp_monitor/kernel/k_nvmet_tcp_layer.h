@@ -151,10 +151,16 @@ static struct sliding_window* sw_nvmet_tcp_io_samples;
 
 static struct nvmet_tcp_stat* nvmet_tcp_stat;
 
+// void to_track(u16 qid, bool is_write) {
+//   if(!ctrl || !args->qid[qid] && args->io_type + is_write == 1) {
+//     return false;
+//   }
+//   return true;
+// }
 
 void on_try_recv_pdu(void* ignore, u16 pdu_type, u16 hdr_len, int queue_left,
                      int qid, unsigned long long time) {
-  if (qid > 0)
+  if (ctrl && args->qid[qid])
     pr_info(
         "TRY_RECV_PDU: pdu_type: %d, hdr_len: %d, queue_left: %d, qid: %d, "
         "time: %llu\n",
@@ -163,56 +169,62 @@ void on_try_recv_pdu(void* ignore, u16 pdu_type, u16 hdr_len, int queue_left,
 
 void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
                       unsigned long long time) {
-  if (qid > 0)
+  if (ctrl && args->qid[qid] && args->io_type + is_write != 1)
     pr_info("DONE_RECV_PDU: cmd_id: %d, qid: %d, is_write: %d, time: %llu\n",
             cmd_id, qid, is_write, time);
 }
 
 void on_exec_read_req(void* ignore, u16 cmd_id, int qid, bool is_write,
                       unsigned long long time) {
-  if (qid > 0)
+  if (is_write) {
+    pr_err("exec_read_req: is_write is true\n");
+  }
+  if (ctrl && args->qid[qid])
     pr_info("EXEC_READ_REQ: cmd_id: %d, qid: %d, is_write: %d, time: %llu\n",
             cmd_id, qid, is_write, time);
 }
 
 void on_exec_write_req(void* ignore, u16 cmd_id, int qid, bool is_write,
                        unsigned long long time) {
-  if (qid > 0)
+  if (!is_write) {
+    pr_err("exec_write_req: is_write is false\n");
+  }
+  if (ctrl && args->qid[qid])
     pr_info("EXEC_WRITE_REQ: cmd_id: %d, qid: %d, is_write: %d, time: %llu\n",
             cmd_id, qid, is_write, time);
 }
 
 void on_queue_response(void* ignore, u16 cmd_id, int qid, bool is_write,
                        unsigned long long time) {
-  if (qid > 0)
+  if (ctrl && args->qid[qid])
     pr_info("QUEUE_RESPONSE: cmd_id: %d, qid: %d, is_write: %d, time: %llu\n",
             cmd_id, qid, is_write, time);
 }
 
 void on_setup_c2h_data_pdu(void* ignore, u16 cmd_id, int qid,
                            unsigned long long time) {
-  if (qid > 0)
+  if (ctrl && args->qid[qid])
     pr_info("SETUP_C2H_DATA_PDU: cmd_id: %d, qid: %d, time: %llu\n", cmd_id,
             qid, time);
 }
 
 void on_setup_r2t_pdu(void* ignore, u16 cmd_id, int qid,
                       unsigned long long time) {
-  if (qid > 0)
+  if (ctrl && args->qid[qid])
     pr_info("SETUP_R2T_PDU: cmd_id: %d, qid: %d, time: %llu\n", cmd_id, qid,
             time);
 }
 
 void on_setup_response_pdu(void* ignore, u16 cmd_id, int qid,
                            unsigned long long time) {
-  if (qid > 0)
+  if (ctrl && args->qid[qid])
     pr_info("SETUP_RESPONSE_PDU: cmd_id: %d, qid: %d, time: %llu\n", cmd_id,
             qid, time);
 }
 
 void on_try_send_data_pdu(void* ignore, u16 cmd_id, int qid, int cp_len,
                           int left, unsigned long long time) {
-  if (qid > 0)
+  if (ctrl && args->qid[qid])
     pr_info(
         "TRY_SEND_DATA_PDU: cmd_id: %d, qid: %d, cp_len: %d, left: %d, time: "
         "%llu\n",
@@ -221,7 +233,7 @@ void on_try_send_data_pdu(void* ignore, u16 cmd_id, int qid, int cp_len,
 
 void on_try_send_r2t(void* ignore, u16 cmd_id, int qid, int cp_len, int left,
                      unsigned long long time) {
-  if (qid > 0)
+  if (ctrl && args->qid[qid])
     pr_info(
         "TRY_SEND_R2T: cmd_id: %d, qid: %d, cp_len: %d, left: %d, time: "
         "%llu\n",
@@ -230,7 +242,7 @@ void on_try_send_r2t(void* ignore, u16 cmd_id, int qid, int cp_len, int left,
 
 void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
                           int left, unsigned long long time) {
-  if (qid > 0)
+  if (ctrl && args->qid[qid])
     pr_info(
         "TRY_SEND_RESPONSE: cmd_id: %d, qid: %d, cp_len: %d, left: %d, time: "
         "%llu\n",
@@ -239,14 +251,14 @@ void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
 
 void on_try_send_data(void* ignore, u16 cmd_id, int qid, int cp_len,
                       unsigned long long time) {
-  if (qid > 0)
+  if (ctrl && args->qid[qid])
     pr_info("TRY_SEND_DATA: cmd_id: %d, qid: %d, cp_len: %d, time: %llu\n",
             cmd_id, qid, cp_len, time);
 }
 
 void on_try_recv_data(void* ignore, u16 cmd_id, int qid, int cp_len,
                       unsigned long long time) {
-  if (qid > 0) {
+  if (ctrl && args->qid[qid]) {
     pr_info("TRY_RECV_DATA: cmd_id: %d, qid: %d, cp_len: %d, time: %llu\n",
             cmd_id, qid, cp_len, time);
   }
@@ -254,7 +266,7 @@ void on_try_recv_data(void* ignore, u16 cmd_id, int qid, int cp_len,
 
 void on_handle_h2c_data_pdu(void* ignore, u16 cmd_id, int qid, int datalen,
                             unsigned long long time) {
-  if (qid > 0)
+  if (ctrl && args->qid[qid])
     pr_info(
         "HANDLE_H2C_DATA_PDU: cmd_id: %d, qid: %d, datalen: %d, time: %llu\n",
         cmd_id, qid, datalen, time);
@@ -309,7 +321,7 @@ static int nvmet_tcp_register_tracepoints(void) {
   pr_info("register try_recv_data\n");
   ret = register_trace_nvmet_tcp_try_recv_data(on_try_recv_data, NULL);
   if (ret) goto unregister_handle_h2c_data_pdu;
-  
+
   return 0;
 
 unregister_handle_h2c_data_pdu:
