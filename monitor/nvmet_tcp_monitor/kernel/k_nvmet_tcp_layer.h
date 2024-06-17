@@ -149,7 +149,10 @@ static struct nvmet_tcp_io_instance* io_instance = NULL;
 
 static struct sliding_window* sw_nvmet_tcp_io_samples;
 
-static struct nvmet_tcp_stat* nvmet_tcp_stat;
+struct proc_dir_entry *entry_nvmet_tcp_dir;
+struct proc_dir_entry *entry_nvmet_tcp_stat;
+
+static struct nvmet_tcp_stat* nvmettcp_stat;
 
 // void to_track(u16 qid, bool is_write) {
 //   if(!ctrl || !args->qid[qid] && args->io_type + is_write == 1) {
@@ -370,16 +373,93 @@ void nvmet_tcp_unregister_tracepoints(void) {
   unregister_trace_nvmet_tcp_try_send_response(on_try_send_response, NULL);
   unregister_trace_nvmet_tcp_try_send_data(on_try_send_data, NULL);
   unregister_trace_nvmet_tcp_handle_h2c_data_pdu(on_handle_h2c_data_pdu, NULL);
+  unregister_trace_nvmet_tcp_try_recv_data(on_try_recv_data, NULL);
 }
 
-void init_nvmet_tcp_layer(void) {
+static int mmap_nvmet_tcp_stat(struct file* file, struct vm_area_struct* vma) {
+  if(remap_pfn_range(vma, vma->vm_start, vmalloc_to_pfn(nvmettcp_stat), vma->vm_end - vma->vm_start, vma->vm_page_prot)) {
+    return -EAGAIN;
+  }
+  return 0;
+}
+
+static const struct proc_ops nttm_nvmet_tcp_stat_fops = {
+  .proc_mmap = mmap_nvmet_tcp_stat,
+};
+
+int init_nvmet_tcp_proc_entries(void) {
+  entry_nvmet_tcp_dir = proc_mkdir("nvmet_tcp", parent_dir);
+  if(!entry_nvmet_tcp_dir) {
+    pr_err("failed to create nvmet_tcp directory\n");
+    return -ENOMEM;
+  }
+  entry_nvmet_tcp_stat = proc_create("stat", 0, entry_nvmet_tcp_dir, &nttm_nvmet_tcp_stat_fops);
+  if(!entry_nvmet_tcp_stat) {
+    pr_err("failed to create nvmet_tcp/stat\n");
+    vfree(nvmettcp_stat);
+    return -ENOMEM;
+  }
+  return 0;
+}
+
+static void remove_nvmet_tcp_proc_entries(void) {
+  remove_proc_entry("stat", entry_nvmet_tcp_dir);
+  remove_proc_entry("nvmet_tcp", parent_dir);
+}
+
+void init_nvmet_tcp_read_breakdown(struct nvmet_tcp_read_breakdown* breakdown) {
+
+}
+
+void init_nvmet_tcp_write_breakdown(struct nvmet_tcp_write_breakdown* breakdown) {
+
+}
+
+void init_nvmet_tcp_stat(struct nvmet_tcp_stat* stat) {
+  init_nvmet_tcp_read_breakdown(&stat->read_breakdown);
+  init_nvmet_tcp_write_breakdown(&stat->write_breakdown);
+}
+
+int init_nvmet_tcp_variables(void) {
+  pr_info("try to allocate size %d\n", sizeof(*nvmettcp_stat));
+  nvmettcp_stat = vmalloc(sizeof(*nvmettcp_stat));
+  if(!nvmettcp_stat) {
+    pr_err("failed to allocate nvmet_tcp_stat\n");
+    return -ENOMEM;
+  }
+  init_nvmet_tcp_stat(nvmettcp_stat);
+
+  return 0;
+}
+
+void free_nvmet_tcp_variables(void) {
+  if(nvmettcp_stat)
+    vfree(nvmettcp_stat);
+}
+
+int init_nvmet_tcp_layer(void) {
   pr_info("init nvmet tcp layer\n");
-  nvmet_tcp_register_tracepoints();
+  int ret;
+  ret = init_nvmet_tcp_variables();
+  if(ret) return ret;
+  ret = init_nvmet_tcp_proc_entries();
+  if(ret) {
+    pr_info("failed to init nvmet tcp proc entries\n");
+    free_nvmet_tcp_variables();
+  }
+  ret = nvmet_tcp_register_tracepoints();
+  if(ret){
+    pr_info("failed to register tracepoints\n");
+    return ret;
+  }
+  return 0;
 }
 
 void exit_nvmet_tcp_layer(void) {
-  pr_info("exit nvmet tcp layer\n");
+  remove_nvmet_tcp_proc_entries();
+  free_nvmet_tcp_variables();
   nvmet_tcp_unregister_tracepoints();
+  pr_info("exit nvmet tcp layer done\n");
 }
 
 #endif  // _K_NVME_TCP_LAYER_H_

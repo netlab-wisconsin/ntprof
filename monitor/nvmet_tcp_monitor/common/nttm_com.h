@@ -4,11 +4,11 @@
 
 
 struct nvmet_tcp_read_breakdown {
-
+  int toremove;
 };
 
 struct nvmet_tcp_write_breakdown {
-
+  int toremove;
 };
 
 struct nvmet_tcp_stat {
