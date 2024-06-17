@@ -64,7 +64,7 @@ void print_nvmet_tcp_layer_stat() {
   }
 }
 
-void map_ntm_nvmet_tcp_data() {
+void map_nttm_nvmet_tcp_data() {
   int fd;
 
   /** map the raw_nvmetcp_stat */
@@ -80,7 +80,7 @@ void map_ntm_nvmet_tcp_data() {
   close(fd);
 }
 
-void unmap_ntm_nvmet_tcp_data() {
+void unmap_nttm_nvmet_tcp_data() {
   if (nvmet_tcp_stat) munmap(nvmet_tcp_stat, sizeof(struct nvmet_tcp_stat));
 }
 

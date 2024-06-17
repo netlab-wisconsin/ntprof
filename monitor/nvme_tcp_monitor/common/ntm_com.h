@@ -84,14 +84,6 @@ inline void init_blk_lat_stat(struct blk_lat_stat *stat) {
   stat->cnt = 0;
 }
 
-struct normal_struct {
-  unsigned long item1;
-};
-
-inline void init_normal_struct(struct normal_struct *ns) {
-  ns->item1 = 0;
-}
-
 
 struct nvmetcp_read_breakdown {
   int cnt;

@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include "u_nvmet_tcp_layer.h"
+#include "u_blk_layer.h"
 
 static volatile int keep_running = 1;
 
@@ -254,17 +255,20 @@ int main(int argc, char **argv) {
   /** send msg to kernel space to start recording */
   start_nttm();
 
-  map_ntm_nvmet_tcp_data();
+  map_nttm_blk_data();
+  map_nttm_nvmet_tcp_data();
 
   while (keep_running) {
     printf("\033[H\033[J");
     printf("Arguments:\n");
     print_args(args);
     print_nvmet_tcp_layer_stat();
+    print_blk_layer_stat();
     sleep(1);
   }
 
-  unmap_ntm_nvmet_tcp_data();
+  unmap_nttm_nvmet_tcp_data();
+  unmap_nttm_blk_data();
 
   printf("start exit nttm_user\n");
 

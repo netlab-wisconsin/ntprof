@@ -1,0 +1,392 @@
+#ifndef _K_BLK_LAYER_H_
+#define _K_BLK_LAYER_H_
+
+#include <linux/bio.h>
+#include <linux/time.h>
+#include <linux/types.h>
+#include <trace/events/block.h>
+
+#define BLK_EVENT_NUM 2
+
+enum blk_trpt { BIO_QUEUE, BIO_COMPLETE };
+
+void blk_trpt_name(enum blk_trpt trpt, char *name) {
+  switch (trpt) {
+    case BIO_QUEUE:
+      strcpy(name, "BIO_QUEUE");
+      break;
+    case BIO_COMPLETE:
+      strcpy(name, "BIO_COMPLETE");
+      break;
+    default:
+      strcpy(name, "UNKNOWN");
+      break;
+  }
+}
+
+struct blk_io_instance {
+  bool is_write;
+  struct bio *bio;
+  u64 ts[BLK_EVENT_NUM];
+  enum blk_trpt trpt[BLK_EVENT_NUM];
+  u8 cnt;
+  u32 size;
+  bool is_spoiled;
+};
+
+void init_blk_io_instance(struct blk_io_instance *bio) {
+  bio->is_write = false;
+  bio->bio = NULL;
+  bio->cnt = 0;
+  bio->size = 0;
+  bio->is_spoiled = false;
+}
+
+void append_blk_event(struct blk_io_instance *bio, u64 ts, enum blk_trpt trpt) {
+  if (bio->cnt >= BLK_EVENT_NUM) {
+    bio->is_spoiled = true;
+    pr_err("blk_io_instance is spoiled\n");
+    return;
+  }
+  bio->ts[bio->cnt] = ts;
+  bio->trpt[bio->cnt] = trpt;
+  bio->cnt++;
+  return;
+}
+
+void print_blk_io_instance(struct blk_io_instance *bio) {
+  int i;
+  char trpt_name[32];
+  pr_info("blk_io_instance: \t");
+  pr_info("is_write: %d\t", bio->is_write);
+  pr_info("bio: %p\t", bio->bio);
+  pr_info("cnt: %d\t", bio->cnt);
+  pr_info("size: %d\t", bio->size);
+  pr_info("is_spoiled: %d\t", bio->is_spoiled);
+  for (i = 0; i < bio->cnt; i++) {
+    blk_trpt_name(bio->trpt[i], trpt_name);
+    pr_info("ts: %llu, trpt: %s\n", bio->ts[i], trpt_name);
+  }
+}
+
+static struct blk_io_instance *current_bio = NULL;
+
+static struct sliding_window *blk_io_samples;
+
+static struct proc_dir_entry *entry_blk_dir;
+static struct proc_dir_entry *entry_blk_stat;
+
+static struct blk_stat *blk_stat;
+
+struct _blk_stat {
+  atomic64_t read_cnt;
+  atomic64_t write_cnt;
+  atomic64_t read_io[9];
+  atomic64_t write_io[9];
+  atomic64_t in_flight;
+};
+
+static struct _blk_stat *raw_blk_stat;
+
+void inc_cnt_atomic_arr(atomic64_t *arr, int size) {
+  if (size < 4096) {
+    atomic64_inc(&arr[_LT_4K]);
+  } else if (size == 4096) {
+    atomic64_inc(&arr[_4K]);
+  } else if (size == 8192) {
+    atomic64_inc(&arr[_8K]);
+  } else if (size == 16384) {
+    atomic64_inc(&arr[_16K]);
+  } else if (size == 32768) {
+    atomic64_inc(&arr[_32K]);
+  } else if (size == 65536) {
+    atomic64_inc(&arr[_64K]);
+  } else if (size == 131072) {
+    atomic64_inc(&arr[_128K]);
+  } else if (size > 131072) {
+    atomic64_inc(&arr[_GT_128K]);
+  } else {
+    atomic64_inc(&arr[_OTHERS]);
+  }
+}
+
+void _init_blk_tr(struct _blk_stat *tr) {
+  int i;
+  atomic64_set(&tr->read_cnt, 0);
+  atomic64_set(&tr->write_cnt, 0);
+  for (i = 0; i < 9; i++) {
+    atomic64_set(&tr->read_io[i], 0);
+    atomic64_set(&tr->write_io[i], 0);
+  }
+  atomic64_set(&tr->in_flight, 0);
+}
+
+void copy_blk_stat(struct blk_stat *dst, struct _blk_stat *src) {
+  int i;
+  dst->read_cnt = atomic64_read(&src->read_cnt);
+  dst->write_cnt = atomic64_read(&src->write_cnt);
+  for (i = 0; i < 9; i++) {
+    dst->read_io[i] = atomic64_read(&src->read_io[i]);
+    dst->write_io[i] = atomic64_read(&src->write_io[i]);
+  }
+  dst->in_flight = atomic64_read(&src->in_flight);
+}
+
+/**
+ * traverse the sample, update the summary in blk_stat
+ */
+void analyze_blk_io_samples(struct sliding_window *samples,
+                            struct blk_sample_summary *summary) {
+  init_blk_sample_summary(&blk_stat->sample_summary);
+  /** traverse the sliwing window */
+  struct list_head *pos, *q;
+  spin_lock(&samples->lock);
+  list_for_each_safe(pos, q, &samples->list) {
+    struct sw_node *node = list_entry(pos, struct sw_node, list);
+    struct blk_io_instance *bio = (struct blk_io_instance *)node->data;
+    if (bio->is_spoiled) {
+      pr_err("blk_io_instance is spoiled\n");
+      continue;
+    }
+    u64 start = bio->ts[0];
+    u64 end = bio->ts[bio->cnt - 1];
+    u64 duration = end - start;
+    summary->total_time += duration;
+    summary->cnt++;
+  }
+  spin_unlock(&samples->lock);
+}
+
+void blk_stat_update(u64 now) {
+  remove_from_sliding_window(blk_io_samples, now - 10 * NSEC_PER_SEC);
+  analyze_blk_io_samples(blk_io_samples, &blk_stat->sample_summary);
+  copy_blk_stat(blk_stat, raw_blk_stat);
+}
+
+void on_block_bio_queue(void *ignore, struct bio *bio) {
+  if (ctrl && args->io_type + bio_data_dir(bio) != 1) {
+    atomic64_t *arr = NULL;
+    unsigned int size;
+
+    const char *rq_disk_name = bio->bi_bdev->bd_disk->disk_name;
+    if (strcmp(rq_disk_name, args->dev) != 0 &&
+        strcmp(args->dev, "all devices") != 0) {
+      return;
+    }
+
+    size = bio->bi_iter.bi_size;
+    if (bio_data_dir(bio) == WRITE) {
+      atomic64_inc(&raw_blk_stat->write_cnt);
+      arr = raw_blk_stat->write_io;
+    } else {
+      atomic64_inc(&raw_blk_stat->read_cnt);
+      arr = raw_blk_stat->read_io;
+    }
+    atomic64_inc(&raw_blk_stat->in_flight);
+    inc_cnt_atomic_arr(arr, size);
+
+    if (to_sample()) {
+      if (current_bio == NULL) {
+        current_bio = kmalloc(sizeof(struct blk_io_instance), GFP_KERNEL);
+        init_blk_io_instance(current_bio);
+        current_bio->is_write = bio_data_dir(bio);
+        current_bio->bio = bio;
+        current_bio->size = bio->bi_iter.bi_size;
+        append_blk_event(current_bio, ktime_get_ns(), BIO_QUEUE);
+      } else {
+        pr_info("current_bio is not NULL\n");
+      }
+      // struct blk_io_instance *bio = kmalloc(sizeof(struct blk_io_instance),
+      // GFP_KERNEL); struct sw_node *node = kmalloc(sizeof(struct sw_node),
+      // GFP_KERNEL); node->data = bio; bio->is_write = bio_data_dir(bio) ==
+      // WRITE; bio->req_tag = bio->bi_iter.bi_sector; bio->size =
+      // bio->bi_iter.bi_size; bio->cnt = 0;
+    }
+  }
+}
+
+void on_block_bio_complete(void *ignore, struct request_queue *,
+                           struct bio *bio) {
+  if (ctrl && args->io_type + bio_data_dir(bio) != 1) {
+    pr_info("on_block_bio_complete: %s, size: %d, is private null: %d\n",
+            bio_data_dir(bio) == WRITE ? "write" : "read", bio->bi_iter.bi_size,
+            bio->bi_private == NULL);
+
+    /** TODO: update sample set */
+    if (current_bio && current_bio->bio == bio) {
+      append_blk_event(current_bio, ktime_get_ns(), BIO_COMPLETE);
+      if (current_bio->is_spoiled) {
+        pr_err("current_bio is spoiled\n");
+      } else {
+        print_blk_io_instance(current_bio);
+        struct sw_node *node;
+        node = kmalloc(sizeof(struct sw_node), GFP_KERNEL);
+        node->data = current_bio;
+        node->timestamp = current_bio->ts[0];
+        add_to_sliding_window(blk_io_samples, node);
+      }
+      current_bio = NULL;
+    } else {
+      pr_err("current_bio is NULL, but it is completed. \n");
+    }
+    atomic64_dec(&raw_blk_stat->in_flight);
+  }
+}
+
+void on_block_rq_complete(void *ignore, struct request *rq, int err,
+                          unsigned int nr_bytes) {
+  if (ctrl && args->io_type + rq_data_dir(rq) != 1) {
+    // pr_info("on_block_rq_complete: %s, size: %d\n",
+    //         rq_data_dir(rq) == WRITE ? "write" : "read", nr_bytes);
+
+    /** if the device name of the request is different from args, return */
+    const char *rq_disk_name = rq->rq_disk->disk_name;
+    if(strcmp(rq_disk_name, args->dev) != 0 && strcmp(args->dev, "all devices") != 0){
+      return;
+    }
+
+    /** traverse the bio int the rq */
+    struct bio *bio = rq->bio;
+    // int cnt = 0;
+    while (bio) {
+      if (current_bio && bio == current_bio->bio) {
+        append_blk_event(current_bio, ktime_get_ns(), BIO_COMPLETE);
+        if (current_bio->is_spoiled) {
+          pr_err("current_bio is spoiled\n");
+        } else {
+          print_blk_io_instance(current_bio);
+          struct sw_node *node;
+          node = kmalloc(sizeof(struct sw_node), GFP_KERNEL);
+          node->data = current_bio;
+          node->timestamp = current_bio->ts[0];
+          add_to_sliding_window(blk_io_samples, node);
+        }
+        current_bio = NULL;
+      }
+      atomic64_dec(&raw_blk_stat->in_flight);
+    
+      bio = bio->bi_next;
+    }
+  }
+}
+
+static int blk_register_tracepoints(void) {
+  int ret;
+  pr_info("Registering tracepoints\n");
+
+  pr_info("Registering tracepoint: blk_bio_queue\n");
+  ret = register_trace_block_bio_queue(on_block_bio_queue, NULL);
+  if (ret) goto failed;
+
+  pr_info("Registering tracepoint: blk_bio_complete\n");
+  ret = register_trace_block_bio_complete(on_block_bio_complete, NULL);
+  if (ret) goto unregister_bio_queue;
+
+  pr_info("Registering tracepoint: blk_rq_complete\n");
+  ret = register_trace_block_rq_complete(on_block_rq_complete, NULL);
+  if (ret) goto unregister_bio_complete;
+
+  return 0;
+
+unregister_bio_complete:
+  unregister_trace_block_bio_complete(on_block_bio_complete, NULL);
+
+unregister_bio_queue:
+  unregister_trace_block_bio_queue(on_block_bio_queue, NULL);
+
+failed:
+  pr_err("Failed to register tracepoints\n");
+  return ret;
+}
+
+static int blk_unregister_tracepoints(void) {
+  pr_info("Unregistering tracepoints\n");
+  unregister_trace_block_bio_queue(on_block_bio_queue, NULL);
+  unregister_trace_block_bio_complete(on_block_bio_complete, NULL);
+  unregister_trace_block_rq_complete(on_block_rq_complete, NULL);
+  return 0;
+}
+
+static int mmap_blk_stat(struct file *file, struct vm_area_struct *vma) {
+  if (remap_pfn_range(vma, vma->vm_start, vmalloc_to_pfn(blk_stat),
+                      vma->vm_end - vma->vm_start, vma->vm_page_prot))
+    return -EAGAIN;
+  return 0;
+}
+
+static const struct proc_ops nttm_blk_stat_fops = {
+    .proc_mmap = mmap_blk_stat,
+};
+
+int init_blk_proc_entries(void) {
+  pr_info("Initializing blk proc entries\n");
+  entry_blk_dir = proc_mkdir("blk", parent_dir);
+  if (!entry_blk_dir) {
+    pr_err("Failed to create /proc/nttm/blk directory\n");
+    goto failed;
+  }
+
+  entry_blk_stat = proc_create("stat", 0, entry_blk_dir, &nttm_blk_stat_fops);
+  if (!entry_blk_stat) {
+    pr_err("Failed to create proc entry for stat\n");
+    goto cleanup_blk_dir;
+  }
+  return 0;
+
+cleanup_blk_dir:
+  remove_proc_entry("blk", parent_dir);
+failed:
+  return -ENOMEM;
+}
+
+static void remove_blk_proc_entries(void) {
+  remove_proc_entry("stat", entry_blk_dir);
+  remove_proc_entry("blk", parent_dir);
+}
+
+int init_blk_variables(void) {
+  blk_stat = vmalloc(sizeof(struct blk_stat));
+  if (!blk_stat) {
+    pr_err("Failed to allocate memory for blk_stat\n");
+    return -ENOMEM;
+  }
+  init_blk_stat(blk_stat);
+
+  raw_blk_stat = kmalloc(sizeof(struct _blk_stat), GFP_KERNEL);
+  if (!raw_blk_stat) {
+    pr_err("Failed to allocate memory for raw_blk_stat\n");
+    return -ENOMEM;
+  }
+  _init_blk_tr(raw_blk_stat);
+
+  blk_io_samples = kmalloc(sizeof(struct sliding_window), GFP_KERNEL);
+  init_sliding_window(blk_io_samples);
+  return 0;
+}
+
+void free_blk_varialbes(void) {
+  vfree(blk_stat);
+  kfree(raw_blk_stat);
+  kfree(blk_io_samples);
+}
+
+int init_blk_layer(void) {
+  int ret;
+  pr_info("Initializing blk layer\n");
+  ret = init_blk_variables();
+  if (ret) return ret;
+  ret = init_blk_proc_entries();
+  if (ret) return ret;
+  ret = blk_register_tracepoints();
+  if (ret) return ret;
+  return 0;
+}
+
+void exit_blk_layer(void) {
+  pr_info("Exiting blk layer\n");
+  remove_blk_proc_entries();
+  free_blk_varialbes();
+  blk_unregister_tracepoints();
+}
+
+#endif  // _K_BLK_LAYER_H_

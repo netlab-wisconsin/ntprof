@@ -12,6 +12,7 @@
 #include <linux/vmalloc.h>
 
 #include "k_nvmet_tcp_layer.h"
+#include "k_blk_layer.h"
 
 /**
  * update data periodically with the user
@@ -21,6 +22,7 @@ static int update_routine_fn(void *data) {
     u64 now = ktime_get_ns();
     
     /** update the statistic here */
+    blk_stat_update(now);
     nvmet_tcp_stat_update(now);
 
     /** wait for 1 second to start routine again */
@@ -187,6 +189,7 @@ static int __init init_nttm_module(void) {
   if(ret) return ret;
 
   /** initialize the monitor modules on different layers */
+  init_blk_layer();
   init_nvmet_tcp_layer();
 
   return 0;
@@ -197,6 +200,7 @@ static void __exit exit_nttm_module(void) {
 
   /** exit monitor modules on different layers */
   exit_nvmet_tcp_layer();
+  exit_blk_layer();
 
   remove_proc_entries();
   free_global_variables();

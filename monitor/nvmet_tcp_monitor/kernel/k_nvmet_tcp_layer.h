@@ -34,7 +34,7 @@
  *
  */
 
-enum trpt {
+enum nvmet_tcp_trpt {
   TRY_RECV_PDU,
   DONE_RECV_PDU,
   EXEC_READ_REQ,
@@ -51,7 +51,7 @@ enum trpt {
   TRY_RECV_DATA
 };
 
-void nvmet_tcp_trpt_name(enum trpt p, char* name) {
+void nvmet_tcp_trpt_name(enum nvmet_tcp_trpt p, char* name) {
   switch (p) {
     case TRY_RECV_PDU:
       strcpy(name, "TRY_RECV_PDU");
@@ -105,7 +105,7 @@ struct nvmet_io_instance {
   bool is_write;
   u16 command_id;
   u64 ts[EVENT_NUM];
-  enum trpt trpt[EVENT_NUM];
+  enum nvmet_tcp_trpt trpt[EVENT_NUM];
   u8 cnt;
   u32 size;
   bool is_spoiled;
@@ -126,8 +126,8 @@ void init_nvmet_tcp_io_instance(struct nvmet_io_instance* io_instance,
   }
 }
 
-void append_event(struct nvmet_io_instance* io_instance, enum trpt trpt,
-                  u64 ts) {
+void append_event(struct nvmet_io_instance* io_instance,
+                  enum nvmet_tcp_trpt trpt, u64 ts) {
   if (io_instance->cnt < EVENT_NUM) {
     io_instance->trpt[io_instance->cnt] = trpt;
     io_instance->ts[io_instance->cnt] = ts;
@@ -178,8 +178,9 @@ void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
                       unsigned long long time) {
   if (ctrl && args->qid[qid] && args->io_type + is_write != 1) {
     if (to_sample()) {
-      pr_info("DONE_RECV_PDU: cmd_id: %d, qid: %d, is_write: %d, time: %llu\n",
-              cmd_id, qid, is_write, time);
+      // pr_info("DONE_RECV_PDU: cmd_id: %d, qid: %d, is_write: %d, time:
+      // %llu\n",
+      //         cmd_id, qid, is_write, time);
       if (!current_io) {
         current_io = kmalloc(sizeof(struct nvmet_io_instance), GFP_KERNEL);
         init_nvmet_tcp_io_instance(current_io, cmd_id, is_write, 0);
@@ -293,7 +294,6 @@ void on_try_send_r2t(void* ignore, u16 cmd_id, int qid, int cp_len, int left,
   }
 }
 
-
 bool is_standard_read(struct nvmet_io_instance* io_instance) {
   int i;
   if (io_instance->cnt < 8) {
@@ -372,22 +372,22 @@ void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, TRY_SEND_RESPONSE, time);
       /** insert the current io sample to the sample sliding window */
-      print_io_instance(current_io);
+      // print_io_instance(current_io);
       if (!current_io->is_spoiled) {
         struct sw_node* node;
         node = kmalloc(sizeof(struct sw_node), GFP_KERNEL);
         node->data = current_io;
         node->timestamp = current_io->ts[0];
         add_to_sliding_window(sw_nvmet_tcp_io_samples, node);
-        if(current_io->is_write){
-          if(!is_standard_write(current_io)){
+        if (current_io->is_write) {
+          if (!is_standard_write(current_io)) {
             pr_err("write io is not standard: ");
-            print_io_instance(current_io);
+            // print_io_instance(current_io);
           }
-        }else {
-          if(!is_standard_read(current_io)){
+        } else {
+          if (!is_standard_read(current_io)) {
             pr_err("read io is not standard: ");
-            print_io_instance(current_io);
+            // print_io_instance(current_io);
           }
         }
 
@@ -437,7 +437,7 @@ void init_nvmet_tcp_read_breakdown(struct nvmet_tcp_read_breakdown* breakdown) {
   breakdown->in_nvmet_tcp_time = 0;
   breakdown->in_blk_time = 0;
   breakdown->cnt = 0;
-   breakdown->end2end_time=0;
+  breakdown->end2end_time = 0;
 }
 
 void init_nvmet_tcp_write_breakdown(
@@ -446,10 +446,11 @@ void init_nvmet_tcp_write_breakdown(
   breakdown->in_nvmet_tcp_time = 0;
   breakdown->in_blk_time = 0;
   breakdown->cnt = 0;
-  breakdown->end2end_time=0;
+  breakdown->end2end_time = 0;
 }
 
-void update_read_breakdown(struct nvmet_tcp_read_breakdown* breakdown, struct nvmet_io_instance* io_instance) {
+void update_read_breakdown(struct nvmet_tcp_read_breakdown* breakdown,
+                           struct nvmet_io_instance* io_instance) {
   u64 in_blk_time = io_instance->ts[2] - io_instance->ts[1];
   u64 total = io_instance->ts[io_instance->cnt - 1] - io_instance->ts[0];
   breakdown->in_blk_time += in_blk_time;
@@ -458,19 +459,20 @@ void update_read_breakdown(struct nvmet_tcp_read_breakdown* breakdown, struct nv
   breakdown->cnt++;
 }
 
-void update_write_breakdown(struct nvmet_tcp_write_breakdown* breakdown, struct nvmet_io_instance* io_instance) {
+void update_write_breakdown(struct nvmet_tcp_write_breakdown* breakdown,
+                            struct nvmet_io_instance* io_instance) {
   int cnt = io_instance->cnt;
-  if(io_instance->contain_r2t){
+  if (io_instance->contain_r2t) {
     u64 make_r2t_time = io_instance->ts[3] - io_instance->ts[0];
-    u64 in_blk_time = io_instance->ts[cnt-4] - io_instance->ts[cnt-3];
+    u64 in_blk_time = io_instance->ts[cnt - 3] - io_instance->ts[cnt - 4];
     u64 total = io_instance->ts[cnt - 1] - io_instance->ts[0];
     breakdown->make_r2t_time += make_r2t_time;
     breakdown->in_blk_time += in_blk_time;
     breakdown->in_nvmet_tcp_time += (total - in_blk_time - make_r2t_time);
     breakdown->end2end_time += total;
     breakdown->cnt++;
-  }else{
-    u64 in_blk_time = io_instance->ts[cnt-4] - io_instance->ts[cnt-3];
+  } else {
+    u64 in_blk_time = io_instance->ts[cnt - 3] - io_instance->ts[cnt - 4];
     u64 total = io_instance->ts[cnt - 1] - io_instance->ts[0];
     breakdown->in_blk_time += in_blk_time;
     breakdown->in_nvmet_tcp_time += (total - in_blk_time);
@@ -478,8 +480,6 @@ void update_write_breakdown(struct nvmet_tcp_write_breakdown* breakdown, struct 
     breakdown->cnt++;
   }
 }
-
-
 
 void analyze_io_samples(void) {
   struct list_head *pos, *q;
@@ -501,8 +501,6 @@ void analyze_io_samples(void) {
 
   spin_unlock(&sw_nvmet_tcp_io_samples->lock);
 }
-
-
 
 void nvmet_tcp_stat_update(u64 now) {
   /** TODO: analize the sample set */
@@ -643,8 +641,6 @@ static void remove_nvmet_tcp_proc_entries(void) {
   remove_proc_entry("stat", entry_nvmet_tcp_dir);
   remove_proc_entry("nvmet_tcp", parent_dir);
 }
-
-
 
 void init_nvmet_tcp_stat(struct nvmet_tcp_stat* stat) {
   init_nvmet_tcp_read_breakdown(&stat->read_breakdown);
