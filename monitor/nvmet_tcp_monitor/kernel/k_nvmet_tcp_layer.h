@@ -3,11 +3,13 @@
 
 #include <linux/slab.h>
 #include <linux/string.h>
+#include <linux/time.h>
 #include <linux/tracepoint.h>
 #include <linux/types.h>
 #include <linux/vmalloc.h>
 #include <trace/events/nvmet_tcp.h>
 
+#include "k_nttm.h"
 #include "nttm_com.h"
 #include "util.h"
 
@@ -145,12 +147,12 @@ void print_io_instance(struct nvmet_io_instance* io_instance) {
   }
 }
 
-static struct nvmet_tcp_io_instance* io_instance = NULL;
+static struct nvmet_io_instance* current_io = NULL;
 
 static struct sliding_window* sw_nvmet_tcp_io_samples;
 
-struct proc_dir_entry *entry_nvmet_tcp_dir;
-struct proc_dir_entry *entry_nvmet_tcp_stat;
+struct proc_dir_entry* entry_nvmet_tcp_dir;
+struct proc_dir_entry* entry_nvmet_tcp_stat;
 
 static struct nvmet_tcp_stat* nvmettcp_stat;
 
@@ -163,18 +165,28 @@ static struct nvmet_tcp_stat* nvmettcp_stat;
 
 void on_try_recv_pdu(void* ignore, u16 pdu_type, u16 hdr_len, int queue_left,
                      int qid, unsigned long long time) {
-  if (ctrl && args->qid[qid])
-    pr_info(
-        "TRY_RECV_PDU: pdu_type: %d, hdr_len: %d, queue_left: %d, qid: %d, "
-        "time: %llu\n",
-        pdu_type, hdr_len, queue_left, qid, time);
+  // if (ctrl && args->qid[qid])
+  // pr_info(
+  //     "TRY_RECV_PDU: pdu_type: %d, hdr_len: %d, queue_left: %d, qid: %d, "
+  //     "time: %llu\n",
+  //     pdu_type, hdr_len, queue_left, qid, time);
 }
 
 void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
                       unsigned long long time) {
-  if (ctrl && args->qid[qid] && args->io_type + is_write != 1)
-    pr_info("DONE_RECV_PDU: cmd_id: %d, qid: %d, is_write: %d, time: %llu\n",
-            cmd_id, qid, is_write, time);
+  if (ctrl && args->qid[qid] && args->io_type + is_write != 1) {
+    if (to_sample()) {
+      pr_info("DONE_RECV_PDU: cmd_id: %d, qid: %d, is_write: %d, time: %llu\n",
+             cmd_id, qid, is_write, time);
+      if (!current_io) {
+        current_io = kmalloc(sizeof(struct nvmet_io_instance), GFP_KERNEL);
+        init_nvmet_tcp_io_instance(current_io, cmd_id, is_write, 0);
+        append_event(current_io, DONE_RECV_PDU, time);
+      } else {
+        pr_info("current_io is not NULL\n");
+      }
+    }
+  }
 }
 
 void on_exec_read_req(void* ignore, u16 cmd_id, int qid, bool is_write,
@@ -182,9 +194,13 @@ void on_exec_read_req(void* ignore, u16 cmd_id, int qid, bool is_write,
   if (is_write) {
     pr_err("exec_read_req: is_write is true\n");
   }
-  if (ctrl && args->qid[qid])
-    pr_info("EXEC_READ_REQ: cmd_id: %d, qid: %d, is_write: %d, time: %llu\n",
-            cmd_id, qid, is_write, time);
+  if (ctrl && args->qid[qid]) {
+    // pr_info("EXEC_READ_REQ: cmd_id: %d, qid: %d, is_write: %d, time: %llu\n",
+    // cmd_id, qid, is_write, time);
+    if (current_io && current_io->command_id == cmd_id) {
+      append_event(current_io, EXEC_READ_REQ, time);
+    }
+  }
 }
 
 void on_exec_write_req(void* ignore, u16 cmd_id, int qid, bool is_write,
@@ -192,87 +208,152 @@ void on_exec_write_req(void* ignore, u16 cmd_id, int qid, bool is_write,
   if (!is_write) {
     pr_err("exec_write_req: is_write is false\n");
   }
-  if (ctrl && args->qid[qid])
-    pr_info("EXEC_WRITE_REQ: cmd_id: %d, qid: %d, is_write: %d, time: %llu\n",
-            cmd_id, qid, is_write, time);
+  if (ctrl && args->qid[qid]) {
+    // pr_info("EXEC_WRITE_REQ: cmd_id: %d, qid: %d, is_write: %d, time:
+    // %llu\n",
+    //         cmd_id, qid, is_write, time);
+    if (current_io && current_io->command_id == cmd_id) {
+      append_event(current_io, EXEC_WRITE_REQ, time);
+    }
+  }
 }
 
 void on_queue_response(void* ignore, u16 cmd_id, int qid, bool is_write,
                        unsigned long long time) {
-  if (ctrl && args->qid[qid])
-    pr_info("QUEUE_RESPONSE: cmd_id: %d, qid: %d, is_write: %d, time: %llu\n",
-            cmd_id, qid, is_write, time);
+  if (ctrl && args->qid[qid]) {
+    // pr_info("QUEUE_RESPONSE: cmd_id: %d, qid: %d, is_write: %d, time:
+    // %llu\n",
+    //         cmd_id, qid, is_write, time);
+    if (current_io && current_io->command_id == cmd_id) {
+      append_event(current_io, QUEUE_RESPONSE, time);
+    }
+  }
 }
 
 void on_setup_c2h_data_pdu(void* ignore, u16 cmd_id, int qid,
                            unsigned long long time) {
-  if (ctrl && args->qid[qid])
-    pr_info("SETUP_C2H_DATA_PDU: cmd_id: %d, qid: %d, time: %llu\n", cmd_id,
-            qid, time);
+  if (ctrl && args->qid[qid]) {
+    // pr_info("SETUP_C2H_DATA_PDU: cmd_id: %d, qid: %d, time: %llu\n", cmd_id,
+    //         qid, time);
+    if (current_io && current_io->command_id == cmd_id) {
+      append_event(current_io, SETUP_C2H_DATA_PDU, time);
+    }
+  }
 }
 
 void on_setup_r2t_pdu(void* ignore, u16 cmd_id, int qid,
                       unsigned long long time) {
-  if (ctrl && args->qid[qid])
-    pr_info("SETUP_R2T_PDU: cmd_id: %d, qid: %d, time: %llu\n", cmd_id, qid,
-            time);
+  if (ctrl && args->qid[qid]) {
+    // pr_info("SETUP_R2T_PDU: cmd_id: %d, qid: %d, time: %llu\n", cmd_id, qid,
+    //         time);
+    if (current_io && current_io->command_id == cmd_id) {
+      append_event(current_io, SETUP_R2T_PDU, time);
+    }
+  }
 }
 
 void on_setup_response_pdu(void* ignore, u16 cmd_id, int qid,
                            unsigned long long time) {
-  if (ctrl && args->qid[qid])
-    pr_info("SETUP_RESPONSE_PDU: cmd_id: %d, qid: %d, time: %llu\n", cmd_id,
-            qid, time);
+  if (ctrl && args->qid[qid]) {
+    // pr_info("SETUP_RESPONSE_PDU: cmd_id: %d, qid: %d, time: %llu\n", cmd_id,
+    //         qid, time);
+    if (current_io && current_io->command_id == cmd_id) {
+      append_event(current_io, SETUP_RESPONSE_PDU, time);
+    }
+  }
 }
 
 void on_try_send_data_pdu(void* ignore, u16 cmd_id, int qid, int cp_len,
                           int left, unsigned long long time) {
-  if (ctrl && args->qid[qid])
-    pr_info(
-        "TRY_SEND_DATA_PDU: cmd_id: %d, qid: %d, cp_len: %d, left: %d, time: "
-        "%llu\n",
-        cmd_id, qid, cp_len, left, time);
+  if (ctrl && args->qid[qid]) {
+    // pr_info(
+    //     "TRY_SEND_DATA_PDU: cmd_id: %d, qid: %d, cp_len: %d, left: %d, time:
+    //     "
+    //     "%llu\n",
+    //     cmd_id, qid, cp_len, left, time);
+    if (current_io && current_io->command_id == cmd_id) {
+      append_event(current_io, TRY_SEND_DATA_PDU, time);
+    }
+  }
 }
 
 void on_try_send_r2t(void* ignore, u16 cmd_id, int qid, int cp_len, int left,
                      unsigned long long time) {
-  if (ctrl && args->qid[qid])
-    pr_info(
-        "TRY_SEND_R2T: cmd_id: %d, qid: %d, cp_len: %d, left: %d, time: "
-        "%llu\n",
-        cmd_id, qid, cp_len, left, time);
+  if (ctrl && args->qid[qid]) {
+    // pr_info(
+    //     "TRY_SEND_R2T: cmd_id: %d, qid: %d, cp_len: %d, left: %d, time: "
+    //     "%llu\n",
+    //     cmd_id, qid, cp_len, left, time);
+    if (current_io && current_io->command_id == cmd_id) {
+      append_event(current_io, TRY_SEND_R2T, time);
+    }
+  }
 }
 
 void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
                           int left, unsigned long long time) {
-  if (ctrl && args->qid[qid])
-    pr_info(
-        "TRY_SEND_RESPONSE: cmd_id: %d, qid: %d, cp_len: %d, left: %d, time: "
-        "%llu\n",
-        cmd_id, qid, cp_len, left, time);
+  if (ctrl && args->qid[qid]) {
+    // pr_info(
+    //     "TRY_SEND_RESPONSE: cmd_id: %d, qid: %d, cp_len: %d, left: %d, time:
+    //     "
+    //     "%llu\n",
+    //     cmd_id, qid, cp_len, left, time);
+    if (current_io && current_io->command_id == cmd_id) {
+      append_event(current_io, TRY_SEND_RESPONSE, time);
+      /** insert the current io sample to the sample sliding window */
+      print_io_instance(current_io);
+      if (!current_io->is_spoiled) {
+        struct sw_node* node;
+        node = kmalloc(sizeof(struct sw_node), GFP_KERNEL);
+        node->data = current_io;
+        node->timestamp = current_io->ts[0];
+        add_to_sliding_window(sw_nvmet_tcp_io_samples, node);
+        current_io = NULL;
+      } else {
+        pr_info("current_io is spoiled\n");
+      }
+    }
+  }
 }
 
 void on_try_send_data(void* ignore, u16 cmd_id, int qid, int cp_len,
                       unsigned long long time) {
-  if (ctrl && args->qid[qid])
-    pr_info("TRY_SEND_DATA: cmd_id: %d, qid: %d, cp_len: %d, time: %llu\n",
-            cmd_id, qid, cp_len, time);
+  if (ctrl && args->qid[qid]) {
+    // pr_info("TRY_SEND_DATA: cmd_id: %d, qid: %d, cp_len: %d, time: %llu\n",
+    //         cmd_id, qid, cp_len, time);
+    if (current_io && current_io->command_id == cmd_id) {
+      append_event(current_io, TRY_SEND_DATA, time);
+    }
+  }
 }
 
 void on_try_recv_data(void* ignore, u16 cmd_id, int qid, int cp_len,
                       unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    pr_info("TRY_RECV_DATA: cmd_id: %d, qid: %d, cp_len: %d, time: %llu\n",
-            cmd_id, qid, cp_len, time);
+    // pr_info("TRY_RECV_DATA: cmd_id: %d, qid: %d, cp_len: %d, time: %llu\n",
+    //         cmd_id, qid, cp_len, time);
+    if (current_io && current_io->command_id == cmd_id) {
+      append_event(current_io, TRY_RECV_DATA, time);
+    }
   }
 }
 
 void on_handle_h2c_data_pdu(void* ignore, u16 cmd_id, int qid, int datalen,
                             unsigned long long time) {
-  if (ctrl && args->qid[qid])
-    pr_info(
-        "HANDLE_H2C_DATA_PDU: cmd_id: %d, qid: %d, datalen: %d, time: %llu\n",
-        cmd_id, qid, datalen, time);
+  if (ctrl && args->qid[qid]) {
+    // pr_info(
+    //     "HANDLE_H2C_DATA_PDU: cmd_id: %d, qid: %d, datalen: %d, time:
+    //     %llu\n", cmd_id, qid, datalen, time);
+    if (current_io && current_io->command_id == cmd_id) {
+      append_event(current_io, HANDLE_H2C_DATA_PDU, time);
+    }
+  }
+}
+
+void nvmet_tcp_stat_update(u64 now) {
+  /** TODO: analize the sample set */
+
+  remove_from_sliding_window(sw_nvmet_tcp_io_samples, now - 10 * NSEC_PER_SEC);
 }
 
 static int nvmet_tcp_register_tracepoints(void) {
@@ -377,24 +458,26 @@ void nvmet_tcp_unregister_tracepoints(void) {
 }
 
 static int mmap_nvmet_tcp_stat(struct file* file, struct vm_area_struct* vma) {
-  if(remap_pfn_range(vma, vma->vm_start, vmalloc_to_pfn(nvmettcp_stat), vma->vm_end - vma->vm_start, vma->vm_page_prot)) {
+  if (remap_pfn_range(vma, vma->vm_start, vmalloc_to_pfn(nvmettcp_stat),
+                      vma->vm_end - vma->vm_start, vma->vm_page_prot)) {
     return -EAGAIN;
   }
   return 0;
 }
 
 static const struct proc_ops nttm_nvmet_tcp_stat_fops = {
-  .proc_mmap = mmap_nvmet_tcp_stat,
+    .proc_mmap = mmap_nvmet_tcp_stat,
 };
 
 int init_nvmet_tcp_proc_entries(void) {
   entry_nvmet_tcp_dir = proc_mkdir("nvmet_tcp", parent_dir);
-  if(!entry_nvmet_tcp_dir) {
+  if (!entry_nvmet_tcp_dir) {
     pr_err("failed to create nvmet_tcp directory\n");
     return -ENOMEM;
   }
-  entry_nvmet_tcp_stat = proc_create("stat", 0, entry_nvmet_tcp_dir, &nttm_nvmet_tcp_stat_fops);
-  if(!entry_nvmet_tcp_stat) {
+  entry_nvmet_tcp_stat =
+      proc_create("stat", 0, entry_nvmet_tcp_dir, &nttm_nvmet_tcp_stat_fops);
+  if (!entry_nvmet_tcp_stat) {
     pr_err("failed to create nvmet_tcp/stat\n");
     vfree(nvmettcp_stat);
     return -ENOMEM;
@@ -411,9 +494,8 @@ void init_nvmet_tcp_read_breakdown(struct nvmet_tcp_read_breakdown* breakdown) {
 
 }
 
-void init_nvmet_tcp_write_breakdown(struct nvmet_tcp_write_breakdown* breakdown) {
-
-}
+void init_nvmet_tcp_write_breakdown(
+    struct nvmet_tcp_write_breakdown* breakdown) {}
 
 void init_nvmet_tcp_stat(struct nvmet_tcp_stat* stat) {
   init_nvmet_tcp_read_breakdown(&stat->read_breakdown);
@@ -423,32 +505,38 @@ void init_nvmet_tcp_stat(struct nvmet_tcp_stat* stat) {
 int init_nvmet_tcp_variables(void) {
   pr_info("try to allocate size %d\n", sizeof(*nvmettcp_stat));
   nvmettcp_stat = vmalloc(sizeof(*nvmettcp_stat));
-  if(!nvmettcp_stat) {
+  if (!nvmettcp_stat) {
     pr_err("failed to allocate nvmet_tcp_stat\n");
     return -ENOMEM;
   }
   init_nvmet_tcp_stat(nvmettcp_stat);
 
+  sw_nvmet_tcp_io_samples = kmalloc(sizeof(struct sliding_window), GFP_KERNEL);
+  init_sliding_window(sw_nvmet_tcp_io_samples);
+
   return 0;
 }
 
 void free_nvmet_tcp_variables(void) {
-  if(nvmettcp_stat)
-    vfree(nvmettcp_stat);
+  if (nvmettcp_stat) vfree(nvmettcp_stat);
+  if(sw_nvmet_tcp_io_samples) {
+    // TODO: free the sliding window
+    kfree(sw_nvmet_tcp_io_samples);
+  }
 }
 
 int init_nvmet_tcp_layer(void) {
   pr_info("init nvmet tcp layer\n");
   int ret;
   ret = init_nvmet_tcp_variables();
-  if(ret) return ret;
+  if (ret) return ret;
   ret = init_nvmet_tcp_proc_entries();
-  if(ret) {
+  if (ret) {
     pr_info("failed to init nvmet tcp proc entries\n");
     free_nvmet_tcp_variables();
   }
   ret = nvmet_tcp_register_tracepoints();
-  if(ret){
+  if (ret) {
     pr_info("failed to register tracepoints\n");
     return ret;
   }

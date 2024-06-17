@@ -19,7 +19,9 @@
 static int update_routine_fn(void *data) {
   while (!kthread_should_stop()) {
     u64 now = ktime_get_ns();
+    
     /** update the statistic here */
+    nvmet_tcp_stat_update(now);
 
     /** wait for 1 second to start routine again */
     msleep(1000);

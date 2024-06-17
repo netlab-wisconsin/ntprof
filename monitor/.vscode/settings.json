@@ -2,6 +2,7 @@
   "files.associations": {
     "types.h": "c",
     "unistd.h": "c",
-    "cstdlib": "c"
+    "cstdlib": "c",
+    "u_nvmetcp_layer.h": "c"
   }
 }
