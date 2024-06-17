@@ -4,6 +4,8 @@
 #include "u_blk_layer.h"
 #include "u_nvmetcp_layer.h"
 
+#include <ctype.h>
+
 static volatile int keep_running = 1;
 
 // char device_name[32];
@@ -248,7 +250,7 @@ int main(int argc, char **argv) {
   /** send msg to kernel space to start recording */
   start_ntm();
 
-  init_ntm_blk(&blk_stat_set);
+  init_ntm_blk();
 
   map_ntm_blk_data();
 
@@ -257,7 +259,7 @@ int main(int argc, char **argv) {
   while (keep_running) {
     printf("\033[H\033[J");
     print_args(args);
-    print_blk_stat_set(&blk_stat_set, false);
+    print_blk_stat_set();
     print_nvme_tcp_stat();
     sleep(1);
   }

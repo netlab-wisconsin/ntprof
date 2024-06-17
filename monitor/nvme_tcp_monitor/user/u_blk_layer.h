@@ -24,11 +24,11 @@ struct blk_stat_set {
   struct blk_stat *blk_stat;
 };
 
-static struct blk_stat_set *blk_set;
+static struct blk_stat_set blk_set;
 
-void print_blk_stat_set(struct blk_stat_set *bs, bool clear);
+void print_blk_stat_set();
 
-void init_ntm_blk(struct blk_stat_set *bs);
+void init_ntm_blk();
 
 void map_ntm_blk_data();
 

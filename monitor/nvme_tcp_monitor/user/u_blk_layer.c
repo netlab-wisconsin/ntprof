@@ -42,24 +42,23 @@ void print_blk_stat(struct blk_stat *b_stat, char *header) {
  * @param bs the blk_stat_set
  * @param clear clear the screen or not
 */
-void print_blk_stat_set(struct blk_stat_set *bs, bool clear) {
-  if (clear) printf("\033[H\033[J");
-  print_blk_stat(bs->raw_blk_stat, "RAW BLK STAT");
+void print_blk_stat_set() {
+  print_blk_stat(blk_set.raw_blk_stat, "RAW BLK STAT");
   /** 
    * TODO: make it a global variable, 
    * instead of calling it repeatedly
   */
   char header[32];
   sprintf(header, "LAST %ds", args->win); 
-  print_blk_stat(bs->blk_stat, header);
+  print_blk_stat(blk_set.blk_stat, header);
 }
 
 
 /**
  * set device name and blk_stat_set ptr
 */
-void init_ntm_blk(struct blk_stat_set *bs) {
-  blk_set = bs;
+void init_ntm_blk() {
+  
 }
 
 
@@ -67,11 +66,6 @@ void init_ntm_blk(struct blk_stat_set *bs) {
  * map the blk layer statistic data structures
 */
 void map_ntm_blk_data() {
-  if (!blk_set) {
-    printf("blk_set is not initialized\n");
-    return;
-  }
-
   int  raw_blk_stat_fd, sample_fd;
 
   /** map the raw_blk_stat*/
@@ -80,9 +74,9 @@ void map_ntm_blk_data() {
     printf("Failed to open /proc/ntm/blk/ntm_raw_blk_stat\n");
     exit(EXIT_FAILURE);
   }
-  blk_set->raw_blk_stat = mmap(NULL, sizeof(struct blk_stat), PROT_READ,
+  blk_set.raw_blk_stat = mmap(NULL, sizeof(struct blk_stat), PROT_READ,
                                MAP_SHARED, raw_blk_stat_fd, 0);
-  if (blk_set->raw_blk_stat == MAP_FAILED) {
+  if (blk_set.raw_blk_stat == MAP_FAILED) {
     printf("Failed to mmap /proc/ntm/blk/ntm_raw_blk_stat\n");
     close(raw_blk_stat_fd);
     exit(EXIT_FAILURE);
@@ -93,15 +87,15 @@ void map_ntm_blk_data() {
   sample_fd = open("/proc/ntm/blk/ntm_sample", O_RDONLY);
   if (sample_fd == -1) {
     printf("Failed to open /proc/ntm/blk/ntm_sample\n");
-    munmap(blk_set->raw_blk_stat, sizeof(struct blk_stat));
+    munmap(blk_set.raw_blk_stat, sizeof(struct blk_stat));
     close(sample_fd);
     exit(EXIT_FAILURE);
   }
-  blk_set->blk_stat = mmap(NULL, sizeof(struct blk_stat), PROT_READ,
+  blk_set.blk_stat = mmap(NULL, sizeof(struct blk_stat), PROT_READ,
                                MAP_SHARED, sample_fd, 0);
-  if (blk_set->blk_stat == MAP_FAILED) {
+  if (blk_set.blk_stat == MAP_FAILED) {
     printf("Failed to mmap /proc/ntm/blk/ntm_sample\n");
-    munmap(blk_set->raw_blk_stat, sizeof(struct blk_stat));
+    munmap(blk_set.raw_blk_stat, sizeof(struct blk_stat));
     close(sample_fd);
     exit(EXIT_FAILURE);
   }
@@ -112,6 +106,6 @@ void map_ntm_blk_data() {
  * unmap the blk layer statistic data structures
 */
 void unmap_ntm_blk_data() {
-  munmap(blk_set->raw_blk_stat, sizeof(struct blk_stat));
-  munmap(blk_set->blk_stat, sizeof(struct blk_stat));
+  munmap(blk_set.raw_blk_stat, sizeof(struct blk_stat));
+  munmap(blk_set.blk_stat, sizeof(struct blk_stat));
 }
