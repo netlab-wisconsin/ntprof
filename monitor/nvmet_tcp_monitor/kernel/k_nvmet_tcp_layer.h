@@ -109,6 +109,7 @@ struct nvmet_io_instance {
   u8 cnt;
   u32 size;
   bool is_spoiled;
+  bool contain_r2t;
 };
 
 void init_nvmet_tcp_io_instance(struct nvmet_io_instance* io_instance,
@@ -119,6 +120,7 @@ void init_nvmet_tcp_io_instance(struct nvmet_io_instance* io_instance,
   io_instance->size = size;
   io_instance->cnt = 0;
   io_instance->is_spoiled = false;
+  io_instance->contain_r2t = false;
   for (i = 0; i < EVENT_NUM; i++) {
     io_instance->ts[i] = 0;
   }
@@ -177,7 +179,7 @@ void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
   if (ctrl && args->qid[qid] && args->io_type + is_write != 1) {
     if (to_sample()) {
       pr_info("DONE_RECV_PDU: cmd_id: %d, qid: %d, is_write: %d, time: %llu\n",
-             cmd_id, qid, is_write, time);
+              cmd_id, qid, is_write, time);
       if (!current_io) {
         current_io = kmalloc(sizeof(struct nvmet_io_instance), GFP_KERNEL);
         init_nvmet_tcp_io_instance(current_io, cmd_id, is_write, 0);
@@ -247,6 +249,7 @@ void on_setup_r2t_pdu(void* ignore, u16 cmd_id, int qid,
     // pr_info("SETUP_R2T_PDU: cmd_id: %d, qid: %d, time: %llu\n", cmd_id, qid,
     //         time);
     if (current_io && current_io->command_id == cmd_id) {
+      current_io->contain_r2t = true;
       append_event(current_io, SETUP_R2T_PDU, time);
     }
   }
@@ -290,6 +293,74 @@ void on_try_send_r2t(void* ignore, u16 cmd_id, int qid, int cp_len, int left,
   }
 }
 
+
+bool is_standard_read(struct nvmet_io_instance* io_instance) {
+  int i;
+  if (io_instance->cnt < 8) {
+    return false;
+  }
+  if (io_instance->trpt[0] != DONE_RECV_PDU ||
+      io_instance->trpt[1] != EXEC_READ_REQ ||
+      io_instance->trpt[2] != QUEUE_RESPONSE ||
+      io_instance->trpt[3] != SETUP_C2H_DATA_PDU ||
+      io_instance->trpt[4] != TRY_SEND_DATA_PDU ||
+      io_instance->trpt[5] != TRY_SEND_DATA ||
+      io_instance->trpt[io_instance->cnt - 1] != TRY_SEND_RESPONSE ||
+      io_instance->trpt[io_instance->cnt - 2] != SETUP_RESPONSE_PDU) {
+    return false;
+  }
+  for (i = 6; i < io_instance->cnt - 2; i++) {
+    if (io_instance->trpt[i] != TRY_RECV_DATA) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool is_standard_write(struct nvmet_io_instance* io_instance) {
+  int i;
+  int cnt = io_instance->cnt;
+  if (cnt < 6) {
+    return false;
+  }
+  if (io_instance->contain_r2t) {
+    if (io_instance->trpt[0] != DONE_RECV_PDU ||
+        io_instance->trpt[1] != QUEUE_RESPONSE ||
+        io_instance->trpt[2] != SETUP_R2T_PDU ||
+        io_instance->trpt[3] != TRY_SEND_R2T ||
+        io_instance->trpt[4] != HANDLE_H2C_DATA_PDU ||
+        io_instance->trpt[5] != TRY_RECV_DATA ||
+        io_instance->trpt[cnt - 4] != EXEC_WRITE_REQ ||
+        io_instance->trpt[cnt - 3] != QUEUE_RESPONSE ||
+        io_instance->trpt[cnt - 2] != SETUP_RESPONSE_PDU ||
+        io_instance->trpt[cnt - 1] != TRY_SEND_RESPONSE) {
+      return false;
+    }
+    for (i = 6; i < cnt - 4; i++) {
+      if (io_instance->trpt[i] != TRY_RECV_DATA) {
+        return false;
+      }
+    }
+    return true;
+
+  } else {
+    if (io_instance->trpt[0] != DONE_RECV_PDU ||
+        io_instance->trpt[1] != TRY_RECV_DATA ||
+        io_instance->trpt[cnt - 4] != EXEC_WRITE_REQ ||
+        io_instance->trpt[cnt - 3] != QUEUE_RESPONSE ||
+        io_instance->trpt[cnt - 2] != SETUP_RESPONSE_PDU ||
+        io_instance->trpt[cnt - 1] != TRY_SEND_RESPONSE) {
+      return false;
+    }
+    for (i = 2; i < cnt - 4; i++) {
+      if (io_instance->trpt[i] != TRY_RECV_DATA) {
+        return false;
+      }
+    }
+    return true;
+  }
+}
+
 void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
                           int left, unsigned long long time) {
   if (ctrl && args->qid[qid]) {
@@ -308,6 +379,18 @@ void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
         node->data = current_io;
         node->timestamp = current_io->ts[0];
         add_to_sliding_window(sw_nvmet_tcp_io_samples, node);
+        if(current_io->is_write){
+          if(!is_standard_write(current_io)){
+            pr_err("write io is not standard: ");
+            print_io_instance(current_io);
+          }
+        }else {
+          if(!is_standard_read(current_io)){
+            pr_err("read io is not standard: ");
+            print_io_instance(current_io);
+          }
+        }
+
         current_io = NULL;
       } else {
         pr_info("current_io is spoiled\n");
@@ -349,6 +432,77 @@ void on_handle_h2c_data_pdu(void* ignore, u16 cmd_id, int qid, int datalen,
     }
   }
 }
+
+void init_nvmet_tcp_read_breakdown(struct nvmet_tcp_read_breakdown* breakdown) {
+  breakdown->in_nvmet_tcp_time = 0;
+  breakdown->in_blk_time = 0;
+  breakdown->cnt = 0;
+   breakdown->end2end_time=0;
+}
+
+void init_nvmet_tcp_write_breakdown(
+    struct nvmet_tcp_write_breakdown* breakdown) {
+  breakdown->make_r2t_time = 0;
+  breakdown->in_nvmet_tcp_time = 0;
+  breakdown->in_blk_time = 0;
+  breakdown->cnt = 0;
+  breakdown->end2end_time=0;
+}
+
+void update_read_breakdown(struct nvmet_tcp_read_breakdown* breakdown, struct nvmet_io_instance* io_instance) {
+  u64 in_blk_time = io_instance->ts[2] - io_instance->ts[1];
+  u64 total = io_instance->ts[io_instance->cnt - 1] - io_instance->ts[0];
+  breakdown->in_blk_time += in_blk_time;
+  breakdown->in_nvmet_tcp_time += (total - in_blk_time);
+  breakdown->end2end_time += total;
+  breakdown->cnt++;
+}
+
+void update_write_breakdown(struct nvmet_tcp_write_breakdown* breakdown, struct nvmet_io_instance* io_instance) {
+  int cnt = io_instance->cnt;
+  if(io_instance->contain_r2t){
+    u64 make_r2t_time = io_instance->ts[3] - io_instance->ts[0];
+    u64 in_blk_time = io_instance->ts[cnt-4] - io_instance->ts[cnt-3];
+    u64 total = io_instance->ts[cnt - 1] - io_instance->ts[0];
+    breakdown->make_r2t_time += make_r2t_time;
+    breakdown->in_blk_time += in_blk_time;
+    breakdown->in_nvmet_tcp_time += (total - in_blk_time - make_r2t_time);
+    breakdown->end2end_time += total;
+    breakdown->cnt++;
+  }else{
+    u64 in_blk_time = io_instance->ts[cnt-4] - io_instance->ts[cnt-3];
+    u64 total = io_instance->ts[cnt - 1] - io_instance->ts[0];
+    breakdown->in_blk_time += in_blk_time;
+    breakdown->in_nvmet_tcp_time += (total - in_blk_time);
+    breakdown->end2end_time += total;
+    breakdown->cnt++;
+  }
+}
+
+
+
+void analyze_io_samples(void) {
+  struct list_head *pos, *q;
+  init_nvmet_tcp_read_breakdown(&nvmettcp_stat->read_breakdown);
+  init_nvmet_tcp_write_breakdown(&nvmettcp_stat->write_breakdown);
+  spin_lock(&sw_nvmet_tcp_io_samples->lock);
+  list_for_each_safe(pos, q, &sw_nvmet_tcp_io_samples->list) {
+    struct sw_node* node = list_entry(pos, struct sw_node, list);
+    struct nvmet_io_instance* io_instance = node->data;
+    if (io_instance->is_spoiled) {
+      continue;
+    }
+    if (io_instance->is_write) {
+      update_write_breakdown(&nvmettcp_stat->write_breakdown, io_instance);
+    } else {
+      update_read_breakdown(&nvmettcp_stat->read_breakdown, io_instance);
+    }
+  }
+
+  spin_unlock(&sw_nvmet_tcp_io_samples->lock);
+}
+
+
 
 void nvmet_tcp_stat_update(u64 now) {
   /** TODO: analize the sample set */
@@ -490,12 +644,7 @@ static void remove_nvmet_tcp_proc_entries(void) {
   remove_proc_entry("nvmet_tcp", parent_dir);
 }
 
-void init_nvmet_tcp_read_breakdown(struct nvmet_tcp_read_breakdown* breakdown) {
 
-}
-
-void init_nvmet_tcp_write_breakdown(
-    struct nvmet_tcp_write_breakdown* breakdown) {}
 
 void init_nvmet_tcp_stat(struct nvmet_tcp_stat* stat) {
   init_nvmet_tcp_read_breakdown(&stat->read_breakdown);
@@ -503,7 +652,7 @@ void init_nvmet_tcp_stat(struct nvmet_tcp_stat* stat) {
 }
 
 int init_nvmet_tcp_variables(void) {
-  pr_info("try to allocate size %d\n", sizeof(*nvmettcp_stat));
+  // pr_info("try to allocate size %d\n", sizeof(*nvmettcp_stat));
   nvmettcp_stat = vmalloc(sizeof(*nvmettcp_stat));
   if (!nvmettcp_stat) {
     pr_err("failed to allocate nvmet_tcp_stat\n");
@@ -519,15 +668,15 @@ int init_nvmet_tcp_variables(void) {
 
 void free_nvmet_tcp_variables(void) {
   if (nvmettcp_stat) vfree(nvmettcp_stat);
-  if(sw_nvmet_tcp_io_samples) {
+  if (sw_nvmet_tcp_io_samples) {
     // TODO: free the sliding window
     kfree(sw_nvmet_tcp_io_samples);
   }
 }
 
 int init_nvmet_tcp_layer(void) {
-  pr_info("init nvmet tcp layer\n");
   int ret;
+  pr_info("init nvmet tcp layer\n");
   ret = init_nvmet_tcp_variables();
   if (ret) return ret;
   ret = init_nvmet_tcp_proc_entries();
