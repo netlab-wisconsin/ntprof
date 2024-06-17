@@ -506,8 +506,8 @@ void analyze_io_samples(void) {
 
 void nvmet_tcp_stat_update(u64 now) {
   /** TODO: analize the sample set */
-
   remove_from_sliding_window(sw_nvmet_tcp_io_samples, now - 10 * NSEC_PER_SEC);
+  analyze_io_samples();
 }
 
 static int nvmet_tcp_register_tracepoints(void) {

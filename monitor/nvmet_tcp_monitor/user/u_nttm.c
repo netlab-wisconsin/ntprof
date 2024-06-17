@@ -10,6 +10,8 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include "u_nvmet_tcp_layer.h"
+
 static volatile int keep_running = 1;
 
 Arguments *args;
@@ -252,12 +254,17 @@ int main(int argc, char **argv) {
   /** send msg to kernel space to start recording */
   start_nttm();
 
+  map_ntm_nvmet_tcp_data();
+
   while (keep_running) {
     printf("\033[H\033[J");
     printf("Arguments:\n");
     print_args(args);
+    print_nvmet_tcp_layer_stat();
     sleep(1);
   }
+
+  unmap_ntm_nvmet_tcp_data();
 
   printf("start exit nttm_user\n");
 

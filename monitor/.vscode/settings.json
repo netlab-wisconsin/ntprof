@@ -3,6 +3,7 @@
     "types.h": "c",
     "unistd.h": "c",
     "cstdlib": "c",
-    "u_nvmetcp_layer.h": "c"
+    "u_nvmetcp_layer.h": "c",
+    "u_nvmet_tcp_layer.h": "c"
   }
 }

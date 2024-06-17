@@ -4,18 +4,18 @@
 
 
 struct nvmet_tcp_read_breakdown {
-  u64 in_nvmet_tcp_time;
-  u64 in_blk_time;
-  u64 end2end_time;
-  u32 cnt;
+  unsigned long long in_nvmet_tcp_time;
+  unsigned long long in_blk_time;
+  unsigned long long end2end_time;
+  unsigned long cnt;
 };
 
 struct nvmet_tcp_write_breakdown {
-  u64 make_r2t_time;
-  u64 in_nvmet_tcp_time;
-  u64 in_blk_time;
-  u64 end2end_time;
-  u32 cnt;
+  unsigned long long make_r2t_time;
+  unsigned long long in_nvmet_tcp_time;
+  unsigned long long in_blk_time;
+  unsigned long long end2end_time;
+  unsigned long cnt;
 };
 
 struct nvmet_tcp_stat {
