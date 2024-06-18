@@ -73,7 +73,7 @@ DEFINE_EVENT(nvmet_tcp_exec_read_req, nvmet_tcp_queue_response,
     TP_ARGS(cmd_id, qid, is_write, time)
 );
 
-TRACE_EVENT(nvmet_setup_c2h_data_pdu,
+TRACE_EVENT(nvmet_tcp_setup_c2h_data_pdu,
     TP_PROTO(u8 cmd_id, int qid, unsigned long long time),
     TP_ARGS(cmd_id, qid, time),
     TP_STRUCT__entry(
@@ -89,17 +89,17 @@ TRACE_EVENT(nvmet_setup_c2h_data_pdu,
 );
 
 
-DEFINE_EVENT(nvmet_setup_c2h_data_pdu, nvmet_setup_r2t_pdu,
+DEFINE_EVENT(nvmet_tcp_setup_c2h_data_pdu, nvmet_tcp_setup_r2t_pdu,
     TP_PROTO(u8 cmd_id, int qid, unsigned long long time),
     TP_ARGS(cmd_id, qid, time)
 );
 
-DEFINE_EVENT(nvmet_setup_c2h_data_pdu, nvmet_setup_response_pdu,
+DEFINE_EVENT(nvmet_tcp_setup_c2h_data_pdu, nvmet_tcp_setup_response_pdu,
     TP_PROTO(u8 cmd_id, int qid, unsigned long long time),
     TP_ARGS(cmd_id, qid, time)
 );
 
-TRACE_EVENT(nvmet_try_send_data_pdu,
+TRACE_EVENT(nvmet_tcp_try_send_data_pdu,
     TP_PROTO(u8 cmd_id, int qid, int cp_len, int left, unsigned long long time),
     TP_ARGS(cmd_id, qid,cp_len, left, time),
     TP_STRUCT__entry(
@@ -118,17 +118,17 @@ TRACE_EVENT(nvmet_try_send_data_pdu,
         __entry->cmd_id, __entry->qid, __entry->cp_len, __entry->left)
 );
 
-DEFINE_EVENT(nvmet_try_send_data_pdu, nvmet_try_send_r2t,
+DEFINE_EVENT(nvmet_tcp_try_send_data_pdu, nvmet_tcp_try_send_r2t,
     TP_PROTO(u8 cmd_id, int qid, int cp_len, int left, unsigned long long time),
     TP_ARGS(cmd_id, qid, cp_len, left, time)
 );
 
-DEFINE_EVENT(nvmet_try_send_data_pdu, nvmet_try_send_response,
+DEFINE_EVENT(nvmet_tcp_try_send_data_pdu, nvmet_tcp_try_send_response,
     TP_PROTO(u8 cmd_id, int qid, int cp_len, int left, unsigned long long time),
     TP_ARGS(cmd_id, qid, cp_len, left, time)
 );
 
-TRACE_EVENT(nvmet_try_send_data,
+TRACE_EVENT(nvmet_tcp_try_send_data,
     TP_PROTO(u8 cmd_id, int qid, int cp_len,  unsigned long long time),
     TP_ARGS(cmd_id, qid, cp_len, time),
     TP_STRUCT__entry(
@@ -160,6 +160,11 @@ TRACE_EVENT( nvmet_tcp_handle_h2c_data_pdu,
     ),
     TP_printk("cmd_id=%u, qid=%d, datalen=%d",
         __entry->cmd_id, __entry->qid, __entry->datalen)
+);
+
+DEFINE_EVENT(nvmet_tcp_handle_h2c_data_pdu, nvmet_tcp_try_recv_data,
+    TP_PROTO(u8 cmd_id, int qid, int datalen, unsigned long long time),
+    TP_ARGS(cmd_id, qid, datalen, time)
 );
 
 
