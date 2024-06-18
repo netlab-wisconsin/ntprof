@@ -19,6 +19,23 @@
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/nvmet_tcp.h>
+#include <linux/tracepoint.h>
+
+EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_try_recv_pdu);
+EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_done_recv_pdu);
+EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_exec_read_req);
+EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_exec_write_req);
+EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_queue_response);
+EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_setup_c2h_data_pdu);
+EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_setup_r2t_pdu);
+EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_setup_response_pdu);
+EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_try_send_data_pdu);
+EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_try_send_r2t);
+EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_try_send_response);
+EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_try_send_data);
+EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_handle_h2c_data_pdu);
+EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_try_recv_data);
+
 
 #define NVMET_TCP_DEF_INLINE_DATA_SIZE	(4 * PAGE_SIZE)
 #define NVMET_TCP_MAXH2CDATA		0x400000 /* 16M arbitrary limit */
@@ -428,7 +445,7 @@ static void nvmet_setup_c2h_data_pdu(struct nvmet_tcp_cmd *cmd)
 	u8 hdgst = nvmet_tcp_hdgst_len(cmd->queue);
 	u8 ddgst = nvmet_tcp_ddgst_len(cmd->queue);
 
-	trace_nvmet_setup_c2h_data_pdu(cmd->req.cqe->command_id, queue->idx, ktime_get_ns());
+	trace_nvmet_tcp_setup_c2h_data_pdu(cmd->req.cqe->command_id, queue->idx, ktime_get_ns());
 
 	cmd->offset = 0;
 	cmd->state = NVMET_TCP_SEND_DATA_PDU;
@@ -462,7 +479,7 @@ static void nvmet_setup_r2t_pdu(struct nvmet_tcp_cmd *cmd)
 	struct nvmet_tcp_queue *queue = cmd->queue;
 	u8 hdgst = nvmet_tcp_hdgst_len(cmd->queue);
 
-	trace_nvmet_setup_r2t_pdu(cmd->req.cqe->command_id, queue->idx, ktime_get_ns());
+	trace_nvmet_tcp_setup_r2t_pdu(cmd->req.cmd->common.command_id, queue->idx, ktime_get_ns());
 
 	cmd->offset = 0;
 	cmd->state = NVMET_TCP_SEND_R2T;
@@ -489,7 +506,7 @@ static void nvmet_setup_response_pdu(struct nvmet_tcp_cmd *cmd)
 	struct nvmet_tcp_queue *queue = cmd->queue;
 	u8 hdgst = nvmet_tcp_hdgst_len(cmd->queue);
 
-	trace_nvmet_setup_response_pdu(cmd->req.cqe->command_id, queue->idx, ktime_get_ns());
+	trace_nvmet_tcp_setup_response_pdu(cmd->req.cqe->command_id, queue->idx, ktime_get_ns());
 
 	cmd->offset = 0;
 	cmd->state = NVMET_TCP_SEND_RESPONSE;
@@ -566,7 +583,7 @@ static void nvmet_tcp_queue_response(struct nvmet_req *req)
 			return;
 	}
 
-	trace_nvmet_tcp_queue_response(cmd->req.cqe->command_id, queue->idx, nvme_is_write(cmd->req.cmd), ktime_get_ns());
+	trace_nvmet_tcp_queue_response(cmd->req.cmd->common.command_id, queue->idx, nvme_is_write(cmd->req.cmd), ktime_get_ns());
 
 	llist_add(&cmd->lentry, &queue->resp_list);
 	queue_work_on(queue_cpu(queue), nvmet_tcp_wq, &cmd->queue->io_work);
@@ -577,7 +594,7 @@ static void nvmet_tcp_execute_request(struct nvmet_tcp_cmd *cmd)
 	if (unlikely(cmd->flags & NVMET_TCP_F_INIT_FAILED))
 		nvmet_tcp_queue_response(&cmd->req);
 	else {
-		trace_nvmet_tcp_exec_write_req(cmd->req.cqe->command_id, cmd->queue->idx, nvme_is_write(cmd->req.cmd), ktime_get_ns());
+		trace_nvmet_tcp_exec_write_req(cmd->req.cmd->common.command_id, cmd->queue->idx, nvme_is_write(cmd->req.cmd), ktime_get_ns());
 		cmd->req.execute(&cmd->req);
 	}
 		
@@ -599,7 +616,7 @@ static int nvmet_try_send_data_pdu(struct nvmet_tcp_cmd *cmd)
 	cmd->offset += ret;
 	left -= ret;
 
-	trace_nvmet_try_send_data_pdu(cmd->req.cqe->command_id, cmd->queue->idx, ret, left, ktime_get_ns());
+	trace_nvmet_tcp_try_send_data_pdu(cmd->req.cqe->command_id, cmd->queue->idx, ret, left, ktime_get_ns());
 
 	if (left)
 		return -EAGAIN;
@@ -629,7 +646,7 @@ static int nvmet_try_send_data(struct nvmet_tcp_cmd *cmd, bool last_in_batch)
 		if (ret <= 0)
 			return ret;
 
-		trace_nvmet_try_send_data(cmd->req.cqe->command_id, queue->idx, ret, ktime_get_ns());
+		trace_nvmet_tcp_try_send_data(cmd->req.cqe->command_id, queue->idx, ret, ktime_get_ns());
 
 		cmd->offset += ret;
 		cmd->wbytes_done += ret;
@@ -682,7 +699,7 @@ static int nvmet_try_send_response(struct nvmet_tcp_cmd *cmd,
 	cmd->offset += ret;
 	left -= ret;
 
-	trace_nvmet_try_send_response(cmd->req.cqe->command_id, cmd->queue->idx, ret, left, ktime_get_ns());
+	trace_nvmet_tcp_try_send_response(cmd->req.cqe->command_id, cmd->queue->idx, ret, left, ktime_get_ns());
 
 	if (left)
 		return -EAGAIN;
@@ -713,7 +730,7 @@ static int nvmet_try_send_r2t(struct nvmet_tcp_cmd *cmd, bool last_in_batch)
 	cmd->offset += ret;
 	left -= ret;
 
-	trace_nvmet_try_send_r2t(cmd->req.cqe->command_id, cmd->queue->idx, ret, left, ktime_get_ns());
+	trace_nvmet_tcp_try_send_r2t(cmd->req.cmd->common.command_id, cmd->queue->idx, ret, left, ktime_get_ns());
 
 	if (left)
 		return -EAGAIN;
@@ -1187,7 +1204,7 @@ static int nvmet_tcp_try_recv_data(struct nvmet_tcp_queue *queue)
 			cmd->recv_msg.msg_flags);
 		if (ret <= 0)
 			return ret;
-
+		trace_nvmet_tcp_try_recv_data(cmd->req.cmd->common.command_id, queue->idx, ret, ktime_get_ns());
 		cmd->pdu_recv += ret;
 		cmd->rbytes_done += ret;
 	}
