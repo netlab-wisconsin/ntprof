@@ -361,6 +361,38 @@ bool is_standard_write(struct nvmet_io_instance* io_instance) {
   }
 }
 
+void update_read_breakdown(struct nvmet_tcp_read_breakdown* breakdown,
+                           struct nvmet_io_instance* io_instance) {
+  u64 in_blk_time = io_instance->ts[2] - io_instance->ts[1];
+  u64 total = io_instance->ts[io_instance->cnt - 1] - io_instance->ts[0];
+  breakdown->in_blk_time += in_blk_time;
+  breakdown->in_nvmet_tcp_time += (total - in_blk_time);
+  breakdown->end2end_time += total;
+  breakdown->cnt++;
+}
+
+void update_write_breakdown(struct nvmet_tcp_write_breakdown* breakdown,
+                            struct nvmet_io_instance* io_instance) {
+  int cnt = io_instance->cnt;
+  if (io_instance->contain_r2t) {
+    u64 make_r2t_time = io_instance->ts[3] - io_instance->ts[0];
+    u64 in_blk_time = io_instance->ts[cnt - 3] - io_instance->ts[cnt - 4];
+    u64 total = io_instance->ts[cnt - 1] - io_instance->ts[0];
+    breakdown->make_r2t_time += make_r2t_time;
+    breakdown->in_blk_time += in_blk_time;
+    breakdown->in_nvmet_tcp_time += (total - in_blk_time - make_r2t_time);
+    breakdown->end2end_time += total;
+    breakdown->cnt++;
+  } else {
+    u64 in_blk_time = io_instance->ts[cnt - 3] - io_instance->ts[cnt - 4];
+    u64 total = io_instance->ts[cnt - 1] - io_instance->ts[0];
+    breakdown->in_blk_time += in_blk_time;
+    breakdown->in_nvmet_tcp_time += (total - in_blk_time);
+    breakdown->end2end_time += total;
+    breakdown->cnt++;
+  }
+}
+
 void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
                           int left, unsigned long long time) {
   if (ctrl && args->qid[qid]) {
@@ -379,12 +411,15 @@ void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
         node->data = current_io;
         node->timestamp = current_io->ts[0];
         add_to_sliding_window(sw_nvmet_tcp_io_samples, node);
+
         if (current_io->is_write) {
+          update_write_breakdown(&nvmettcp_stat->all_write, current_io);
           if (!is_standard_write(current_io)) {
             pr_err("write io is not standard: ");
             // print_io_instance(current_io);
           }
         } else {
+          update_read_breakdown(&nvmettcp_stat->all_read, current_io);
           if (!is_standard_read(current_io)) {
             pr_err("read io is not standard: ");
             // print_io_instance(current_io);
@@ -449,42 +484,12 @@ void init_nvmet_tcp_write_breakdown(
   breakdown->end2end_time = 0;
 }
 
-void update_read_breakdown(struct nvmet_tcp_read_breakdown* breakdown,
-                           struct nvmet_io_instance* io_instance) {
-  u64 in_blk_time = io_instance->ts[2] - io_instance->ts[1];
-  u64 total = io_instance->ts[io_instance->cnt - 1] - io_instance->ts[0];
-  breakdown->in_blk_time += in_blk_time;
-  breakdown->in_nvmet_tcp_time += (total - in_blk_time);
-  breakdown->end2end_time += total;
-  breakdown->cnt++;
-}
 
-void update_write_breakdown(struct nvmet_tcp_write_breakdown* breakdown,
-                            struct nvmet_io_instance* io_instance) {
-  int cnt = io_instance->cnt;
-  if (io_instance->contain_r2t) {
-    u64 make_r2t_time = io_instance->ts[3] - io_instance->ts[0];
-    u64 in_blk_time = io_instance->ts[cnt - 3] - io_instance->ts[cnt - 4];
-    u64 total = io_instance->ts[cnt - 1] - io_instance->ts[0];
-    breakdown->make_r2t_time += make_r2t_time;
-    breakdown->in_blk_time += in_blk_time;
-    breakdown->in_nvmet_tcp_time += (total - in_blk_time - make_r2t_time);
-    breakdown->end2end_time += total;
-    breakdown->cnt++;
-  } else {
-    u64 in_blk_time = io_instance->ts[cnt - 3] - io_instance->ts[cnt - 4];
-    u64 total = io_instance->ts[cnt - 1] - io_instance->ts[0];
-    breakdown->in_blk_time += in_blk_time;
-    breakdown->in_nvmet_tcp_time += (total - in_blk_time);
-    breakdown->end2end_time += total;
-    breakdown->cnt++;
-  }
-}
 
 void analyze_io_samples(void) {
   struct list_head *pos, *q;
-  init_nvmet_tcp_read_breakdown(&nvmettcp_stat->read_breakdown);
-  init_nvmet_tcp_write_breakdown(&nvmettcp_stat->write_breakdown);
+  init_nvmet_tcp_read_breakdown(&nvmettcp_stat->sw_read_breakdown);
+  init_nvmet_tcp_write_breakdown(&nvmettcp_stat->sw_write_breakdown);
   spin_lock(&sw_nvmet_tcp_io_samples->lock);
   list_for_each_safe(pos, q, &sw_nvmet_tcp_io_samples->list) {
     struct sw_node* node = list_entry(pos, struct sw_node, list);
@@ -493,9 +498,9 @@ void analyze_io_samples(void) {
       continue;
     }
     if (io_instance->is_write) {
-      update_write_breakdown(&nvmettcp_stat->write_breakdown, io_instance);
+      update_write_breakdown(&nvmettcp_stat->sw_write_breakdown, io_instance);
     } else {
-      update_read_breakdown(&nvmettcp_stat->read_breakdown, io_instance);
+      update_read_breakdown(&nvmettcp_stat->sw_read_breakdown, io_instance);
     }
   }
 
@@ -642,9 +647,15 @@ static void remove_nvmet_tcp_proc_entries(void) {
   remove_proc_entry("nvmet_tcp", parent_dir);
 }
 
+void reset_nvmet_tcp_sw_stat(struct nvmet_tcp_stat* stat) {
+  init_nvmet_tcp_read_breakdown(&stat->sw_read_breakdown);
+  init_nvmet_tcp_write_breakdown(&stat->sw_write_breakdown);
+}
+
 void init_nvmet_tcp_stat(struct nvmet_tcp_stat* stat) {
-  init_nvmet_tcp_read_breakdown(&stat->read_breakdown);
-  init_nvmet_tcp_write_breakdown(&stat->write_breakdown);
+  reset_nvmet_tcp_sw_stat(stat);
+  init_nvmet_tcp_read_breakdown(&stat->all_read);
+  init_nvmet_tcp_write_breakdown(&stat->all_write);
 }
 
 int init_nvmet_tcp_variables(void) {

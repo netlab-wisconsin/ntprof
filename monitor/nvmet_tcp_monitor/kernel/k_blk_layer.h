@@ -83,7 +83,9 @@ struct _blk_stat {
   atomic64_t write_cnt;
   atomic64_t read_io[9];
   atomic64_t write_io[9];
-  atomic64_t in_flight;
+  atomic64_t read_time;
+  atomic64_t write_time;
+  // atomic64_t in_flight;
 };
 
 static struct _blk_stat *raw_blk_stat;
@@ -118,26 +120,28 @@ void _init_blk_tr(struct _blk_stat *tr) {
     atomic64_set(&tr->read_io[i], 0);
     atomic64_set(&tr->write_io[i], 0);
   }
-  atomic64_set(&tr->in_flight, 0);
+  // atomic64_set(&tr->in_flight, 0);
 }
 
 void copy_blk_stat(struct blk_stat *dst, struct _blk_stat *src) {
   int i;
-  dst->read_cnt = atomic64_read(&src->read_cnt);
-  dst->write_cnt = atomic64_read(&src->write_cnt);
+  dst->all_read_cnt = atomic64_read(&src->read_cnt);
+  dst->all_write_cnt = atomic64_read(&src->write_cnt);
   for (i = 0; i < 9; i++) {
-    dst->read_io[i] = atomic64_read(&src->read_io[i]);
-    dst->write_io[i] = atomic64_read(&src->write_io[i]);
+    dst->all_read_io[i] = atomic64_read(&src->read_io[i]);
+    dst->all_write_io[i] = atomic64_read(&src->write_io[i]);
   }
-  dst->in_flight = atomic64_read(&src->in_flight);
+  dst->all_read_time = atomic64_read(&src->read_time);
+  // dst->in_flight = atomic64_read(&src->in_flight);
 }
 
 /**
  * traverse the sample, update the summary in blk_stat
  */
 void analyze_blk_io_samples(struct sliding_window *samples,
-                            struct blk_sample_summary *summary) {
-  init_blk_sample_summary(&blk_stat->sample_summary);
+                            struct blk_stat *blk_stat) {
+
+  reset_blk_stat(blk_stat);
   /** traverse the sliwing window */
   struct list_head *pos, *q;
   spin_lock(&samples->lock);
@@ -148,18 +152,29 @@ void analyze_blk_io_samples(struct sliding_window *samples,
       pr_err("blk_io_instance is spoiled\n");
       continue;
     }
-    u64 start = bio->ts[0];
-    u64 end = bio->ts[bio->cnt - 1];
-    u64 duration = end - start;
-    summary->total_time += duration;
-    summary->cnt++;
+
+    /** update the blk stat */
+    if (bio->is_write) {
+      blk_stat->sw_write_cnt++;
+      inc_cnt_arr(blk_stat->sw_write_io, bio->size);
+      blk_stat->sw_write_cnt++;
+      blk_stat->sw_write_time += bio->ts[1] - bio->ts[0];
+    } else {
+      blk_stat->sw_read_cnt++;
+      inc_cnt_arr(blk_stat->sw_read_io, bio->size);
+      blk_stat->sw_read_cnt;
+      blk_stat->sw_read_time += bio->ts[1] - bio->ts[0];
+    }
   }
   spin_unlock(&samples->lock);
 }
 
+/**
+ * this function update the variable shared by user space and the kernel space
+ */
 void blk_stat_update(u64 now) {
   remove_from_sliding_window(blk_io_samples, now - 10 * NSEC_PER_SEC);
-  analyze_blk_io_samples(blk_io_samples, &blk_stat->sample_summary);
+  analyze_blk_io_samples(blk_io_samples, blk_stat);
   copy_blk_stat(blk_stat, raw_blk_stat);
 }
 
@@ -167,25 +182,13 @@ void on_block_bio_queue(void *ignore, struct bio *bio) {
   if (ctrl && args->io_type + bio_data_dir(bio) != 1) {
     atomic64_t *arr = NULL;
     unsigned int size;
-
     const char *rq_disk_name = bio->bi_bdev->bd_disk->disk_name;
     if (strcmp(rq_disk_name, args->dev) != 0 &&
         strcmp(args->dev, "all devices") != 0) {
       return;
     }
-
-    size = bio->bi_iter.bi_size;
-    if (bio_data_dir(bio) == WRITE) {
-      atomic64_inc(&raw_blk_stat->write_cnt);
-      arr = raw_blk_stat->write_io;
-    } else {
-      atomic64_inc(&raw_blk_stat->read_cnt);
-      arr = raw_blk_stat->read_io;
-    }
-    atomic64_inc(&raw_blk_stat->in_flight);
-    inc_cnt_atomic_arr(arr, size);
-
     if (to_sample()) {
+      /** update current bio if it is NULL */
       if (current_bio == NULL) {
         current_bio = kmalloc(sizeof(struct blk_io_instance), GFP_KERNEL);
         init_blk_io_instance(current_bio);
@@ -196,48 +199,41 @@ void on_block_bio_queue(void *ignore, struct bio *bio) {
       } else {
         pr_info("current_bio is not NULL\n");
       }
-      // struct blk_io_instance *bio = kmalloc(sizeof(struct blk_io_instance),
-      // GFP_KERNEL); struct sw_node *node = kmalloc(sizeof(struct sw_node),
-      // GFP_KERNEL); node->data = bio; bio->is_write = bio_data_dir(bio) ==
-      // WRITE; bio->req_tag = bio->bi_iter.bi_sector; bio->size =
-      // bio->bi_iter.bi_size; bio->cnt = 0;
     }
   }
 }
 
 void on_block_bio_complete(void *ignore, struct request_queue *,
                            struct bio *bio) {
-  if (ctrl && args->io_type + bio_data_dir(bio) != 1) {
-    pr_info("on_block_bio_complete: %s, size: %d, is private null: %d\n",
-            bio_data_dir(bio) == WRITE ? "write" : "read", bio->bi_iter.bi_size,
-            bio->bi_private == NULL);
 
-    /** TODO: update sample set */
-    if (current_bio && current_bio->bio == bio) {
-      append_blk_event(current_bio, ktime_get_ns(), BIO_COMPLETE);
-      if (current_bio->is_spoiled) {
-        pr_err("current_bio is spoiled\n");
-      } else {
-        print_blk_io_instance(current_bio);
-        struct sw_node *node;
-        node = kmalloc(sizeof(struct sw_node), GFP_KERNEL);
-        node->data = current_bio;
-        node->timestamp = current_bio->ts[0];
-        add_to_sliding_window(blk_io_samples, node);
-      }
-      current_bio = NULL;
-    } else {
-      pr_err("current_bio is NULL, but it is completed. \n");
-    }
-    atomic64_dec(&raw_blk_stat->in_flight);
+}
+
+/**
+ * This function is to update the raw_blk_stat, which record all-time statistics.
+ * This function is called when there is a sample bio completed. 
+ * @param bio: the completed bio
+ * @param raw_blk_stat: the raw_blk_stat
+ */
+void udpate_raw_blk_stat(struct blk_io_instance *bio, struct _blk_stat *raw_blk_stat) {
+  atomic64_t *arr = NULL;
+  unsigned int size;
+
+  size = bio->size;
+  if (bio->is_write) {
+    atomic64_inc(&raw_blk_stat->write_cnt);
+    atomic64_add(bio->ts[1] - bio->ts[0], &raw_blk_stat->write_time);
+    arr = raw_blk_stat->write_io;
+  } else {
+    atomic64_inc(&raw_blk_stat->read_cnt);
+    atomic64_add(bio->ts[1] - bio->ts[0], &raw_blk_stat->read_time);
+    arr = raw_blk_stat->read_io;
   }
+  inc_cnt_atomic_arr(arr, size);
 }
 
 void on_block_rq_complete(void *ignore, struct request *rq, int err,
                           unsigned int nr_bytes) {
   if (ctrl && args->io_type + rq_data_dir(rq) != 1) {
-    // pr_info("on_block_rq_complete: %s, size: %d\n",
-    //         rq_data_dir(rq) == WRITE ? "write" : "read", nr_bytes);
 
     /** if the device name of the request is different from args, return */
     const char *rq_disk_name = rq->rq_disk->disk_name;
@@ -247,14 +243,16 @@ void on_block_rq_complete(void *ignore, struct request *rq, int err,
 
     /** traverse the bio int the rq */
     struct bio *bio = rq->bio;
-    // int cnt = 0;
     while (bio) {
       if (current_bio && bio == current_bio->bio) {
         append_blk_event(current_bio, ktime_get_ns(), BIO_COMPLETE);
         if (current_bio->is_spoiled) {
           pr_err("current_bio is spoiled\n");
         } else {
-          print_blk_io_instance(current_bio);
+          /** update the blk_stat, all time part */
+          udpate_raw_blk_stat(current_bio, raw_blk_stat);
+
+          /** initializze the node and instert to the sliding window */
           struct sw_node *node;
           node = kmalloc(sizeof(struct sw_node), GFP_KERNEL);
           node->data = current_bio;
@@ -263,7 +261,7 @@ void on_block_rq_complete(void *ignore, struct request *rq, int err,
         }
         current_bio = NULL;
       }
-      atomic64_dec(&raw_blk_stat->in_flight);
+      // atomic64_dec(&raw_blk_stat->in_flight);
     
       bio = bio->bi_next;
     }

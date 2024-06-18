@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include "nttm_com.h"
+#include "output.h"
 
 static struct nvmet_tcp_stat *nvmet_tcp_stat;
 
@@ -26,12 +27,12 @@ struct nvmet_tcp_write_breakdown {
 
  */
 void print_read_breakdown(struct nvmet_tcp_read_breakdown *ns) {
-  printf("read breakdown: \t");
+  printf("\t read breakdown: \t");
   if (ns->cnt) {
-    printf("cnt: %lu\t", ns->cnt);
-    printf("in_nvmet_tcp_time(us): %.6f\t",
+    printf("cnt: %lu, ", ns->cnt);
+    printf("in_nvmet_tcp_time(us): %.6f,",
            (float)ns->in_nvmet_tcp_time / 1000 / ns->cnt);
-    printf("in_blk_time(us): %.6f\t", (float)ns->in_blk_time / 1000 / ns->cnt);
+    printf("in_blk_time(us): %.6f,", (float)ns->in_blk_time / 1000 / ns->cnt);
     printf("end2end_time(us): %.6f\n",
            (float)ns->end2end_time / 1000 / ns->cnt);
   } else {
@@ -40,14 +41,14 @@ void print_read_breakdown(struct nvmet_tcp_read_breakdown *ns) {
 }
 
 void print_write_breakdown(struct nvmet_tcp_write_breakdown *ns) {
-  printf("write breakdown: \t");
+  printf("\t write breakdown: \t");
   if (ns->cnt) {
     printf("cnt: %lu\t", ns->cnt);
-    printf("make_r2t_time(us): %.6f\t",
+    printf("make_r2t_time(us): %.6f, ",
            (float)ns->make_r2t_time / 1000 / ns->cnt);
-    printf("in_nvmet_tcp_time(us): %.6f\t",
+    printf("in_nvmet_tcp_time(us): %.6f, ",
            (float)ns->in_nvmet_tcp_time / 1000 / ns->cnt);
-    printf("in_blk_time(us): %.6f\t", (float)ns->in_blk_time / 1000 / ns->cnt);
+    printf("in_blk_time(us): %.6f, ", (float)ns->in_blk_time / 1000 / ns->cnt);
     printf("end2end_time(us): %.6f\n",
            (float)ns->end2end_time / 1000 / ns->cnt);
   } else {
@@ -57,8 +58,13 @@ void print_write_breakdown(struct nvmet_tcp_write_breakdown *ns) {
 
 void print_nvmet_tcp_layer_stat() {
   if (nvmet_tcp_stat) {
-    print_read_breakdown(&nvmet_tcp_stat->read_breakdown);
-    print_write_breakdown(&nvmet_tcp_stat->write_breakdown);
+    printf(HEADER1 "[NVMET_TCP LAYER]:\n" RESET);
+    printf(HEADER2 "all time" RESET "\n");
+    print_read_breakdown(&nvmet_tcp_stat->all_read);
+    print_write_breakdown(&nvmet_tcp_stat->all_write);
+    printf(HEADER2 "last %d sec:" RESET "\n", args->win);
+    print_read_breakdown(&nvmet_tcp_stat->sw_read_breakdown);
+    print_write_breakdown(&nvmet_tcp_stat->sw_write_breakdown);
   } else {
     printf("nvmet_tcp_stat is NULL\n");
   }

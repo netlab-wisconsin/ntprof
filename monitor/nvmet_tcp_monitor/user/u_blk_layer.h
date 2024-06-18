@@ -4,58 +4,73 @@
 #include <stdio.h>
 
 #include "nttm_com.h"
+#include "output.h"
 
 static struct blk_stat *blk_stat;
 
-void print_blk_sample_summary(struct blk_sample_summary *summary) {
-  printf("sample summary: \t");
-  if (summary->cnt) {
-    printf("cnt: %lu\t", summary->cnt);
-    printf("total_time(us): %.6f\t", (float)summary->total_time / 1000);
-    printf("average_time(us): %.6f\n",
-           (float)summary->total_time / 1000 / summary->cnt);
-  } else {
-    printf("cnt: %lu\n", summary->cnt);
-  }
-}
 
-void print_blk_stat(struct blk_stat *b_stat, char *header) {
-  printf("header: %s \t", header);
+void print_blk_stat(struct blk_stat *b_stat) {
+  printf(HEADER1 "[BLK LAYER]:\n" RESET);
   printf("device_name: %s\n", args->dev);
   char *dis_header[9] = {"<4KB", "4KB",   "8KB",    "16KB",  "32KB",
                          "64KB", "128KB", ">128KB", "others"};
-  printf("read total: %lu\n", b_stat->read_cnt);
-  printf("read cnt");
+  printf(HEADER2 "all time:\n" RESET);
+  printf(HEADER3 "\t [read] \t" RESET);
+  printf("total bio: %llu, ", b_stat->all_read_cnt);
+  printf("avg lat(us): %.6f\n", (float)b_stat->all_read_time / 1000 /
+                                   b_stat->all_read_cnt);
+  
+  printf(HEADER3 "\t [read dist] \t" RESET);
   int i;
   for (i = 0; i < 9; i++) {
-    printf(", \t[%s: %lu]", dis_header[i], b_stat->read_io[i]);
-  }
-  printf("\nread dis");
-  for (i = 0; i < 9; i++) {
-    printf(", \t[%s: %.2f]", dis_header[i],
-           (float)b_stat->read_io[i] / b_stat->read_cnt);
-  }
-  printf("\nwrite total: %lu\n", b_stat->write_cnt);
-  printf("write cnt");
-  for (i = 0; i < 9; i++) {
-    printf(", \t[%s: %lu]", dis_header[i], b_stat->write_io[i]);
-  }
-  printf("\nwrite dis");
-  for (i = 0; i < 9; i++) {
-    printf(", \t[%s: %.2f]", dis_header[i],
-           (float)b_stat->write_io[i] / b_stat->write_cnt);
+    printf(" [%s: %.2f]", dis_header[i],
+           (float)b_stat->all_read_io[i] / b_stat->all_read_cnt);
   }
   printf("\n");
 
-  printf("in_flight: %d\n", b_stat->in_flight);
-  print_blk_sample_summary(&b_stat->sample_summary);
+  printf(HEADER3 "\t [write] \t" RESET);
+  printf("total bio: %llu, ", b_stat->all_write_cnt);
+  printf("avg lat(us): %.6f\n", (float)b_stat->all_write_time / 1000 /
+                                   b_stat->all_write_cnt);
+  
+  printf(HEADER3 "\t [write dist] \t" RESET);
+  for (i = 0; i < 9; i++) {
+    printf(" [%s: %.2f]", dis_header[i],
+           (float)b_stat->all_write_io[i] / b_stat->all_write_cnt);
+  }
+  printf("\n");
 
-  printf("\n\n");
+  printf(HEADER2 "last %d sec\n" RESET, args->win);
+  printf(HEADER3 "\t [read] \t" RESET);
+  printf("total bio: %llu, ", b_stat->sw_read_cnt);
+  printf("avg lat(us): %.6f\n", (float)b_stat->sw_read_time / 1000 /
+                                   b_stat->sw_read_cnt);
+
+
+  printf(HEADER3 "\t [read dist] \t" RESET);
+  for (i = 0; i < 9; i++) {
+    printf(" [%s: %.2f]", dis_header[i],
+           (float)b_stat->sw_read_io[i] / b_stat->sw_read_cnt);
+  }
+  printf("\n");
+
+  printf(HEADER3 "\t [write] \t" RESET);
+  printf("total bio: %llu, ", b_stat->sw_write_cnt);
+  printf("avg lat(us): %.6f\n", (float)b_stat->sw_write_time / 1000 /
+                                   b_stat->sw_write_cnt);
+  
+  printf(HEADER3 "\t [write dist] \t" RESET);
+  for (i = 0; i < 9; i++) {
+    printf(" [%s: %.2f]", dis_header[i],
+           (float)b_stat->sw_write_io[i] / b_stat->sw_write_cnt);
+  }
+
+  fflush(stdout);
 }
 
 void print_blk_layer_stat() {
   if (blk_stat) {
-    print_blk_stat(blk_stat, "BLK STAT");
+    print_blk_stat(blk_stat);
   } else {
     printf("blk_stat is NULL\n");
   }
