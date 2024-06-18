@@ -165,7 +165,7 @@ static struct nvmet_tcp_stat* nvmettcp_stat;
 //   return true;
 // }
 
-void on_try_recv_pdu(void* ignore, u16 pdu_type, u16 hdr_len, int queue_left,
+void on_try_recv_pdu(void* ignore, u8 pdu_type, u8 hdr_len, int queue_left,
                      int qid, unsigned long long time) {
   // if (ctrl && args->qid[qid])
   // pr_info(

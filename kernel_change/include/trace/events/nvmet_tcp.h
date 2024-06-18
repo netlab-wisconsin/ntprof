@@ -29,10 +29,10 @@ TRACE_EVENT(nvmet_tcp_try_recv_pdu,
 );
 
 TRACE_EVENT(nvmet_tcp_done_recv_pdu,
-    TP_PROTO(u8 cmd_id, int qid, bool is_write, unsigned long long time),
+    TP_PROTO(u16 cmd_id, int qid, bool is_write, unsigned long long time),
     TP_ARGS(cmd_id, qid, is_write, time),
     TP_STRUCT__entry(
-        __field(u8, cmd_id)
+        __field(u16, cmd_id)
         __field(int, qid)
         __field(bool, is_write)
     ),
@@ -47,10 +47,10 @@ TRACE_EVENT(nvmet_tcp_done_recv_pdu,
 );
 
 TRACE_EVENT(nvmet_tcp_exec_read_req,
-    TP_PROTO(u8 cmd_id, int qid, bool is_write, unsigned long long time),
+    TP_PROTO(u16 cmd_id, int qid, bool is_write, unsigned long long time),
     TP_ARGS(cmd_id, qid, is_write, time),
     TP_STRUCT__entry(
-        __field(u8, cmd_id)
+        __field(u16, cmd_id)
         __field(int, qid)
         __field(bool, is_write)
     ),
@@ -64,20 +64,20 @@ TRACE_EVENT(nvmet_tcp_exec_read_req,
 );
 
 DEFINE_EVENT(nvmet_tcp_exec_read_req, nvmet_tcp_exec_write_req,
-    TP_PROTO(u8 cmd_id, int qid, bool is_write, unsigned long long time),
+    TP_PROTO(u16 cmd_id, int qid, bool is_write, unsigned long long time),
     TP_ARGS(cmd_id, qid, is_write, time)
 );
 
 DEFINE_EVENT(nvmet_tcp_exec_read_req, nvmet_tcp_queue_response,
-    TP_PROTO(u8 cmd_id, int qid, bool is_write, unsigned long long time),
+    TP_PROTO(u16 cmd_id, int qid, bool is_write, unsigned long long time),
     TP_ARGS(cmd_id, qid, is_write, time)
 );
 
 TRACE_EVENT(nvmet_tcp_setup_c2h_data_pdu,
-    TP_PROTO(u8 cmd_id, int qid, unsigned long long time),
+    TP_PROTO(u16 cmd_id, int qid, unsigned long long time),
     TP_ARGS(cmd_id, qid, time),
     TP_STRUCT__entry(
-        __field(u8, cmd_id)
+        __field(u16, cmd_id)
         __field(int, qid)
     ),
     TP_fast_assign(
@@ -90,20 +90,20 @@ TRACE_EVENT(nvmet_tcp_setup_c2h_data_pdu,
 
 
 DEFINE_EVENT(nvmet_tcp_setup_c2h_data_pdu, nvmet_tcp_setup_r2t_pdu,
-    TP_PROTO(u8 cmd_id, int qid, unsigned long long time),
+    TP_PROTO(u16 cmd_id, int qid, unsigned long long time),
     TP_ARGS(cmd_id, qid, time)
 );
 
 DEFINE_EVENT(nvmet_tcp_setup_c2h_data_pdu, nvmet_tcp_setup_response_pdu,
-    TP_PROTO(u8 cmd_id, int qid, unsigned long long time),
+    TP_PROTO(u16 cmd_id, int qid, unsigned long long time),
     TP_ARGS(cmd_id, qid, time)
 );
 
 TRACE_EVENT(nvmet_tcp_try_send_data_pdu,
-    TP_PROTO(u8 cmd_id, int qid, int cp_len, int left, unsigned long long time),
+    TP_PROTO(u16 cmd_id, int qid, int cp_len, int left, unsigned long long time),
     TP_ARGS(cmd_id, qid,cp_len, left, time),
     TP_STRUCT__entry(
-        __field(u8, cmd_id)
+        __field(u16, cmd_id)
         __field(int, qid)
         __field(int, cp_len)
         __field(int, left)
@@ -119,20 +119,20 @@ TRACE_EVENT(nvmet_tcp_try_send_data_pdu,
 );
 
 DEFINE_EVENT(nvmet_tcp_try_send_data_pdu, nvmet_tcp_try_send_r2t,
-    TP_PROTO(u8 cmd_id, int qid, int cp_len, int left, unsigned long long time),
+    TP_PROTO(u16 cmd_id, int qid, int cp_len, int left, unsigned long long time),
     TP_ARGS(cmd_id, qid, cp_len, left, time)
 );
 
 DEFINE_EVENT(nvmet_tcp_try_send_data_pdu, nvmet_tcp_try_send_response,
-    TP_PROTO(u8 cmd_id, int qid, int cp_len, int left, unsigned long long time),
+    TP_PROTO(u16 cmd_id, int qid, int cp_len, int left, unsigned long long time),
     TP_ARGS(cmd_id, qid, cp_len, left, time)
 );
 
 TRACE_EVENT(nvmet_tcp_try_send_data,
-    TP_PROTO(u8 cmd_id, int qid, int cp_len,  unsigned long long time),
+    TP_PROTO(u16 cmd_id, int qid, int cp_len,  unsigned long long time),
     TP_ARGS(cmd_id, qid, cp_len, time),
     TP_STRUCT__entry(
-        __field(u8, cmd_id)
+        __field(u16, cmd_id)
         __field(int, qid)
         __field(int, cp_len)
     ),
@@ -146,10 +146,10 @@ TRACE_EVENT(nvmet_tcp_try_send_data,
 );
 
 TRACE_EVENT( nvmet_tcp_handle_h2c_data_pdu,
-    TP_PROTO(u8 cmd_id, int qid, int datalen, unsigned long long time),
+    TP_PROTO(u16 cmd_id, int qid, int datalen, unsigned long long time),
     TP_ARGS(cmd_id, qid, datalen, time),
     TP_STRUCT__entry(
-        __field(u8, cmd_id)
+        __field(u16, cmd_id)
         __field(int, qid)
         __field(int, datalen)
     ),
@@ -163,7 +163,7 @@ TRACE_EVENT( nvmet_tcp_handle_h2c_data_pdu,
 );
 
 DEFINE_EVENT(nvmet_tcp_handle_h2c_data_pdu, nvmet_tcp_try_recv_data,
-    TP_PROTO(u8 cmd_id, int qid, int datalen, unsigned long long time),
+    TP_PROTO(u16 cmd_id, int qid, int datalen, unsigned long long time),
     TP_ARGS(cmd_id, qid, datalen, time)
 );
 
