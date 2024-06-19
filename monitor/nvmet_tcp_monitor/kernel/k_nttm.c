@@ -13,6 +13,7 @@
 
 #include "k_nvmet_tcp_layer.h"
 #include "k_blk_layer.h"
+#include "k_tcp_layer.h"
 
 /**
  * update data periodically with the user
@@ -177,6 +178,8 @@ void remove_proc_entries(void) {
 void init_global_variables(void) {
   ctrl = 0;
   args = vmalloc(sizeof(Arguments));
+  int i;
+  for (i = 0; i < MAX_QID; i++) qid2port[i] = -1;
 }
 
 void free_global_variables(void) { vfree(args); }

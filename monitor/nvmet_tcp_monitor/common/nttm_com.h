@@ -95,4 +95,23 @@ inline void inc_cnt_arr(unsigned long long *arr, int size) {
   }
 }
 
+struct tcp_stat_one_queue {
+  int pkt_in_flight;
+  int cwnd;
+  char last_event[64];
+};
+
+struct tcp_stat {
+  struct tcp_stat_one_queue sks[MAX_QID];
+};
+
+void init_tcp_stat(struct tcp_stat *stat) {
+  int i;
+  for (i = 0; i < MAX_QID; i++) {
+    stat->sks[i].pkt_in_flight = 0;
+    stat->sks[i].cwnd = 0;
+    strcpy(stat->sks[i].last_event, "");
+  }
+}
+
 #endif  // _NTTM_COM_H_
