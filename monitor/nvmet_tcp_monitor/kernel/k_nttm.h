@@ -7,7 +7,7 @@
 /** sample rate for the sliding window */
 #define SAMPLE_RATE 0.001
 
-#define NET_SAMPLE_RATE 0.000001
+#define NET_SAMPLE_RATE 0.0001
 
 /**
  * generate a random number and compare it with the sample rate

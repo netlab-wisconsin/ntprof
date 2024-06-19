@@ -6,4 +6,4 @@ sudo insmod k_nttm.ko
 cd ../user
 make clean
 make
-sudo ./u_nttm track -dev=nvme0n1 	
+sudo ./u_nttm track -dev=nvme0n1 -qid=1	

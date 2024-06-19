@@ -12,6 +12,7 @@
 
 #include "u_nvmet_tcp_layer.h"
 #include "u_blk_layer.h"
+#include "u_tcp_layer.h"
 
 static volatile int keep_running = 1;
 
@@ -257,6 +258,7 @@ int main(int argc, char **argv) {
 
   map_nttm_blk_data();
   map_nttm_nvmet_tcp_data();
+  map_nttm_tcp_data();
 
   while (keep_running) {
     printf("\033[H\033[J");
@@ -264,9 +266,11 @@ int main(int argc, char **argv) {
     print_args(args);
     print_nvmet_tcp_layer_stat();
     print_blk_layer_stat();
+    print_tcp_layer_stat();
     sleep(1);
   }
 
+  unmap_nttm_tcp_data();
   unmap_nttm_nvmet_tcp_data();
   unmap_nttm_blk_data();
 

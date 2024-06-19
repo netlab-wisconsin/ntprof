@@ -167,6 +167,12 @@ static struct nvmet_tcp_stat* nvmettcp_stat;
 
 void on_try_recv_pdu(void* ignore, u8 pdu_type, u8 hdr_len, int queue_left,
                      int qid, int remote_port, unsigned long long time) {
+  if(ctrl && args->qid[qid]) {
+    if(qid2port[qid] == -1) {
+      pr_info("!!!!!!!!!!!!!!!!!! set qid2port[%d] = %d\n", qid, remote_port);
+      qid2port[qid] = remote_port;
+    }
+  }
   // if (ctrl && args->qid[qid])
   // pr_info(
   //     "TRY_RECV_PDU: pdu_type: %d, hdr_len: %d, queue_left: %d, qid: %d, "
@@ -421,7 +427,7 @@ void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
         } else {
           update_read_breakdown(&nvmettcp_stat->all_read, current_io);
           if (!is_standard_read(current_io)) {
-            pr_err("read io is not standard: ");
+            // pr_err("read io is not standard: ");
             // print_io_instance(current_io);
           }
         }

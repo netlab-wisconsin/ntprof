@@ -1,7 +1,7 @@
 #ifndef _CONFIG_H_
 #define _CONFIG_H_
 
-#define MAX_QID 64
+#define MAX_QID 33
 
 typedef enum { _READ, _WRITE, _BOTH } req_type;
 

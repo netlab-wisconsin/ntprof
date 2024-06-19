@@ -64,6 +64,7 @@ void print_blk_stat(struct blk_stat *b_stat) {
     printf(" [%s: %.2f]", dis_header[i],
            (float)b_stat->sw_write_io[i] / b_stat->sw_write_cnt);
   }
+  printf("\n");
 
   fflush(stdout);
 }
