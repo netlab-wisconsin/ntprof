@@ -1164,7 +1164,8 @@ recv:
 
 		queue->left = hdr->hlen - queue->offset + hdgst;
 
-		trace_nvmet_tcp_try_recv_pdu(hdr->type,hdr->hlen, queue->left, queue->idx, ktime_get_ns());
+		int remote_port = ntohs((tcp_sk(queue->sock->sk))->inet_conn.icsk_inet.inet_dport);
+		trace_nvmet_tcp_try_recv_pdu(hdr->type,hdr->hlen, queue->left, queue->idx, remote_port, ktime_get_ns());
 		
 		goto recv;
 	}

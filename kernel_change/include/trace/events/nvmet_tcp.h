@@ -9,8 +9,8 @@
 #include <linux/nvme-tcp.h>
 
 TRACE_EVENT(nvmet_tcp_try_recv_pdu,
-    TP_PROTO(u8 pdu_type, u8 hdr_len, int queue_left, int qid, unsigned long long time),
-    TP_ARGS(pdu_type, hdr_len, queue_left, qid, time),
+    TP_PROTO(u8 pdu_type, u8 hdr_len, int queue_left, int qid, int port, unsigned long long time),
+    TP_ARGS(pdu_type, hdr_len, queue_left, qid, port, time),
     TP_STRUCT__entry(
         __field(u8, pdu_type)
         __field(u8, hdr_len)
@@ -165,6 +165,21 @@ TRACE_EVENT( nvmet_tcp_handle_h2c_data_pdu,
 DEFINE_EVENT(nvmet_tcp_handle_h2c_data_pdu, nvmet_tcp_try_recv_data,
     TP_PROTO(u16 cmd_id, int qid, int datalen, unsigned long long time),
     TP_ARGS(cmd_id, qid, datalen, time)
+);
+
+TRACE_EVENT(nvmet_tcp_alloc_queue,
+    TP_PROTO(int qid, int remote_port, unsigned long long time),
+    TP_ARGS(qid, remote_port, time),
+    TP_STRUCT__entry(
+        __field(int, qid)
+        __field(int, remote_port)
+    ),
+    TP_fast_assign(
+        __entry->qid = qid;
+        __entry->remote_port = remote_port;
+    ),
+    TP_printk("qid=%d, remote_port=%d",
+        __entry->qid, __entry->remote_port)
 );
 
 
