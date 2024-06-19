@@ -453,9 +453,14 @@ void on_nvme_tcp_try_send(void *ignore, struct request *req,
 }
 
 void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int len,
+                                  int qid, int local_port,
                                   long long unsigned int time) {
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
+  }
+  if (args->qid[qid] && qid2port[qid] == -1) {
+      qid2port[qid] = local_port;
+      pr_info("set qid %d to port %d\n", qid, local_port);
   }
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND_CMD_PDU, -1, 0);

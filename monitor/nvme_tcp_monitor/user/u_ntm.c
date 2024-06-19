@@ -3,6 +3,7 @@
 
 #include "u_blk_layer.h"
 #include "u_nvmetcp_layer.h"
+#include "u_tcp_layer.h"
 
 #include <ctype.h>
 
@@ -255,17 +256,20 @@ int main(int argc, char **argv) {
   map_ntm_blk_data();
 
   map_ntm_nvmetcp_data();
+  map_ntm_tcp_data();
 
   while (keep_running) {
     printf("\033[H\033[J");
     print_args(args);
     print_blk_stat_set();
     print_nvme_tcp_stat();
+    print_tcp_layer_stat();
     sleep(1);
   }
 
   unmap_ntm_blk_data();
   unmap_ntm_nvmetcp_data();
+  unmap_ntm_tcp_data();
 
   printf("start exit ntm_user\n");
 

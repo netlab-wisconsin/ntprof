@@ -5,11 +5,13 @@
 #include <linux/kthread.h>
 #include <linux/blkdev.h>
 
+#include <linux/string.h>
+
 #include "ntm_com.h"
 
 /** sample rate for the sliding window */
 #define SAMPLE_RATE 0.001
-
+#define NET_SAMPLE_RATE 0.0001
 /**
  * generate a random number and compare it with the sample rate
  * @return true if the random number is less than the sample rate
@@ -68,5 +70,14 @@ struct request_queue *device_name_to_queue(const char *dev_name) {
   blkdev_put(bdev, FMODE_READ);
   return q;
 }
+
+static bool tcp_to_sample(void) {
+  unsigned int rand;
+  get_random_bytes(&rand, sizeof(rand));
+  return rand < NET_SAMPLE_RATE * UINT_MAX;
+}
+
+
+int qid2port[MAX_QID];
 
 #endif // K_NTM_H

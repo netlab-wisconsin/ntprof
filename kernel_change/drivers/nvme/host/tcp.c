@@ -1105,7 +1105,9 @@ static int nvme_tcp_try_send_cmd_pdu(struct nvme_tcp_request *req)
 	ret = kernel_sendpage(queue->sock, virt_to_page(pdu),
 			offset_in_page(pdu) + req->offset, len,  flags);
 
-	trace_nvme_tcp_try_send_cmd_pdu(blk_mq_rq_from_pdu(req), ret, ktime_get_ns());
+	int local_port = ntohs(tcp_sk(queue->sock->sk)->inet_conn.icsk_inet.inet_sport);
+	int qid = nvme_req_qid(blk_mq_rq_from_pdu(req));
+	trace_nvme_tcp_try_send_cmd_pdu(blk_mq_rq_from_pdu(req), ret, qid, local_port, ktime_get_ns());
 	if (unlikely(ret <= 0))
 		return ret;
 

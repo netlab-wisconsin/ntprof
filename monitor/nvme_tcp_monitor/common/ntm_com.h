@@ -4,7 +4,6 @@
 #include "config.h"
 
 
-
 enum size_type { _LT_4K, _4K, _8K, _16K, _32K, _64K, _128K, _GT_128K, _OTHERS };
 
 
@@ -113,5 +112,23 @@ struct nvme_tcp_stat {
 };
 
 
+struct tcp_stat_one_queue {
+  int pkt_in_flight;
+  int cwnd;
+  char last_event[64];
+};
+
+struct tcp_stat {
+  struct tcp_stat_one_queue sks[MAX_QID];
+};
+
+inline void init_tcp_stat(struct tcp_stat *stat) {
+  int i;
+  for (i = 0; i < MAX_QID; i++) {
+    stat->sks[i].pkt_in_flight = 0;
+    stat->sks[i].cwnd = 0;
+  }
+  stat->sks[0].last_event[0] = '\0';
+}
 
 #endif // NTM_COM_H

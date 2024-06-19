@@ -1,5 +1,6 @@
 #include "k_blk_layer.h"
 #include "k_nvmetcp_layer.h"
+#include "k_tcp_layer.h"
 
 /**
  * update data periodically with the user
@@ -9,6 +10,7 @@ static int update_routine_fn(void *data) {
     u64 now = ktime_get_ns();
     blk_stat_update(now);
     nvmetcp_stat_update(now);
+    tcp_stat_update();
 
     /** wait for 1 second to start routine again */
     msleep(1000);
@@ -163,11 +165,11 @@ void remove_proc_entries(void) {
 void init_global_variables(void) {
   ctrl = 0;
   args = vmalloc(sizeof(Arguments));
+  int i;
+  for (i = 0; i < MAX_QID; i++) qid2port[i] = -1;
 }
 
-void free_global_variables(void) {
-  vfree(args);
-}
+void free_global_variables(void) { vfree(args); }
 
 static int __init init_ntm_module(void) {
   int ret;
@@ -193,6 +195,15 @@ static int __init init_ntm_module(void) {
     remove_proc_entries();
     return ret;
   }
+
+  ret = init_tcp_layer();
+  if (ret) {
+    pr_err("Failed to initialize tcp layer\n");
+    _exit_ntm_blk_layer();
+    _exit_ntm_nvmetcp_layer();
+    remove_proc_entries();
+    return ret;
+  }
   return 0;
 }
 
@@ -202,6 +213,8 @@ static void __exit exit_ntm_module(void) {
   }
 
   /** exit the blk layer monitor */
+  exit_tcp_layer();
+
   _exit_ntm_blk_layer();
 
   _exit_ntm_nvmetcp_layer();

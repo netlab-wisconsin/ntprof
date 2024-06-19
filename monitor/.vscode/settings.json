@@ -6,6 +6,8 @@
     "u_nvmetcp_layer.h": "c",
     "u_nvmet_tcp_layer.h": "c",
     "u_blk_layer.h": "c",
-    "nttm_com.h": "c"
+    "nttm_com.h": "c",
+    "k_ntm.h": "c",
+    "ntm_com.h": "c"
   }
 }
