@@ -172,7 +172,7 @@ void analyze_blk_io_samples(struct sliding_window *samples,
 /**
  * this function update the variable shared by user space and the kernel space
  */
-void blk_stat_update(u64 now) {
+void blk_layer_update(u64 now) {
   remove_from_sliding_window(blk_io_samples, now - 10 * NSEC_PER_SEC);
   analyze_blk_io_samples(blk_io_samples, blk_stat);
   copy_blk_stat(blk_stat, raw_blk_stat);
@@ -236,13 +236,10 @@ void on_block_rq_complete(void *ignore, struct request *rq, int err,
   if (ctrl && args->io_type + rq_data_dir(rq) != 1) {
 
     /** if the device name of the request is different from args, return */
-    const char *rq_disk_name = rq->rq_disk->disk_name;
-    if(strcmp(rq_disk_name, args->dev) != 0 && strcmp(args->dev, "all devices") != 0){
-      return;
-    }
-
-    /** traverse the bio int the rq */
+    if (rq->bio == NULL || rq->bio->bi_bdev == NULL || rq->bio->bi_bdev->bd_disk == NULL) return;
     struct bio *bio = rq->bio;
+    if (!is_same_dev_name(bio->bi_bdev->bd_disk->disk_name, args->dev)) return;
+
     while (bio) {
       if (current_bio && bio == current_bio->bio) {
         append_blk_event(current_bio, ktime_get_ns(), BIO_COMPLETE);
@@ -316,7 +313,7 @@ static const struct proc_ops nttm_blk_stat_fops = {
     .proc_mmap = mmap_blk_stat,
 };
 
-int init_blk_proc_entries(void) {
+int init_blk_layer_proc_entries(void) {
   pr_info("Initializing blk proc entries\n");
   entry_blk_dir = proc_mkdir("blk", parent_dir);
   if (!entry_blk_dir) {
@@ -337,12 +334,12 @@ failed:
   return -ENOMEM;
 }
 
-static void remove_blk_proc_entries(void) {
+static void remove_blk_layer_proc_entries(void) {
   remove_proc_entry("stat", entry_blk_dir);
   remove_proc_entry("blk", parent_dir);
 }
 
-int init_blk_variables(void) {
+int init_blk_layer_variables(void) {
   blk_stat = vmalloc(sizeof(struct blk_stat));
   if (!blk_stat) {
     pr_err("Failed to allocate memory for blk_stat\n");
@@ -371,9 +368,9 @@ void free_blk_varialbes(void) {
 int init_blk_layer(void) {
   int ret;
   pr_info("Initializing blk layer\n");
-  ret = init_blk_variables();
+  ret = init_blk_layer_variables();
   if (ret) return ret;
-  ret = init_blk_proc_entries();
+  ret = init_blk_layer_proc_entries();
   if (ret) return ret;
   ret = blk_register_tracepoints();
   if (ret) return ret;
@@ -382,7 +379,7 @@ int init_blk_layer(void) {
 
 void exit_blk_layer(void) {
   pr_info("Exiting blk layer\n");
-  remove_blk_proc_entries();
+  remove_blk_layer_proc_entries();
   free_blk_varialbes();
   blk_unregister_tracepoints();
 }

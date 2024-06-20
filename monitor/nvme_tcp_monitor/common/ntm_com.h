@@ -27,6 +27,9 @@ struct blk_stat {
   unsigned long long write_io[9];
   /** TODO: number of io in-flight */
   unsigned long long pending_rq;
+
+  unsigned long long read_lat;
+  unsigned long long write_lat;
 };
 
 
@@ -44,6 +47,8 @@ inline void init_blk_tr(struct blk_stat *tr) {
     tr->write_io[i] = 0;
   }
   tr->pending_rq = 0;
+  tr->read_lat = 0;
+  tr->write_lat = 0;
 }
 
 /**
@@ -73,15 +78,11 @@ inline void inc_cnt_arr(unsigned long long *arr, int size) {
   } 
 }
 
-struct blk_lat_stat{
-  unsigned long long sum_blk_layer_lat;
-  unsigned long long cnt;
+/** this struct is shared between kernel space and the user space */
+struct shared_blk_layer_stat{
+  struct blk_stat all_time_stat;
+  struct blk_stat sw_stat;
 };
-
-inline void init_blk_lat_stat(struct blk_lat_stat *stat) {
-  stat->sum_blk_layer_lat = 0;
-  stat->cnt = 0;
-}
 
 
 struct nvmetcp_read_breakdown {
@@ -108,9 +109,14 @@ struct nvmetcp_write_breakdown {
 struct nvme_tcp_stat {
   struct nvmetcp_read_breakdown read;
   struct nvmetcp_write_breakdown write;
-  struct blk_lat_stat blk_lat;
+  unsigned long long read_before;
+  unsigned long long write_before;
 };
 
+struct shared_nvme_tcp_layer_stat {
+  struct nvme_tcp_stat all_time_stat;
+  struct nvme_tcp_stat sw_stat;
+};
 
 struct tcp_stat_one_queue {
   int pkt_in_flight;

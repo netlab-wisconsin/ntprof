@@ -1,7 +1,7 @@
 #ifndef K_NVMETCP_LAYER_H
 #define K_NVMETCP_LAYER_H
 
-#include <linux/blkdev.h>
+// #include <linux/blkdev.h>
 #include <linux/kernel.h>
 #include <linux/nvme.h>
 #include <linux/tracepoint.h>
@@ -11,6 +11,89 @@
 #include "util.h"
 
 #define EVENT_NUM 64
+
+struct atomic_nvme_tcp_read_breakdown {
+  atomic64_t cnt;
+  atomic64_t t_inqueue;
+  atomic64_t t_reqcopy;
+  atomic64_t t_datacopy;
+  atomic64_t t_waiting;
+  atomic64_t t_waitproc;
+  atomic64_t t_endtoend;
+};
+
+struct atomic_nvme_tcp_write_breakdown {
+  atomic64_t cnt;
+  atomic64_t t_inqueue;
+  atomic64_t t_reqcopy;
+  atomic64_t t_datacopy;
+  atomic64_t t_waiting;
+  atomic64_t t_endtoend;
+};
+
+struct atomic_nvme_tcp_stat {
+  struct atomic_nvme_tcp_read_breakdown read;
+  struct atomic_nvme_tcp_write_breakdown write;
+  atomic64_t read_before;
+  atomic64_t write_before;
+};
+
+void init_atomic_nvme_tcp_read_breakdown(
+    struct atomic_nvme_tcp_read_breakdown *rb) {
+  atomic64_set(&rb->cnt, 0);
+  atomic64_set(&rb->t_inqueue, 0);
+  atomic64_set(&rb->t_reqcopy, 0);
+  atomic64_set(&rb->t_datacopy, 0);
+  atomic64_set(&rb->t_waiting, 0);
+  atomic64_set(&rb->t_waitproc, 0);
+  atomic64_set(&rb->t_endtoend, 0);
+}
+
+void init_atomic_nvme_tcp_write_breakdown(
+    struct atomic_nvme_tcp_write_breakdown *wb) {
+  atomic64_set(&wb->cnt, 0);
+  atomic64_set(&wb->t_inqueue, 0);
+  atomic64_set(&wb->t_reqcopy, 0);
+  atomic64_set(&wb->t_datacopy, 0);
+  atomic64_set(&wb->t_waiting, 0);
+  atomic64_set(&wb->t_endtoend, 0);
+}
+
+void init_atomic_nvme_tcp_stat(struct atomic_nvme_tcp_stat *stat) {
+  init_atomic_nvme_tcp_read_breakdown(&stat->read);
+  init_atomic_nvme_tcp_write_breakdown(&stat->write);
+  atomic64_set(&stat->read_before, 0);
+  atomic64_set(&stat->write_before, 0);
+}
+
+void copy_nvme_tcp_write_breakdown(struct atomic_nvme_tcp_write_breakdown *src,
+                                   struct nvmetcp_write_breakdown *dst) {
+  dst->cnt = atomic64_read(&src->cnt);
+  dst->t_inqueue = atomic64_read(&src->t_inqueue);
+  dst->t_reqcopy = atomic64_read(&src->t_reqcopy);
+  dst->t_datacopy = atomic64_read(&src->t_datacopy);
+  dst->t_waiting = atomic64_read(&src->t_waiting);
+  dst->t_endtoend = atomic64_read(&src->t_endtoend);
+}
+
+void copy_nvme_tcp_read_breakdown(struct atomic_nvme_tcp_read_breakdown *src,
+                                  struct nvmetcp_read_breakdown *dst) {
+  dst->cnt = atomic64_read(&src->cnt);
+  dst->t_inqueue = atomic64_read(&src->t_inqueue);
+  dst->t_reqcopy = atomic64_read(&src->t_reqcopy);
+  dst->t_datacopy = atomic64_read(&src->t_datacopy);
+  dst->t_waiting = atomic64_read(&src->t_waiting);
+  dst->t_waitproc = atomic64_read(&src->t_waitproc);
+  dst->t_endtoend = atomic64_read(&src->t_endtoend);
+}
+
+void copy_nvme_tcp_stat(struct atomic_nvme_tcp_stat *src,
+                        struct nvme_tcp_stat *dst) {
+  copy_nvme_tcp_read_breakdown(&src->read, &dst->read);
+  copy_nvme_tcp_write_breakdown(&src->write, &dst->write);
+  dst->read_before = atomic64_read(&src->read_before);
+  dst->write_before = atomic64_read(&src->write_before);
+}
 
 enum nvme_tcp_trpt {
   QUEUE_RQ,
@@ -92,7 +175,8 @@ struct nvme_tcp_io_instance {
 
   /** indicate the event number exceeds the capacity, this sample is useless*/
   bool is_spoiled;
-  int size;  // request size
+  int size;    // request size
+  u64 before;  // time between bio issue and entering the nvme_tcp_layer
 };
 
 void init_nvme_tcp_io_instance(struct nvme_tcp_io_instance *inst,
@@ -143,20 +227,6 @@ void append_event(struct nvme_tcp_io_instance *inst, u64 ts,
   inst->cnt++;
 }
 
-struct _blk_lat_stat {
-  atomic64_t sum_blk_layer_lat;
-  atomic64_t cnt;
-};
-
-void _init_nvmetcp_stat(struct _blk_lat_stat *stat) {
-  atomic64_set(&stat->sum_blk_layer_lat, 0);
-  atomic64_set(&stat->cnt, 0);
-}
-
-void copy_nvmetcp_stat(struct _blk_lat_stat *src, struct blk_lat_stat *dst) {
-  dst->sum_blk_layer_lat = atomic64_read(&src->sum_blk_layer_lat);
-  dst->cnt = atomic64_read(&src->cnt);
-}
 
 /**
  * a sliding window for the block layer time
@@ -165,20 +235,21 @@ void copy_nvmetcp_stat(struct _blk_lat_stat *src, struct blk_lat_stat *dst) {
  * Since the end time is the time it enters the nvmetcp layer,
  * we put the sliding window here.
  */
-static struct sliding_window *sw_blk_layer_time;
+// static struct sliding_window *sw_blk_layer_time;
 
 static struct sliding_window *sw_nvmetcp_io_samples;
-
-static struct _blk_lat_stat *_raw_blk_lat_stat;
 
 // static struct nvmetcp_read_breakdown *read_breakdown;
 
 // static struct nvmetcp_write_breakdown *write_breakdown;
 
-struct proc_dir_entry *entry_nvmetcp_dir;
+struct proc_dir_entry *entry_nvme_tcp_dir;
 struct proc_dir_entry *entry_nvme_tcp_stat;
 
-struct nvme_tcp_stat *nvme_tcp_stat;
+// struct nvme_tcp_stat *nvme_tcp_stat;
+struct shared_nvme_tcp_layer_stat *shared_nvme_tcp_stat;
+
+struct atomic_nvme_tcp_stat *a_nvme_tcp_stat;
 
 /**
  * This function is called when the nvme_tcp_queue_rq tracepoint is triggered
@@ -203,45 +274,25 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int len1, int len2,
     return;
   }
 
-  cnt = 0;
-
   b = req->bio;
   while (b) {
-    u64 _start = bio_issue_time(&b->bi_issue);
-    u64 _now = __bio_issue_time(time);
+    u64 lat = __bio_issue_time(time) - bio_issue_time(&b->bi_issue);
     /** the unit of lat is ns */
-    u64 lat = _now - _start;
-    cnt++;
-    b = b->bi_next;
 
-    atomic64_add(lat, &_raw_blk_lat_stat->sum_blk_layer_lat);
-    atomic64_inc(&_raw_blk_lat_stat->cnt);
-
-    if (to_sample()) {
-      u64 *p_lat = kmalloc(sizeof(u64), GFP_KERNEL);
-      struct sw_node *node = kmalloc(sizeof(struct sw_node), GFP_KERNEL);
-      (*p_lat) = lat;
-      node->data = p_lat;
-      node->timestamp = time;
-      add_to_sliding_window(sw_blk_layer_time, node);
-
+    if (to_sample() && current_io == NULL) {
       /** initialize current io */
-      if (current_io == NULL) {
-        // pr_info("initialize current_io\n");
-        current_io = kmalloc(sizeof(struct nvme_tcp_io_instance), GFP_KERNEL);
-        init_nvme_tcp_io_instance(current_io, (rq_data_dir(req) == WRITE),
-                                  req->tag, len1 + len2, 0, false, false, false,
-                                  0);
-        append_event(current_io, time, QUEUE_RQ, -1, 0);
-      } else {
-        /**
-         * according the sample rate, we hope to keep info about this io,
-         * but we need to make sure the previous io is processed completely
-         * so we ignore this io
-         */
-        pr_info("current_io is not NULL\n");
-      }
+      current_io = kmalloc(sizeof(struct nvme_tcp_io_instance), GFP_KERNEL);
+      init_nvme_tcp_io_instance(current_io, (rq_data_dir(req) == WRITE),
+                                req->tag, len1 + len2, 0, false, false, false,
+                                0);
+      current_io->before = lat;
+      append_event(current_io, time, QUEUE_RQ, -1, 0);
     }
+    b = b->bi_next;
+    /**
+     * according the sample rate, we hope to keep info about this io,
+     * but we need to make sure the previous io is processed completely
+     */
   }
 }
 
@@ -265,9 +316,10 @@ void init_nvmetcp_read_breakdown(struct nvmetcp_read_breakdown *rb) {
 }
 
 void init_nvme_tcp_stat(struct nvme_tcp_stat *stat) {
-  init_blk_lat_stat(&stat->blk_lat);
   init_nvmetcp_read_breakdown(&stat->read);
   init_nvmetcp_write_breakdown(&stat->write);
+  stat->read_before = 0;
+  stat->write_before = 0;
 }
 
 /*
@@ -398,8 +450,8 @@ void update_write_breakdown(struct nvme_tcp_io_instance *io,
 
 void analize_sw_latency_breakdown(struct sliding_window *sw) {
   struct list_head *pos, *q;
-  init_nvmetcp_read_breakdown(&nvme_tcp_stat->read);
-  init_nvmetcp_write_breakdown(&nvme_tcp_stat->write);
+  init_nvmetcp_read_breakdown(&shared_nvme_tcp_stat->sw_stat.read);
+  init_nvmetcp_write_breakdown(&shared_nvme_tcp_stat->sw_stat.write);
   /** traverse the linked list */
   spin_lock(&sw->lock);
   list_for_each_safe(pos, q, &sw->list) {
@@ -407,9 +459,9 @@ void analize_sw_latency_breakdown(struct sliding_window *sw) {
     struct nvme_tcp_io_instance *io = (struct nvme_tcp_io_instance *)node->data;
     if (io->is_spoiled) continue;
     if (io->is_write) {
-      update_write_breakdown(io, &nvme_tcp_stat->write);
+      update_write_breakdown(io, &shared_nvme_tcp_stat->sw_stat.write);
     } else {
-      update_read_breakdown(io, &nvme_tcp_stat->read);
+      update_read_breakdown(io, &shared_nvme_tcp_stat->sw_stat.read);
     }
   }
   spin_unlock(&sw->lock);
@@ -419,12 +471,11 @@ void analize_sw_latency_breakdown(struct sliding_window *sw) {
  * a routine to update the sliding window
  */
 void nvmetcp_stat_update(u64 now) {
-  copy_nvmetcp_stat(_raw_blk_lat_stat, &nvme_tcp_stat->blk_lat);
-  remove_from_sliding_window(sw_blk_layer_time, now - 10 * NSEC_PER_SEC);
+  remove_from_sliding_window(sw_nvmetcp_io_samples, now - 10 * NSEC_PER_SEC);
 
   /** calculate the time of interest in the sliding window */
   analize_sw_latency_breakdown(sw_nvmetcp_io_samples);
-  remove_from_sliding_window(sw_nvmetcp_io_samples, now - 10 * NSEC_PER_SEC);
+  copy_nvme_tcp_stat(a_nvme_tcp_stat ,&shared_nvme_tcp_stat->all_time_stat);
 }
 
 /**
@@ -459,8 +510,8 @@ void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int len,
     return;
   }
   if (args->qid[qid] && qid2port[qid] == -1) {
-      qid2port[qid] = local_port;
-      pr_info("set qid %d to port %d\n", qid, local_port);
+    qid2port[qid] = local_port;
+    pr_info("set qid %d to port %d\n", qid, local_port);
   }
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND_CMD_PDU, -1, 0);
@@ -567,6 +618,66 @@ void on_nvme_tcp_handle_r2t(void *ignore, struct request *req,
   // pr_info("on_nvme_tcp_handle_r2t\n");
 }
 
+void update_atomic_read_breakdown(struct nvme_tcp_io_instance *io,
+                                  struct atomic_nvme_tcp_read_breakdown *rb) {
+  int i;
+  if (!is_standard_read(io)) {
+    pr_err("event sequence is not correct\n");
+    print_io_instance(io);
+    // BUG();
+    return;
+  }
+  atomic64_inc(&rb->cnt);
+  atomic64_add(io->ts[2] - io->ts[1], &rb->t_inqueue);
+  atomic64_add(io->ts[4] - io->ts[2], &rb->t_reqcopy);
+
+  /**  */
+  atomic64_add(io->ts[5] - io->ts2[5], &rb->t_waitproc);
+  atomic64_add(io->ts2[5] - io->ts[4], &rb->t_waiting);
+
+  for (i = 6; i < io->cnt; i++) {
+    if (io->trpt[i] == RECV_DATA) {
+      atomic64_add(io->ts[i] - io->ts[i - 1], &rb->t_datacopy);
+    } else if (io->trpt[i] == TRY_RECV) {
+      atomic64_add(io->ts[i] - io->ts[i - 1], &rb->t_waiting);
+    }
+  }
+  atomic64_add(io->ts[io->cnt - 1] - io->ts[0], &rb->t_endtoend);
+}
+
+void update_atomic_write_breakdown(struct nvme_tcp_io_instance *io,
+                                   struct atomic_nvme_tcp_write_breakdown *wb) {
+  if (io->contains_r2t) {
+    if (io->cnt < 11) {
+      pr_err("event number for write containing r2t is < 11 \n");
+      return;
+    }
+    if (io->trpt[0] != QUEUE_RQ || io->trpt[1] != QUEUE_REQUEST ||
+        io->trpt[2] != TRY_SEND || io->trpt[4] != DONE_SEND_REQ ||
+        io->trpt[5] != HANDLE_R2T || io->trpt[6] != QUEUE_REQUEST ||
+        io->trpt[7] != TRY_SEND || io->trpt[io->cnt - 2] != DONE_SEND_REQ ||
+        io->trpt[io->cnt - 1] != PROCESS_NVME_CQE) {
+      BUG();
+      return;
+    }
+
+    atomic64_add(io->ts[2] - io->ts[1], &wb->t_inqueue);
+    atomic64_add(io->ts[7] - io->ts[6], &wb->t_inqueue);
+    atomic64_add(io->ts[4] - io->ts[2], &wb->t_reqcopy);
+    atomic64_add(io->ts[5] - io->ts[4], &wb->t_waiting);
+    atomic64_add(io->ts[io->cnt - 1] - io->ts[io->cnt - 2], &wb->t_waiting);
+    atomic64_add(io->ts[io->cnt - 2] - io->ts[7], &wb->t_datacopy);
+
+  } else {
+    atomic64_add(io->ts[2] - io->ts[1], &wb->t_inqueue);
+    atomic64_add(io->ts[3] - io->ts[2], &wb->t_reqcopy);
+    atomic64_add(io->ts[io->cnt - 2] - io->ts[3], &wb->t_datacopy);
+    atomic64_add(io->ts[io->cnt - 1] - io->ts[io->cnt - 2], &wb->t_waiting);
+  }
+  atomic64_add(io->ts[io->cnt - 1] - io->ts[0], &wb->t_endtoend);
+  atomic64_inc(&wb->cnt);
+}
+
 void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
                                   unsigned long long time,
                                   unsigned long long recv_time) {
@@ -574,8 +685,19 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
     return;
   }
   if (current_io && req->tag == current_io->req_tag) {
-    struct sw_node *node;
     append_event(current_io, time, PROCESS_NVME_CQE, -1, recv_time);
+
+    /** update the all-time statistic */
+    if (rq_data_dir(req)) {
+      update_atomic_write_breakdown(current_io, &a_nvme_tcp_stat->write);
+      atomic64_add(current_io->before, &a_nvme_tcp_stat->write_before);
+    } else {
+      update_atomic_read_breakdown(current_io, &a_nvme_tcp_stat->read);
+      atomic64_add(current_io->before, &a_nvme_tcp_stat->read_before);
+    }
+
+    /** insert to the sliding window */
+    struct sw_node *node;
 
     // print_io_instance(current_io);
 
@@ -583,14 +705,7 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
     node = kmalloc(sizeof(struct sw_node), GFP_KERNEL);
     node->data = current_io;
     node->timestamp = current_io->ts[0];
-
-    // if ((!current_io->is_write) && (!is_standard_read(current_io))) {
-    //   pr_err("event sequence is not correct\n");
-    //   print_io_instance(current_io);
-    // }
-
     add_to_sliding_window(sw_nvmetcp_io_samples, node);
-
     current_io = NULL;
   }
   // pr_info("on_nvme_tcp_process_nvme_cqe\n");
@@ -735,7 +850,7 @@ static void nvmetcp_unregister_tracepoint(void) {
 }
 
 static int mmap_nvme_tcp_stat(struct file *filp, struct vm_area_struct *vma) {
-  if (remap_pfn_range(vma, vma->vm_start, vmalloc_to_pfn(nvme_tcp_stat),
+  if (remap_pfn_range(vma, vma->vm_start, vmalloc_to_pfn(shared_nvme_tcp_stat),
                       vma->vm_end - vma->vm_start, vma->vm_page_prot))
     return -EAGAIN;
   return 0;
@@ -746,45 +861,33 @@ static const struct proc_ops ntm_nvme_tcp_stat_fops = {
 };
 
 int init_nvmetcp_proc_entries(void) {
-  entry_nvmetcp_dir = proc_mkdir("nvmetcp", parent_dir);
-  if (!entry_nvmetcp_dir) {
-    pr_err("Failed to create proc entry nvmetcp\n");
-    return -ENOMEM;
-  }
+  entry_nvme_tcp_dir = proc_mkdir("nvme_tcp", parent_dir);
+  if (!entry_nvme_tcp_dir) return -ENOMEM;
 
   entry_nvme_tcp_stat =
-      proc_create("stat", 0, entry_nvmetcp_dir, &ntm_nvme_tcp_stat_fops);
-  if (!entry_nvme_tcp_stat) {
-    pr_err("Failed to create proc entry stat\n");
-    vfree(nvme_tcp_stat);
-    return -ENOMEM;
-  }
+      proc_create("stat", 0, entry_nvme_tcp_dir, &ntm_nvme_tcp_stat_fops);
+  if (!entry_nvme_tcp_stat) return -ENOMEM;
   return 0;
 }
 
 static void remove_nvmetcp_proc_entries(void) {
-  remove_proc_entry("stat", entry_nvmetcp_dir);
-  remove_proc_entry("nvmetcp", parent_dir);
+  remove_proc_entry("stat", entry_nvme_tcp_dir);
+  remove_proc_entry("nvme_tcp", parent_dir);
+}
+
+void init_shared_nvme_tcp_layer_stat(struct shared_nvme_tcp_layer_stat *stat) {
+  init_nvme_tcp_stat(&stat->all_time_stat);
+  init_nvme_tcp_stat(&stat->sw_stat);
 }
 
 int init_nvmetcp_variables(void) {
-  _raw_blk_lat_stat = kmalloc(sizeof(*_raw_blk_lat_stat), GFP_KERNEL);
-  if (!_raw_blk_lat_stat) return -ENOMEM;
-  _init_nvmetcp_stat(_raw_blk_lat_stat);
+  a_nvme_tcp_stat = kmalloc(sizeof(*a_nvme_tcp_stat), GFP_KERNEL);
+  if(!a_nvme_tcp_stat) return -ENOMEM;
+  init_atomic_nvme_tcp_stat(a_nvme_tcp_stat);
 
-  nvme_tcp_stat = vmalloc(sizeof(*nvme_tcp_stat));
-  if (!nvme_tcp_stat) {
-    pr_err("Failed to allocate memory for nvme_tcp_stat\n");
-    return -ENOMEM;
-  }
-  init_nvme_tcp_stat(nvme_tcp_stat);
-
-  sw_blk_layer_time = kmalloc(sizeof(*sw_blk_layer_time), GFP_KERNEL);
-  if (!sw_blk_layer_time) {
-    pr_err("Failed to allocate memory for sw_blk_layer_time\n");
-    return -ENOMEM;
-  }
-  init_sliding_window(sw_blk_layer_time);
+  shared_nvme_tcp_stat = vmalloc(sizeof(*shared_nvme_tcp_stat));
+  if (!shared_nvme_tcp_stat) return -ENOMEM;
+  init_shared_nvme_tcp_layer_stat(shared_nvme_tcp_stat);
 
   sw_nvmetcp_io_samples = kmalloc(sizeof(*sw_nvmetcp_io_samples), GFP_KERNEL);
   if (!sw_nvmetcp_io_samples) {
@@ -796,46 +899,42 @@ int init_nvmetcp_variables(void) {
 }
 
 int clear_nvmetcp_variables(void) {
-  pr_info("clear_nvmetcp_variables\n");
-  if (_raw_blk_lat_stat) {
-    kfree(_raw_blk_lat_stat);
+  if (a_nvme_tcp_stat) {
+    kfree(a_nvme_tcp_stat);
   }
-  if (sw_blk_layer_time) {
-    kfree(sw_blk_layer_time);
+  if (shared_nvme_tcp_stat) {
+    vfree(shared_nvme_tcp_stat);
   }
   if (sw_nvmetcp_io_samples) {
+    clear_sliding_window(sw_nvmetcp_io_samples);
     kfree(sw_nvmetcp_io_samples);
-  }
-  if (nvme_tcp_stat) {
-    vfree(nvme_tcp_stat);
   }
   return 0;
 }
 
-int _init_ntm_nvmetcp_layer(void) {
+int init_nvme_tcp_layer_monitor(void) {
   int ret;
   ret = init_nvmetcp_variables();
-  if (ret) return ret;
+  if (ret) {
+    return ret;
+  }
   ret = init_nvmetcp_proc_entries();
   if (ret) {
-    pr_info("Failed to initialize nvmetcp proc entries\n");
-    clear_nvmetcp_variables();
     return ret;
   }
-
   ret = nvmetcp_register_tracepoint();
   if (ret) {
-    pr_err("Failed to register nvmetcp tracepoint\n");
     return ret;
   }
+  pr_info("start nvmetcp module monitor\n");
   return 0;
 }
 
 void _exit_ntm_nvmetcp_layer(void) {
+  nvmetcp_unregister_tracepoint();
   remove_nvmetcp_proc_entries();
   clear_nvmetcp_variables();
-  nvmetcp_unregister_tracepoint();
-  pr_info("stop nvmetcp module monitor\n");
+  pr_info("exit nvmetcp module monitor\n");
 }
 
 #endif  // K_NVMETCP_LAYER_H

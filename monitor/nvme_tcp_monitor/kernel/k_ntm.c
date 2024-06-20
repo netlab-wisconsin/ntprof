@@ -8,7 +8,7 @@
 static int update_routine_fn(void *data) {
   while (!kthread_should_stop()) {
     u64 now = ktime_get_ns();
-    blk_stat_update(now);
+    blk_layer_update(now);
     nvmetcp_stat_update(now);
     tcp_stat_update();
 
@@ -181,17 +181,17 @@ static int __init init_ntm_module(void) {
   if (ret) return ret;
 
   /** setup the blk layer monitor */
-  ret = _init_ntm_blk_layer();
+  ret = init_blk_layer_monitor();
   if (ret) {
     pr_err("Failed to initialize ntm_blk_layer\n");
-    remove_blk_proc_entries();
+    exit_blk_layer_monitor();
     return ret;
   }
 
-  ret = _init_ntm_nvmetcp_layer();
+  ret = init_nvme_tcp_layer_monitor();
   if (ret) {
     pr_err("Failed to initialize ntm_nvmetcp_layer\n");
-    _exit_ntm_blk_layer();
+    exit_blk_layer_monitor();
     remove_proc_entries();
     return ret;
   }
@@ -199,7 +199,7 @@ static int __init init_ntm_module(void) {
   ret = init_tcp_layer();
   if (ret) {
     pr_err("Failed to initialize tcp layer\n");
-    _exit_ntm_blk_layer();
+    exit_blk_layer_monitor();
     _exit_ntm_nvmetcp_layer();
     remove_proc_entries();
     return ret;
@@ -215,7 +215,7 @@ static void __exit exit_ntm_module(void) {
   /** exit the blk layer monitor */
   exit_tcp_layer();
 
-  _exit_ntm_blk_layer();
+  exit_blk_layer_monitor();
 
   _exit_ntm_nvmetcp_layer();
 

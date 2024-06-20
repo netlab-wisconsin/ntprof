@@ -251,9 +251,7 @@ int main(int argc, char **argv) {
   /** send msg to kernel space to start recording */
   start_ntm();
 
-  init_ntm_blk();
-
-  map_ntm_blk_data();
+  init_blk_layer_monitor();
 
   map_ntm_nvmetcp_data();
   map_ntm_tcp_data();
@@ -261,13 +259,13 @@ int main(int argc, char **argv) {
   while (keep_running) {
     printf("\033[H\033[J");
     print_args(args);
-    print_blk_stat_set();
-    print_nvme_tcp_stat();
+    blk_layer_monitor_display();
+    nvme_tcp_layer_monitor_display();
     print_tcp_layer_stat();
     sleep(1);
   }
 
-  unmap_ntm_blk_data();
+ exit_blk_layer_monitor();
   unmap_ntm_nvmetcp_data();
   unmap_ntm_tcp_data();
 

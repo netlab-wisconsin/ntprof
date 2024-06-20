@@ -224,7 +224,7 @@ void on_pkt_tcp_event_new_data_sent(void *ignore, u32 packeg_in_flight,
                                     u32 cwnd, u32 local_port, u32 remote_port,
                                     u64 time) {
 
-  if (remote_port_filter(remote_port) && local_port_filter(local_port) && tcp_to_sample() ){
+  if (remote_port_filter(remote_port) && port2qid(local_port) != -1 && tcp_to_sample() ){
   //     pr_info("data send, pktout: %d, cwnd: %d, local: %d, remot: %d\n",
   // packeg_in_flight, cwnd, local_port, remote_port);
   

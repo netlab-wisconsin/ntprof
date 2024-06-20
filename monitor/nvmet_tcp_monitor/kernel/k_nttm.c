@@ -23,7 +23,7 @@ static int update_routine_fn(void *data) {
     u64 now = ktime_get_ns();
     
     /** update the statistic here */
-    blk_stat_update(now);
+    blk_layer_update(now);
     nvmet_tcp_stat_update(now);
     tcp_stat_update();
 

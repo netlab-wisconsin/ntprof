@@ -5,6 +5,8 @@
 #include <linux/list.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
+#include <linux/string.h>
+#include <stdbool.h>
 
 /** sliding window */
 struct sliding_window {
@@ -73,6 +75,61 @@ int remove_from_sliding_window(struct sliding_window *sw, u64 expire) {
   }
   spin_unlock(&sw->lock);
   return cnt;
+}
+
+void clear_sliding_window(struct sliding_window *sw) {
+  struct list_head *pos, *q;
+  struct sw_node *node;
+  spin_lock(&sw->lock);
+  list_for_each_safe(pos, q, &sw->list) {
+    node = list_entry(pos, struct sw_node, list);
+    list_del(pos);
+    atomic64_dec(&sw->count);
+    kfree(node->data);
+    kfree(node);
+  }
+  spin_unlock(&sw->lock);
+}
+
+
+
+static bool parse_nvme_name(const char *name, int *ctrl_id, int *ns_id) {
+    int path_id; // 临时变量用于解析路径 ID
+
+    // 检查名称是否以 "nvme" 开头
+    if (strstr(name, "nvme") != name)
+        return false;
+
+    // 尝试解析格式 nvme<ctrl_id>c<path_id>n<ns_id>
+    if (sscanf(name, "nvme%dc%dn%d", ctrl_id, &path_id, ns_id) == 3)
+        return true;
+
+    // 尝试解析格式 nvme<ctrl_id>n<ns_id>
+    if (sscanf(name, "nvme%dn%d", ctrl_id, ns_id) == 2)
+        return true;
+
+    return false;
+}
+
+/** todo this method can be time consuming */
+bool is_same_dev_name(char *name1, char *name2) {
+    int ctrl_id1, ns_id1;
+    int ctrl_id2, ns_id2;
+
+    // 如果名称完全相同，则返回 true
+    if (strcmp(name1, name2) == 0)
+        return true;
+
+    // 解析第一个设备名称
+    if (!parse_nvme_name(name1, &ctrl_id1, &ns_id1))
+        return false;
+
+    // 解析第二个设备名称
+    if (!parse_nvme_name(name2, &ctrl_id2, &ns_id2))
+        return false;
+
+    // 比较控制器 ID 和命名空间 ID
+    return (ctrl_id1 == ctrl_id2) && (ns_id1 == ns_id2);
 }
 
 #endif  // _UTIL_H_

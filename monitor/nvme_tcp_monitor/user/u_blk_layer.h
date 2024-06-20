@@ -14,24 +14,14 @@
 
 #include "ntm_com.h"
 
-/**
- * blk layer statistics set
- * - raw_blk_stat: the raw statistics
- * - blk_stat: the statistics in the last x seconds
-*/
-struct blk_stat_set {
-  struct blk_stat *raw_blk_stat;
-  struct blk_stat *blk_stat;
-};
 
-static struct blk_stat_set blk_set;
+static struct shared_blk_layer_stat *shared;
 
-void print_blk_stat_set();
+void blk_layer_monitor_display();
 
-void init_ntm_blk();
+void init_blk_layer_monitor();
 
-void map_ntm_blk_data();
+void exit_blk_layer_monitor();
 
-void unmap_ntm_blk_data();
 
 #endif // U_BLK_LAYER_H
