@@ -27,6 +27,12 @@
 #include "k_ntm.h"
 #include "util.h"
 
+atomic64_t blk_sample_cnt;
+
+bool blk_to_sample(void) {
+  return atomic64_inc_return(&blk_sample_cnt) % args->rate == 0;
+}
+
 /**
  * blk layer statistics, with atomic variables
  * This is used for recording raw data in the kernel space
@@ -188,7 +194,7 @@ void on_block_rq_complete(void *ignore, struct request *rq, int err,
     struct bio *bio = rq->bio;
     if (!is_same_dev_name(bio->bi_bdev->bd_disk->disk_name, args->dev)) return;
     while (bio) {
-      if (to_sample()) {
+      if (blk_to_sample()) {
         /** update inner_blk_stat to record all sampled bio */
         u64 _start = bio_issue_time(&bio->bi_issue);
         u64 _now = __bio_issue_time(ktime_get_ns());
@@ -309,6 +315,7 @@ void blk_layer_update(u64 now) {
  * - initialize the blk_stat structures
  */
 int init_blk_layer_variables(void) {
+  atomic64_set(&blk_sample_cnt, 0);
   /** _raw_blk_stat */
   inner_blk_stat = kmalloc(sizeof(*inner_blk_stat), GFP_KERNEL);
   if (!inner_blk_stat) return -ENOMEM;

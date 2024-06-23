@@ -12,6 +12,12 @@
 
 #define EVENT_NUM 64
 
+atomic64_t nvme_sample_cnt;
+
+bool nvme_to_sample(void) {
+  return atomic64_inc_return(&nvme_sample_cnt) % args->rate == 0;
+}
+
 struct atomic_nvme_tcp_read_breakdown {
   atomic64_t cnt;
   atomic64_t t_inqueue;
@@ -279,7 +285,7 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int len1, int len2,
     u64 lat = __bio_issue_time(time) - bio_issue_time(&b->bi_issue);
     /** the unit of lat is ns */
 
-    if (to_sample() && current_io == NULL) {
+    if (nvme_to_sample() && current_io == NULL) {
       /** initialize current io */
       current_io = kmalloc(sizeof(struct nvme_tcp_io_instance), GFP_KERNEL);
       init_nvme_tcp_io_instance(current_io, (rq_data_dir(req) == WRITE),
@@ -881,6 +887,8 @@ void init_shared_nvme_tcp_layer_stat(struct shared_nvme_tcp_layer_stat *stat) {
 }
 
 int init_nvmetcp_variables(void) {
+  atomic64_set(&nvme_sample_cnt, 0);
+
   a_nvme_tcp_stat = kmalloc(sizeof(*a_nvme_tcp_stat), GFP_KERNEL);
   if(!a_nvme_tcp_stat) return -ENOMEM;
   init_atomic_nvme_tcp_stat(a_nvme_tcp_stat);

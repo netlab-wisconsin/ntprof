@@ -27,7 +27,7 @@ bool is_number(const char *str) {
  */
 void print_args(Arguments *args) {
   printf("dev: %s\t", args->dev);
-  printf("rate: %.3f\t", args->rate);
+  printf("rate: %d\t", args->rate);
   char io_type_str[32];
   switch (args->io_type) {
     case _READ:
@@ -59,7 +59,7 @@ void print_args(Arguments *args) {
   //   printf("%d, %d \t", i, args->qid[i]);
   // }
   // printf("\n");
-  printf("nrate: %.5f\n", args->nrate);
+  printf("nrate: %d\n", args->nrate);
 }
 
 void int_handler(int dummy) { keep_running = 0; }
@@ -107,14 +107,14 @@ void parse_qid(const char *qid_str, Arguments *args) {
 void parse_arguments(int argc, char *argv[], Arguments *args) {
   /** setting default value */
   strcpy(args->dev, "all devices");
-  args->rate = 0.001;
+  args->rate = 1000;
   args->io_type = _BOTH;
   args->win = 10;
   args->io_size = -1;
   memset(args->qid, 1, sizeof(args->qid));
   args->qid[0] = 0;
   args->qstr[0] = '\0';
-  args->nrate = 0.00001;
+  args->nrate = 100000;
 
   for (int i = 2; i < argc; i++) {
     if (strncmp(argv[i], "-dev=", 5) == 0) {

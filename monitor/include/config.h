@@ -9,7 +9,7 @@ typedef struct {
   /** device name */
   char dev[32];
   /** sample rate */
-  float rate;
+  unsigned int rate;
   /** io type, read or write */
   req_type io_type;
   /** sliding window length */
@@ -28,7 +28,7 @@ typedef struct {
   /** user input string */
   char qstr[MAX_QID];
   /** network packet sample rate */
-  float nrate;
+  unsigned int nrate;
 } Arguments;
 
 #endif  // _CONFIG_H_

@@ -9,20 +9,6 @@
 
 #include "ntm_com.h"
 
-/** sample rate for the sliding window */
-#define SAMPLE_RATE 0.001
-#define NET_SAMPLE_RATE 0.0001
-/**
- * generate a random number and compare it with the sample rate
- * @return true if the random number is less than the sample rate
- */
-static bool to_sample(void) {
-  unsigned int rand;
-  get_random_bytes(&rand, sizeof(rand));
-  return rand < SAMPLE_RATE * UINT_MAX;
-}
-
-
 /** for storing the device name */
 // static char device_name[32] = "";
 
@@ -30,7 +16,6 @@ static Arguments* args;
 
 /** a thread, periodically update the communication data strucure */
 static struct task_struct *update_routine_thread;
-
 
 /** inticator, to record or not */
 static int ctrl = 0;
@@ -70,13 +55,6 @@ struct request_queue *device_name_to_queue(const char *dev_name) {
   blkdev_put(bdev, FMODE_READ);
   return q;
 }
-
-static bool tcp_to_sample(void) {
-  unsigned int rand;
-  get_random_bytes(&rand, sizeof(rand));
-  return rand < NET_SAMPLE_RATE * UINT_MAX;
-}
-
 
 int qid2port[MAX_QID];
 
