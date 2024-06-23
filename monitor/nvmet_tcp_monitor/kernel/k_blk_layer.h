@@ -8,6 +8,12 @@
 
 #define BLK_EVENT_NUM 2
 
+atomic64_t blk_sample_cnt;
+
+bool blk_to_sample(void) {
+  return atomic64_inc_return(&blk_sample_cnt) % args->rate == 0;
+}
+
 enum blk_trpt { BIO_QUEUE, BIO_COMPLETE };
 
 void blk_trpt_name(enum blk_trpt trpt, char *name) {
@@ -187,7 +193,7 @@ void on_block_bio_queue(void *ignore, struct bio *bio) {
         strcmp(args->dev, "all devices") != 0) {
       return;
     }
-    if (to_sample()) {
+    if (blk_to_sample()) {
       /** update current bio if it is NULL */
       if (current_bio == NULL) {
         current_bio = kmalloc(sizeof(struct blk_io_instance), GFP_KERNEL);
@@ -340,6 +346,7 @@ static void remove_blk_layer_proc_entries(void) {
 }
 
 int init_blk_layer_variables(void) {
+  atomic64_set(&blk_sample_cnt, 0);
   blk_stat = vmalloc(sizeof(struct blk_stat));
   if (!blk_stat) {
     pr_err("Failed to allocate memory for blk_stat\n");

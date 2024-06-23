@@ -15,6 +15,12 @@
 
 #define EVENT_NUM 64
 
+atomic64_t nvmet_sample_cnt;
+
+bool nvmet_to_sample(void) {
+  return atomic64_inc_return(&nvmet_sample_cnt) % args->rate == 0;
+}
+
 /**
  * tracepoints:
  * nvmet_tcp:nvmet_tcp_try_recv_pdu
@@ -183,7 +189,7 @@ void on_try_recv_pdu(void* ignore, u8 pdu_type, u8 hdr_len, int queue_left,
 void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
                       unsigned long long time) {
   if (ctrl && args->qid[qid] && args->io_type + is_write != 1) {
-    if (to_sample()) {
+    if (nvmet_to_sample()) {
       // pr_info("DONE_RECV_PDU: cmd_id: %d, qid: %d, is_write: %d, time:
       // %llu\n",
       //         cmd_id, qid, is_write, time);
@@ -665,6 +671,7 @@ void init_nvmet_tcp_stat(struct nvmet_tcp_stat* stat) {
 }
 
 int init_nvmet_tcp_variables(void) {
+  atomic64_set(&nvmet_sample_cnt, 0);
   // pr_info("try to allocate size %d\n", sizeof(*nvmettcp_stat));
   nvmettcp_stat = vmalloc(sizeof(*nvmettcp_stat));
   if (!nvmettcp_stat) {

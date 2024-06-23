@@ -10,6 +10,12 @@
 
 #include "k_nttm.h"
 
+atomic64_t tcp_sample_cnt;
+
+bool tcp_to_sample(void) {
+  return atomic64_inc_return(&tcp_sample_cnt) % args->nrate == 0;
+}
+
 /**
  * EXPORT_TRACEPOINT_SYMBOL_GPL(cwnd_tcp_slow_start);
 EXPORT_TRACEPOINT_SYMBOL_GPL(cwnd_tcp_cong_avoid_ai);
@@ -470,6 +476,7 @@ static void remove_tcp_proc_entries(void) {
 }
 
 int init_tcp_variables(void) {
+  atomic64_set(&tcp_sample_cnt, 0);
   tcp_s = vmalloc(sizeof(struct tcp_stat));
   if (!tcp_s) {
     pr_err("Failed to allocate memory for tcp_stat\n");
