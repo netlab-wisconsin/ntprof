@@ -15,8 +15,8 @@ void print_read(struct nvmetcp_read_breakdown *ns, unsigned long long read_befor
     printf("reqcopy(us): %.4f, ", (float)ns->t_reqcopy / 1000 / ns->cnt);
     printf("datacopy(us): %.4f, ", (float)ns->t_datacopy / 1000 / ns->cnt);
     printf("waiting(us): %.4f, ", (float)ns->t_waiting / 1000 / ns->cnt);
-    printf("endtoend(us): %.4f, ", (float)ns->t_endtoend / 1000 / ns->cnt);
     printf("waitproc(us): %.4f, ", (float)ns->t_waitproc / 1000 / ns->cnt);
+    printf("endtoend(us): %.4f, ", (float)ns->t_endtoend / 1000 / ns->cnt);
     printf("\n");
   } else {
     printf("cnt: %d\n", ns->cnt);
