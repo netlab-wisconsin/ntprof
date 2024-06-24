@@ -81,7 +81,6 @@ inline void inc_cnt_arr(unsigned long long *arr, int size) {
 /** this struct is shared between kernel space and the user space */
 struct shared_blk_layer_stat{
   struct blk_stat all_time_stat;
-  struct blk_stat sw_stat;
 };
 
 
@@ -115,7 +114,6 @@ struct nvme_tcp_stat {
 
 struct shared_nvme_tcp_layer_stat {
   struct nvme_tcp_stat all_time_stat;
-  struct nvme_tcp_stat sw_stat;
 };
 
 struct tcp_stat_one_queue {

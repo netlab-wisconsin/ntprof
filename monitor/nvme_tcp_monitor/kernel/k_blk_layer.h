@@ -130,40 +130,12 @@ struct bio_info {
   u64 lat;
 };
 
-/**
- * make the statistic data for the whole sliding window
- * the statistic will be cleared first
- * @param sw: the sliding window
- * @param tr: the blk_stat to store the statistic data
- */
-void analyze_blk_stat_sample_set(struct sliding_window *sample_set,
-                                 struct blk_stat *stat) {
-  struct bio_info *info;
-  struct list_head *pos, *q;
-  init_blk_tr(stat);
-  list_for_each_safe(pos, q, &sample_set->list) {
-    info = (list_entry(pos, struct sw_node, list))->data;
-    if (info->type) {
-      stat->write_count++;
-      inc_cnt_arr(stat->write_io, info->size);
-      stat->write_lat += info->lat;
-    } else {
-      stat->read_count++;
-      inc_cnt_arr(stat->read_io, info->size);
-      stat->read_lat += info->lat;
-    }
-  }
-}
-
 /** in-kernel strucutre to update blk layer statistics */
 static struct _blk_stat *inner_blk_stat;
 
 /** raw blk layer statistics, shared in user space*/
 // static struct blk_stat *raw_blk_stat;
 static struct shared_blk_layer_stat *shared_blk_layer_stat;
-
-/** a sliding window to record bio in the last period */
-static struct sliding_window *sw;
 
 /**
  * communication entries
@@ -215,35 +187,6 @@ void on_block_rq_complete(void *ignore, struct request *rq, int err,
         } else {
           pr_err("Unexpected bio direction, neither READ nor WRITE.\n");
         }
-
-        /** insert current node to the sliding window */
-        struct bio_info *info;
-        struct sw_node *node;
-
-        /** create a new bio info to store current bio */
-        info = kmalloc(sizeof(*info), GFP_KERNEL);
-        if (!info) {
-          pr_err("Failed to allocate memory for bio_info\n");
-          return;
-        }
-
-        /** extract bio info */
-        info->size = bio->bi_iter.bi_size;
-        info->type = bio_data_dir(bio);
-        info->pos = bio->bi_iter.bi_sector;
-        info->lat = lat;
-
-        /** generate a node, and embed bio info */
-        node = kmalloc(sizeof(*node), GFP_KERNEL);
-        if (!node) {
-          pr_err("Failed to allocate memory for sw_node\n");
-          return;
-        }
-        node->timestamp = _start;
-        node->data = info;
-
-        /** append the node to the sliding window */
-        add_to_sliding_window(sw, node);
       }
       bio = bio->bi_next;
     }
@@ -301,10 +244,6 @@ static const struct proc_ops ntm_shared_blk_layer_stat_ops = {
 void blk_layer_update(u64 now) {
   /** update the raw blk layer statistic in the user space */
   copy_blk_stat(&shared_blk_layer_stat->all_time_stat, inner_blk_stat);
-  /** remove expired io in the sliding window */
-  remove_from_sliding_window(sw, now - args->win * NSEC_PER_SEC);
-  /** update the stat of sampled io in last period, shared in the user space */
-  analyze_blk_stat_sample_set(sw, &shared_blk_layer_stat->sw_stat);
 }
 
 /**
@@ -325,12 +264,6 @@ int init_blk_layer_variables(void) {
   shared_blk_layer_stat = vmalloc(sizeof(*shared_blk_layer_stat));
   if (!shared_blk_layer_stat) return -ENOMEM;
   init_blk_tr(&shared_blk_layer_stat->all_time_stat);
-  init_blk_tr(&shared_blk_layer_stat->sw_stat);
-
-  /** sw */
-  sw = kmalloc(sizeof(*sw), GFP_KERNEL);
-  if (!sw) return -ENOMEM;
-  init_sliding_window(sw);
 
   return 0;
 }
@@ -338,7 +271,6 @@ int init_blk_layer_variables(void) {
 int free_blk_layer_variables(void) {
   if (inner_blk_stat) kfree(inner_blk_stat);
   if (shared_blk_layer_stat) vfree(shared_blk_layer_stat);
-  if (sw) kfree(sw);
   return 0;
 }
 

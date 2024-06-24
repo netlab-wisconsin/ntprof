@@ -43,9 +43,6 @@ void print_shared_nvme_tcp_layer_stat(struct shared_nvme_tcp_layer_stat *ns) {
   printf(HEADER2 "all time stat" RESET "\n");
   print_read(&ns->all_time_stat.read, ns->all_time_stat.read_before);
   print_write(&ns->all_time_stat.write, ns->all_time_stat.write_before);
-  printf(HEADER2 "in the last %d seconds" RESET "\n", args->win);
-  print_read(&ns->sw_stat.read, ns->sw_stat.read_before);
-  print_write(&ns->sw_stat.write, ns->sw_stat.write_before);
 }
 
 void nvme_tcp_layer_monitor_display(){

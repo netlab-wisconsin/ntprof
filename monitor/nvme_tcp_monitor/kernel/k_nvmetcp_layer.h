@@ -233,18 +233,6 @@ void append_event(struct nvme_tcp_io_instance *inst, u64 ts,
   inst->cnt++;
 }
 
-
-/**
- * a sliding window for the block layer time
- *  - start time: the bio is issued
- *  - end time: when nvme_tcp_queue_rq is called
- * Since the end time is the time it enters the nvmetcp layer,
- * we put the sliding window here.
- */
-// static struct sliding_window *sw_blk_layer_time;
-
-static struct sliding_window *sw_nvmetcp_io_samples;
-
 // static struct nvmetcp_read_breakdown *read_breakdown;
 
 // static struct nvmetcp_write_breakdown *write_breakdown;
@@ -454,33 +442,10 @@ void update_write_breakdown(struct nvme_tcp_io_instance *io,
   rb->cnt++;
 }
 
-void analize_sw_latency_breakdown(struct sliding_window *sw) {
-  struct list_head *pos, *q;
-  init_nvmetcp_read_breakdown(&shared_nvme_tcp_stat->sw_stat.read);
-  init_nvmetcp_write_breakdown(&shared_nvme_tcp_stat->sw_stat.write);
-  /** traverse the linked list */
-  spin_lock(&sw->lock);
-  list_for_each_safe(pos, q, &sw->list) {
-    struct sw_node *node = list_entry(pos, struct sw_node, list);
-    struct nvme_tcp_io_instance *io = (struct nvme_tcp_io_instance *)node->data;
-    if (io->is_spoiled) continue;
-    if (io->is_write) {
-      update_write_breakdown(io, &shared_nvme_tcp_stat->sw_stat.write);
-    } else {
-      update_read_breakdown(io, &shared_nvme_tcp_stat->sw_stat.read);
-    }
-  }
-  spin_unlock(&sw->lock);
-}
-
 /**
  * a routine to update the sliding window
  */
 void nvmetcp_stat_update(u64 now) {
-  remove_from_sliding_window(sw_nvmetcp_io_samples, now - 10 * NSEC_PER_SEC);
-
-  /** calculate the time of interest in the sliding window */
-  analize_sw_latency_breakdown(sw_nvmetcp_io_samples);
   copy_nvme_tcp_stat(a_nvme_tcp_stat ,&shared_nvme_tcp_stat->all_time_stat);
 }
 
@@ -701,17 +666,6 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
       update_atomic_read_breakdown(current_io, &a_nvme_tcp_stat->read);
       atomic64_add(current_io->before, &a_nvme_tcp_stat->read_before);
     }
-
-    /** insert to the sliding window */
-    struct sw_node *node;
-
-    // print_io_instance(current_io);
-
-    /** append the io instance to the sliding window */
-    node = kmalloc(sizeof(struct sw_node), GFP_KERNEL);
-    node->data = current_io;
-    node->timestamp = current_io->ts[0];
-    add_to_sliding_window(sw_nvmetcp_io_samples, node);
     current_io = NULL;
   }
   // pr_info("on_nvme_tcp_process_nvme_cqe\n");
@@ -883,7 +837,6 @@ static void remove_nvmetcp_proc_entries(void) {
 
 void init_shared_nvme_tcp_layer_stat(struct shared_nvme_tcp_layer_stat *stat) {
   init_nvme_tcp_stat(&stat->all_time_stat);
-  init_nvme_tcp_stat(&stat->sw_stat);
 }
 
 int init_nvmetcp_variables(void) {
@@ -897,12 +850,6 @@ int init_nvmetcp_variables(void) {
   if (!shared_nvme_tcp_stat) return -ENOMEM;
   init_shared_nvme_tcp_layer_stat(shared_nvme_tcp_stat);
 
-  sw_nvmetcp_io_samples = kmalloc(sizeof(*sw_nvmetcp_io_samples), GFP_KERNEL);
-  if (!sw_nvmetcp_io_samples) {
-    pr_err("Failed to allocate memory for sw_nvmetcp_io_samples\n");
-    return -ENOMEM;
-  }
-  init_sliding_window(sw_nvmetcp_io_samples);
   return 0;
 }
 
@@ -912,10 +859,6 @@ int clear_nvmetcp_variables(void) {
   }
   if (shared_nvme_tcp_stat) {
     vfree(shared_nvme_tcp_stat);
-  }
-  if (sw_nvmetcp_io_samples) {
-    clear_sliding_window(sw_nvmetcp_io_samples);
-    kfree(sw_nvmetcp_io_samples);
   }
   return 0;
 }
