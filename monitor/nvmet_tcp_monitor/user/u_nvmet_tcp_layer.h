@@ -62,9 +62,6 @@ void print_nvmet_tcp_layer_stat() {
     printf(HEADER2 "all time" RESET "\n");
     print_read_breakdown(&nvmet_tcp_stat->all_read);
     print_write_breakdown(&nvmet_tcp_stat->all_write);
-    printf(HEADER2 "last %d sec:" RESET "\n", args->win);
-    print_read_breakdown(&nvmet_tcp_stat->sw_read_breakdown);
-    print_write_breakdown(&nvmet_tcp_stat->sw_write_breakdown);
   } else {
     printf("nvmet_tcp_stat is NULL\n");
   }

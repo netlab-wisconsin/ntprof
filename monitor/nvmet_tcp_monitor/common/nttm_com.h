@@ -19,24 +19,12 @@ struct nvmet_tcp_write_breakdown {
 };
 
 struct nvmet_tcp_stat {
-  /** these 2 attributes are summary for the sliding window */
-  struct nvmet_tcp_read_breakdown sw_read_breakdown;
-  struct nvmet_tcp_write_breakdown sw_write_breakdown;
-
   /** these 2 attributes are summary for the whole trace */
   struct nvmet_tcp_read_breakdown all_read;
   struct nvmet_tcp_write_breakdown all_write;
 };
 
 struct blk_stat {
-  unsigned long long sw_read_cnt;
-  unsigned long long sw_write_cnt;
-  unsigned long long sw_read_io[9];
-  unsigned long long sw_write_io[9];
-  unsigned long long sw_read_time;
-  unsigned long long sw_write_time;
-  // unsigned long long in_flight;
-
   // struct blk_sample_summary all_sample_summary;
   unsigned long long all_read_cnt;
   unsigned long long all_write_cnt;
@@ -46,21 +34,7 @@ struct blk_stat {
   unsigned long long all_write_time;
 };
 
-void reset_blk_stat(struct blk_stat *stat) {
-  stat->sw_read_cnt = 0;
-  stat->sw_write_cnt = 0;
-  // stat->in_flight = 0;
-  int i;
-  for (i = 0; i < 9; i++) {
-    stat->sw_read_io[i] = 0;
-    stat->sw_write_io[i] = 0;
-  }
-  stat->sw_read_time = 0;
-  stat->sw_write_time = 0;
-}
-
 void init_blk_stat(struct blk_stat *stat) {
-  reset_blk_stat(stat);
   stat->all_read_cnt = 0;
   stat->all_write_cnt = 0;
   // stat->in_flight = 0;

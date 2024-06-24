@@ -40,32 +40,6 @@ void print_blk_stat(struct blk_stat *b_stat) {
   }
   printf("\n");
 
-  printf(HEADER2 "last %d sec\n" RESET, args->win);
-  printf(HEADER3 "\t [read] \t" RESET);
-  printf("total bio: %llu, ", b_stat->sw_read_cnt);
-  printf("avg lat(us): %.6f\n", (float)b_stat->sw_read_time / 1000 /
-                                   b_stat->sw_read_cnt);
-
-
-  printf(HEADER3 "\t [read dist] \t" RESET);
-  for (i = 0; i < 9; i++) {
-    printf(" [%s: %.2f]", dis_header[i],
-           (float)b_stat->sw_read_io[i] / b_stat->sw_read_cnt);
-  }
-  printf("\n");
-
-  printf(HEADER3 "\t [write] \t" RESET);
-  printf("total bio: %llu, ", b_stat->sw_write_cnt);
-  printf("avg lat(us): %.6f\n", (float)b_stat->sw_write_time / 1000 /
-                                   b_stat->sw_write_cnt);
-  
-  printf(HEADER3 "\t [write dist] \t" RESET);
-  for (i = 0; i < 9; i++) {
-    printf(" [%s: %.2f]", dis_header[i],
-           (float)b_stat->sw_write_io[i] / b_stat->sw_write_cnt);
-  }
-  printf("\n");
-
   fflush(stdout);
 }
 

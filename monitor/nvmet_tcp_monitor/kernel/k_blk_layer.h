@@ -77,8 +77,6 @@ void print_blk_io_instance(struct blk_io_instance *bio) {
 
 static struct blk_io_instance *current_bio = NULL;
 
-static struct sliding_window *blk_io_samples;
-
 static struct proc_dir_entry *entry_blk_dir;
 static struct proc_dir_entry *entry_blk_stat;
 
@@ -142,45 +140,9 @@ void copy_blk_stat(struct blk_stat *dst, struct _blk_stat *src) {
 }
 
 /**
- * traverse the sample, update the summary in blk_stat
- */
-void analyze_blk_io_samples(struct sliding_window *samples,
-                            struct blk_stat *blk_stat) {
-
-  reset_blk_stat(blk_stat);
-  /** traverse the sliwing window */
-  struct list_head *pos, *q;
-  spin_lock(&samples->lock);
-  list_for_each_safe(pos, q, &samples->list) {
-    struct sw_node *node = list_entry(pos, struct sw_node, list);
-    struct blk_io_instance *bio = (struct blk_io_instance *)node->data;
-    if (bio->is_spoiled) {
-      pr_err("blk_io_instance is spoiled\n");
-      continue;
-    }
-
-    /** update the blk stat */
-    if (bio->is_write) {
-      blk_stat->sw_write_cnt++;
-      inc_cnt_arr(blk_stat->sw_write_io, bio->size);
-      blk_stat->sw_write_cnt++;
-      blk_stat->sw_write_time += bio->ts[1] - bio->ts[0];
-    } else {
-      blk_stat->sw_read_cnt++;
-      inc_cnt_arr(blk_stat->sw_read_io, bio->size);
-      blk_stat->sw_read_cnt;
-      blk_stat->sw_read_time += bio->ts[1] - bio->ts[0];
-    }
-  }
-  spin_unlock(&samples->lock);
-}
-
-/**
  * this function update the variable shared by user space and the kernel space
  */
 void blk_layer_update(u64 now) {
-  remove_from_sliding_window(blk_io_samples, now - 10 * NSEC_PER_SEC);
-  analyze_blk_io_samples(blk_io_samples, blk_stat);
   copy_blk_stat(blk_stat, raw_blk_stat);
 }
 
@@ -254,13 +216,6 @@ void on_block_rq_complete(void *ignore, struct request *rq, int err,
         } else {
           /** update the blk_stat, all time part */
           udpate_raw_blk_stat(current_bio, raw_blk_stat);
-
-          /** initializze the node and instert to the sliding window */
-          struct sw_node *node;
-          node = kmalloc(sizeof(struct sw_node), GFP_KERNEL);
-          node->data = current_bio;
-          node->timestamp = current_bio->ts[0];
-          add_to_sliding_window(blk_io_samples, node);
         }
         current_bio = NULL;
       }
@@ -361,15 +316,12 @@ int init_blk_layer_variables(void) {
   }
   _init_blk_tr(raw_blk_stat);
 
-  blk_io_samples = kmalloc(sizeof(struct sliding_window), GFP_KERNEL);
-  init_sliding_window(blk_io_samples);
   return 0;
 }
 
 void free_blk_varialbes(void) {
   vfree(blk_stat);
   kfree(raw_blk_stat);
-  kfree(blk_io_samples);
 }
 
 int init_blk_layer(void) {
