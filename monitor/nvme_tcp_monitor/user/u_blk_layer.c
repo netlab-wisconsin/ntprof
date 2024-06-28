@@ -26,8 +26,8 @@ void print_shared_blk_stat(struct shared_blk_layer_stat *shared) {
   printf(HEADER3 "[read lat] \t" RESET);
   for (i = 0; i < 9; i++) {
     printf(" [%s: %.2f]", dis_header[i],
-           (float)shared->all_time_stat.read_io_lat[i] /
-               shared->all_time_stat.read_count);
+           (float)shared->all_time_stat.read_io_lat[i] / 1000 /
+               shared->all_time_stat.read_io[i]);
   }
   printf("\n");
 
@@ -47,8 +47,8 @@ void print_shared_blk_stat(struct shared_blk_layer_stat *shared) {
   printf(HEADER3 "[write lat] \t" RESET);
   for (i = 0; i < 9; i++) {
     printf(" [%s: %.2f]", dis_header[i],
-           (float)shared->all_time_stat.write_io_lat[i] /
-               shared->all_time_stat.write_count);
+           (float)shared->all_time_stat.write_io_lat[i] / 1000 /
+               shared->all_time_stat.write_io[i]);
   }
   printf("\n");
 

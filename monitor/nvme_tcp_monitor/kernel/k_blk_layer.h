@@ -143,39 +143,79 @@ struct proc_dir_entry *entry_blk_stat;
 
 void on_block_rq_complete(void *ignore, struct request *rq, int err,
                           unsigned int nr_bytes) {
-  if (ctrl && args->io_type + rq_data_dir(rq) != 1) {
+  // if (ctrl && args->io_type + rq_data_dir(rq) != 1) {
+  //   /** if the name of the block device is unexpected, do not record any info */
+  //   // pr_info("on_block_rq_complete: req type=%d \n", rq_data_dir(rq));
+  //   if (rq->bio == NULL || rq->bio->bi_bdev == NULL ||
+  //       rq->bio->bi_bdev->bd_disk == NULL)
+  //     return;
+  //   struct bio *bio = rq->bio;
+  //   if (!is_same_dev_name(bio->bi_bdev->bd_disk->disk_name, args->dev)) return;
+  //   while (bio) {
+  //     if (blk_to_sample()) {
+  //       /** update inner_blk_stat to record all sampled bio */
+  //       u64 _start = bio_issue_time(&bio->bi_issue);
+  //       u64 _now = __bio_issue_time(ktime_get_ns());
+  //       u64 lat = _now - _start;
+
+  //       /** read the size of the io */
+  //       unsigned int size = bio->bi_iter.bi_size;
+
+  //       /** read the io direction and increase the corresponding counter */
+  //       if (bio_data_dir(bio) == READ) {
+  //         atomic64_inc(&inner_blk_stat->read_count);
+  //         inc_cnt_atomic_arr(inner_blk_stat->read_io, size);
+  //         add_atomic_array(inner_blk_stat->read_io_lat, size, lat);
+  //         atomic64_add(lat, &inner_blk_stat->read_lat);
+  //       } else if (bio_data_dir(bio) == WRITE) {
+  //         inc_cnt_atomic_arr(inner_blk_stat->write_io, size);
+  //         atomic64_inc(&inner_blk_stat->write_count);
+  //         atomic64_add(lat, &inner_blk_stat->write_lat);
+  //         add_atomic_array(inner_blk_stat->write_io_lat, size, lat);
+  //       } else {
+  //         pr_err("Unexpected bio direction, neither READ nor WRITE.\n");
+  //       }
+  //     }
+  //     bio = bio->bi_next;
+  //   }
+  // }
+}
+
+void on_block_bio_complete(void *ignore, struct request_queue *q,
+                           struct bio *bio) {
+  if (ctrl && args->io_type + bio_data_dir(bio) != 1) {
     /** if the name of the block device is unexpected, do not record any info */
     // pr_info("on_block_rq_complete: req type=%d \n", rq_data_dir(rq));
-    if (rq->bio == NULL || rq->bio->bi_bdev == NULL || rq->bio->bi_bdev->bd_disk == NULL) return;
-    struct bio *bio = rq->bio;
+    if (bio == NULL || bio->bi_bdev == NULL || bio->bi_bdev->bd_disk == NULL)
+      return;
+    // pr_info("dev: %s", bio->bi_bdev->bd_disk->disk_name); -- dev: nvme4c4n1
     if (!is_same_dev_name(bio->bi_bdev->bd_disk->disk_name, args->dev)) return;
-    while (bio) {
-      if (blk_to_sample()) {
-        /** update inner_blk_stat to record all sampled bio */
-        u64 _start = bio_issue_time(&bio->bi_issue);
-        u64 _now = __bio_issue_time(ktime_get_ns());
-        u64 lat = _now - _start;
 
-        /** read the size of the io */
-        unsigned int size = bio->bi_iter.bi_size;
+    if (blk_to_sample()) {
+      /** update inner_blk_stat to record all sampled bio */
+      u64 _start = bio_issue_time(&bio->bi_issue);
+      u64 _now = __bio_issue_time(ktime_get_ns());
+      u64 lat = _now - _start;
 
-        /** read the io direction and increase the corresponding counter */
-        if (bio_data_dir(bio) == READ) {
-          atomic64_inc(&inner_blk_stat->read_count);
-          inc_cnt_atomic_arr(inner_blk_stat->read_io, size);
-          add_atomic_array(inner_blk_stat->read_io_lat, size, lat);
-          atomic64_add(lat, &inner_blk_stat->read_lat);
-        } else if (bio_data_dir(bio) == WRITE) {
-          inc_cnt_atomic_arr(inner_blk_stat->write_io, size);
-          atomic64_inc(&inner_blk_stat->write_count);
-          atomic64_add(lat, &inner_blk_stat->write_lat);
-          add_atomic_array(inner_blk_stat->write_io_lat, size, lat);
-        } else {
-          pr_err("Unexpected bio direction, neither READ nor WRITE.\n");
-        }
+      /** read the size of the io */
+      unsigned int size = bio->bi_iter.bi_size;
+
+      /** read the io direction and increase the corresponding counter */
+      if (bio_data_dir(bio) == READ) {
+        atomic64_inc(&inner_blk_stat->read_count);
+        inc_cnt_atomic_arr(inner_blk_stat->read_io, size);
+        add_atomic_array(inner_blk_stat->read_io_lat, size, lat);
+        atomic64_add(lat, &inner_blk_stat->read_lat);
+      } else if (bio_data_dir(bio) == WRITE) {
+        inc_cnt_atomic_arr(inner_blk_stat->write_io, size);
+        atomic64_inc(&inner_blk_stat->write_count);
+        atomic64_add(lat, &inner_blk_stat->write_lat);
+        add_atomic_array(inner_blk_stat->write_io_lat, size, lat);
+      } else {
+        pr_err("Unexpected bio direction, neither READ nor WRITE.\n");
       }
-      bio = bio->bi_next;
     }
+    bio = bio->bi_next;
   }
 }
 
@@ -187,7 +227,14 @@ static int blk_register_tracepoints(void) {
   int ret;
   ret = register_trace_block_rq_complete(on_block_rq_complete, NULL);
   if (ret) goto failed;
+
+  ret = register_trace_block_bio_complete(on_block_bio_complete, NULL);
+  if (ret) goto unregister_block_rq_complete;
   return 0;
+
+unregister_block_rq_complete:
+  unregister_trace_block_rq_complete(on_block_rq_complete, NULL);
+
 failed:
   return ret;
 }
@@ -198,6 +245,7 @@ failed:
  */
 static void blk_unregister_tracepoints(void) {
   unregister_trace_block_rq_complete(on_block_rq_complete, NULL);
+  unregister_trace_block_bio_complete(on_block_bio_complete, NULL);
 }
 
 /**
