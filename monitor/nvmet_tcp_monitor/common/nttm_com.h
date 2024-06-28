@@ -3,6 +3,29 @@
 
 enum size_type { _LT_4K, _4K, _8K, _16K, _32K, _64K, _128K, _GT_128K, _OTHERS };
 
+/** a function, given int size, return enum */ 
+inline enum size_type size_to_enum(int size) {
+  if (size < 4096) {
+    return _LT_4K;
+  } else if (size == 4096) {
+    return _4K;
+  } else if (size == 8192) {
+    return _8K;
+  } else if (size == 16384) {
+    return _16K;
+  } else if (size == 32768) {
+    return _32K;
+  } else if (size == 65536) {
+    return _64K;
+  } else if (size == 131072) {
+    return _128K;
+  } else if (size > 131072) {
+    return _GT_128K;
+  } else {
+    return _OTHERS;
+  }
+}
+
 struct nvmet_tcp_read_breakdown {
   unsigned long long in_nvmet_tcp_time;
   unsigned long long in_blk_time;
@@ -20,8 +43,8 @@ struct nvmet_tcp_write_breakdown {
 
 struct nvmet_tcp_stat {
   /** these 2 attributes are summary for the whole trace */
-  struct nvmet_tcp_read_breakdown all_read;
-  struct nvmet_tcp_write_breakdown all_write;
+  struct nvmet_tcp_read_breakdown all_read[9];
+  struct nvmet_tcp_write_breakdown all_write[9];
 };
 
 struct blk_stat {
@@ -30,8 +53,8 @@ struct blk_stat {
   unsigned long long all_write_cnt;
   unsigned long long all_read_io[9];
   unsigned long long all_write_io[9];
-  unsigned long long all_read_time;
-  unsigned long long all_write_time;
+  unsigned long long all_read_time[9];
+  unsigned long long all_write_time[9];
 };
 
 void init_blk_stat(struct blk_stat *stat) {
@@ -42,9 +65,9 @@ void init_blk_stat(struct blk_stat *stat) {
   for (i = 0; i < 9; i++) {
     stat->all_read_io[i] = 0;
     stat->all_write_io[i] = 0;
+    stat->all_read_time[i] = 0;
+    stat->all_write_time[i] = 0;
   }
-  stat->all_read_time = 0;
-  stat->all_write_time = 0;
 }
 
 inline void inc_cnt_arr(unsigned long long *arr, int size) {

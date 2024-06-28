@@ -160,6 +160,7 @@ static struct nvmet_io_instance* current_io = NULL;
 struct proc_dir_entry* entry_nvmet_tcp_dir;
 struct proc_dir_entry* entry_nvmet_tcp_stat;
 
+/** TODO: make atomic type for this */
 static struct nvmet_tcp_stat* nvmettcp_stat;
 
 // void to_track(u16 qid, bool is_write) {
@@ -184,7 +185,7 @@ void on_try_recv_pdu(void* ignore, u8 pdu_type, u8 hdr_len, int queue_left,
   //     pdu_type, hdr_len, queue_left, qid, time);
 }
 
-void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
+void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write, int size,
                       unsigned long long time) {
   if (ctrl && args->qid[qid] && args->io_type + is_write != 1) {
     if (nvmet_to_sample()) {
@@ -193,7 +194,8 @@ void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
       //         cmd_id, qid, is_write, time);
       if (!current_io) {
         current_io = kmalloc(sizeof(struct nvmet_io_instance), GFP_KERNEL);
-        init_nvmet_tcp_io_instance(current_io, cmd_id, is_write, 0);
+
+        init_nvmet_tcp_io_instance(current_io, cmd_id, is_write, size);
         append_event(current_io, DONE_RECV_PDU, time);
       } else {
         pr_info("current_io is not NULL\n");
@@ -218,6 +220,7 @@ void on_exec_read_req(void* ignore, u16 cmd_id, int qid, bool is_write,
 
 void on_exec_write_req(void* ignore, u16 cmd_id, int qid, bool is_write,
                        unsigned long long time) {
+  if(qid == 0) return;
   if (!is_write) {
     pr_err("exec_write_req: is_write is false\n");
   }
@@ -416,14 +419,15 @@ void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
       /** insert the current io sample to the sample sliding window */
       // print_io_instance(current_io);
       if (!current_io->is_spoiled) {
+        // pr_info("size of current req is %d\n", current_io->size);
         if (current_io->is_write) {
-          update_write_breakdown(&nvmettcp_stat->all_write, current_io);
+          update_write_breakdown(&nvmettcp_stat->all_write[size_to_enum(current_io->size)], current_io);
           if (!is_standard_write(current_io)) {
             pr_err("write io is not standard: ");
             // print_io_instance(current_io);
           }
         } else {
-          update_read_breakdown(&nvmettcp_stat->all_read, current_io);
+          update_read_breakdown(&nvmettcp_stat->all_read[size_to_enum(current_io->size)], current_io);
           if (!is_standard_read(current_io)) {
             // pr_err("read io is not standard: ");
             // print_io_instance(current_io);
@@ -466,6 +470,7 @@ void on_handle_h2c_data_pdu(void* ignore, u16 cmd_id, int qid, int datalen,
     //     "HANDLE_H2C_DATA_PDU: cmd_id: %d, qid: %d, datalen: %d, time:
     //     %llu\n", cmd_id, qid, datalen, time);
     if (current_io && current_io->command_id == cmd_id) {
+      current_io->size = datalen;
       append_event(current_io, HANDLE_H2C_DATA_PDU, time);
     }
   }
@@ -488,7 +493,7 @@ void init_nvmet_tcp_write_breakdown(
 }
 
 void nvmet_tcp_stat_update(u64 now) {
-
+  
 }
 
 static int nvmet_tcp_register_tracepoints(void) {
@@ -626,8 +631,11 @@ static void remove_nvmet_tcp_proc_entries(void) {
 }
 
 void init_nvmet_tcp_stat(struct nvmet_tcp_stat* stat) {
-  init_nvmet_tcp_read_breakdown(&stat->all_read);
-  init_nvmet_tcp_write_breakdown(&stat->all_write);
+  int i;
+  for(i = 0; i < 9; i++) {
+    init_nvmet_tcp_read_breakdown(&stat->all_read[i]);
+    init_nvmet_tcp_write_breakdown(&stat->all_write[i]);
+  }
 }
 
 int init_nvmet_tcp_variables(void) {

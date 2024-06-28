@@ -87,8 +87,8 @@ struct _blk_stat {
   atomic64_t write_cnt;
   atomic64_t read_io[9];
   atomic64_t write_io[9];
-  atomic64_t read_time;
-  atomic64_t write_time;
+  atomic64_t read_time[9];
+  atomic64_t write_time[9];
   // atomic64_t in_flight;
 };
 
@@ -116,6 +116,29 @@ void inc_cnt_atomic_arr(atomic64_t *arr, int size) {
   }
 }
 
+void add_atomic_arr(atomic64_t *arr, int size, unsigned long long val) {
+  if (size < 4096) {
+    atomic64_add(val, &arr[_LT_4K]);
+  } else if (size == 4096) {
+    atomic64_add(val, &arr[_4K]);
+  } else if (size == 8192) {
+    atomic64_add(val, &arr[_8K]);
+  } else if (size == 16384) {
+    atomic64_add(val, &arr[_16K]);
+  } else if (size == 32768) {
+    atomic64_add(val, &arr[_32K]);
+  } else if (size == 65536) {
+    atomic64_add(val, &arr[_64K]);
+  } else if (size == 131072) {
+    atomic64_add(val, &arr[_128K]);
+  } else if (size > 131072) {
+    atomic64_add(val, &arr[_GT_128K]);
+  } else {
+    atomic64_add(val, &arr[_OTHERS]);
+  }
+
+}
+
 void _init_blk_tr(struct _blk_stat *tr) {
   int i;
   atomic64_set(&tr->read_cnt, 0);
@@ -134,8 +157,10 @@ void copy_blk_stat(struct blk_stat *dst, struct _blk_stat *src) {
   for (i = 0; i < 9; i++) {
     dst->all_read_io[i] = atomic64_read(&src->read_io[i]);
     dst->all_write_io[i] = atomic64_read(&src->write_io[i]);
+    dst->all_read_time[i] = atomic64_read(&src->read_time[i]);
+    dst->all_write_time[i] = atomic64_read(&src->write_time[i]);
   }
-  dst->all_read_time = atomic64_read(&src->read_time);
+  // dst->all_read_time = atomic64_read(&src->read_time);
   // dst->in_flight = atomic64_read(&src->in_flight);
 }
 
@@ -171,10 +196,7 @@ void on_block_bio_queue(void *ignore, struct bio *bio) {
   }
 }
 
-void on_block_bio_complete(void *ignore, struct request_queue *,
-                           struct bio *bio) {
 
-}
 
 /**
  * This function is to update the raw_blk_stat, which record all-time statistics.
@@ -189,39 +211,56 @@ void udpate_raw_blk_stat(struct blk_io_instance *bio, struct _blk_stat *raw_blk_
   size = bio->size;
   if (bio->is_write) {
     atomic64_inc(&raw_blk_stat->write_cnt);
-    atomic64_add(bio->ts[1] - bio->ts[0], &raw_blk_stat->write_time);
-    arr = raw_blk_stat->write_io;
+    add_atomic_arr(raw_blk_stat->write_time, size, bio->ts[1] - bio->ts[0]);
+    inc_cnt_atomic_arr(raw_blk_stat->write_io, size);
   } else {
     atomic64_inc(&raw_blk_stat->read_cnt);
-    atomic64_add(bio->ts[1] - bio->ts[0], &raw_blk_stat->read_time);
-    arr = raw_blk_stat->read_io;
+    add_atomic_arr(raw_blk_stat->read_time, size, bio->ts[1] - bio->ts[0]);
+    inc_cnt_atomic_arr(raw_blk_stat->read_io, size);
   }
-  inc_cnt_atomic_arr(arr, size);
 }
 
 void on_block_rq_complete(void *ignore, struct request *rq, int err,
                           unsigned int nr_bytes) {
-  if (ctrl && args->io_type + rq_data_dir(rq) != 1) {
+  // if (ctrl && args->io_type + rq_data_dir(rq) != 1) {
 
-    /** if the device name of the request is different from args, return */
-    if (rq->bio == NULL || rq->bio->bi_bdev == NULL || rq->bio->bi_bdev->bd_disk == NULL) return;
-    struct bio *bio = rq->bio;
-    if (!is_same_dev_name(bio->bi_bdev->bd_disk->disk_name, args->dev)) return;
+  //   /** if the device name of the request is different from args, return */
+  //   if (rq->bio == NULL || rq->bio->bi_bdev == NULL || rq->bio->bi_bdev->bd_disk == NULL) return;
+  //   struct bio *bio = rq->bio;
+  //   if (!is_same_dev_name(bio->bi_bdev->bd_disk->disk_name, args->dev)) return;
 
-    while (bio) {
-      if (current_bio && bio == current_bio->bio) {
-        append_blk_event(current_bio, ktime_get_ns(), BIO_COMPLETE);
-        if (current_bio->is_spoiled) {
-          pr_err("current_bio is spoiled\n");
-        } else {
-          /** update the blk_stat, all time part */
-          udpate_raw_blk_stat(current_bio, raw_blk_stat);
-        }
-        current_bio = NULL;
-      }
-      // atomic64_dec(&raw_blk_stat->in_flight);
+  //   while (bio) {
+  //     if (current_bio && bio == current_bio->bio) {
+  //       append_blk_event(current_bio, ktime_get_ns(), BIO_COMPLETE);
+  //       if (current_bio->is_spoiled) {
+  //         pr_err("current_bio is spoiled\n");
+  //       } else {
+  //         /** update the blk_stat, all time part */
+  //         udpate_raw_blk_stat(current_bio, raw_blk_stat);
+  //       }
+  //       current_bio = NULL;
+  //     }
+  //     // atomic64_dec(&raw_blk_stat->in_flight);
     
-      bio = bio->bi_next;
+  //     bio = bio->bi_next;
+  //   }
+  // }
+}
+
+void on_block_bio_complete(void *ignore, struct request_queue *,
+                           struct bio *bio) {
+  if(ctrl && args->io_type + bio_data_dir(bio) != 1) {
+    if (bio->bi_bdev == NULL || bio->bi_bdev->bd_disk == NULL) return;
+    if (!is_same_dev_name(bio->bi_bdev->bd_disk->disk_name, args->dev)) return;
+    if (current_bio && bio == current_bio->bio) {
+      append_blk_event(current_bio, ktime_get_ns(), BIO_COMPLETE);
+      if (current_bio->is_spoiled) {
+        pr_err("current_bio is spoiled\n");
+      } else {
+        /** update the blk_stat, all time part */
+        udpate_raw_blk_stat(current_bio, raw_blk_stat);
+      }
+      current_bio = NULL;
     }
   }
 }

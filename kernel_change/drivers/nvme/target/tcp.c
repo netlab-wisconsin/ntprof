@@ -1058,8 +1058,7 @@ static int nvmet_tcp_done_recv_pdu(struct nvmet_tcp_queue *queue)
 	memcpy(req->cmd, nvme_cmd, sizeof(*nvme_cmd));
 
 	
-
-	trace_nvmet_tcp_done_recv_pdu(queue->pdu.cmd.cmd.common.command_id, queue->idx, nvme_is_write(&queue->pdu.cmd.cmd), ktime_get_ns());
+	trace_nvmet_tcp_done_recv_pdu(queue->pdu.cmd.cmd.common.command_id, queue->idx, nvme_is_write(&queue->pdu.cmd.cmd), le32_to_cpu(req->cmd->common.dptr.sgl.length), ktime_get_ns());
 
 	if (unlikely(!nvmet_req_init(req, &queue->nvme_cq,
 			&queue->nvme_sq, &nvmet_tcp_ops))) {

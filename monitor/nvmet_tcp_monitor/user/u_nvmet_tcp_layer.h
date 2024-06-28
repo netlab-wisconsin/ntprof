@@ -59,9 +59,15 @@ void print_write_breakdown(struct nvmet_tcp_write_breakdown *ns) {
 void print_nvmet_tcp_layer_stat() {
   if (nvmet_tcp_stat) {
     printf(HEADER1 "[NVMET_TCP LAYER]:\n" RESET);
-    printf(HEADER2 "all time" RESET "\n");
-    print_read_breakdown(&nvmet_tcp_stat->all_read);
-    print_write_breakdown(&nvmet_tcp_stat->all_write);
+    printf(HEADER2 "all time lat(us)" RESET "\n");
+    char *dis_header[9] = {"<4KB", "4KB",   "8KB",    "16KB",  "32KB",
+                         "64KB", "128KB", ">128KB", "others"};
+    int i;
+    for(i = 0; i < 9; i++) {
+      printf(HEADER3 "size=%s, \n" RESET, dis_header[i]);
+      print_read_breakdown(&nvmet_tcp_stat->all_read[i]);
+      print_write_breakdown(&nvmet_tcp_stat->all_write[i]);
+    }
   } else {
     printf("nvmet_tcp_stat is NULL\n");
   }
