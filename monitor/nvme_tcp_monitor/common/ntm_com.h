@@ -6,6 +6,28 @@
 
 enum size_type { _LT_4K, _4K, _8K, _16K, _32K, _64K, _128K, _GT_128K, _OTHERS };
 
+/** a function, given int size, return enum */ 
+inline enum size_type size_to_enum(int size) {
+  if (size < 4096) {
+    return _LT_4K;
+  } else if (size == 4096) {
+    return _4K;
+  } else if (size == 8192) {
+    return _8K;
+  } else if (size == 16384) {
+    return _16K;
+  } else if (size == 32768) {
+    return _32K;
+  } else if (size == 65536) {
+    return _64K;
+  } else if (size == 131072) {
+    return _128K;
+  } else if (size > 131072) {
+    return _GT_128K;
+  } else {
+    return _OTHERS;
+  }
+}
 
 /**
  * a data structure to store the blk layer statistics
@@ -30,6 +52,8 @@ struct blk_stat {
 
   unsigned long long read_lat;
   unsigned long long write_lat;
+  unsigned long long read_io_lat[9];
+  unsigned long long write_io_lat[9];
 };
 
 
@@ -45,6 +69,8 @@ inline void init_blk_tr(struct blk_stat *tr) {
   for (i = 0; i < 9; i++) {
     tr->read_io[i] = 0;
     tr->write_io[i] = 0;
+    tr->read_io_lat[i] = 0;
+    tr->write_io_lat[i] = 0;
   }
   tr->pending_rq = 0;
   tr->read_lat = 0;
@@ -57,25 +83,7 @@ inline void init_blk_tr(struct blk_stat *tr) {
  * @param size the size of the io
 */
 inline void inc_cnt_arr(unsigned long long *arr, int size) {
-  if (size < 4096) {
-    arr[_LT_4K]++;
-  } else if (size == 4096) {
-    arr[_4K]++;
-  } else if (size == 8192) {
-    arr[_8K]++;
-  } else if (size == 16384) {
-    arr[_16K]++;
-  } else if (size == 32768) {
-    arr[_32K]++;
-  } else if (size == 65536) {
-    arr[_64K]++;
-  } else if (size == 131072) {
-    arr[_128K]++;
-  } else if (size > 131072) {
-    arr[_GT_128K]++;
-  } else {
-    arr[_OTHERS]++;
-  } 
+  arr[size_to_enum(size)]++;
 }
 
 /** this struct is shared between kernel space and the user space */
@@ -106,10 +114,10 @@ struct nvmetcp_write_breakdown {
 };
 
 struct nvme_tcp_stat {
-  struct nvmetcp_read_breakdown read;
-  struct nvmetcp_write_breakdown write;
-  unsigned long long read_before;
-  unsigned long long write_before;
+  struct nvmetcp_read_breakdown read[9];
+  struct nvmetcp_write_breakdown write[9];
+  unsigned long long read_before[9];
+  unsigned long long write_before[9];
 };
 
 struct shared_nvme_tcp_layer_stat {

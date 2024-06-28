@@ -51,8 +51,13 @@ struct _blk_stat {
   /** write io number of different sizes */
   atomic64_t write_io[9];
 
+  /** overall read and write lat */
   atomic64_t read_lat;
   atomic64_t write_lat;
+
+  /** read and write lat for different type of io */
+  atomic64_t read_io_lat[9];
+  atomic64_t write_io_lat[9];
 
   /** TODO: number of io in-flight */
   atomic64_t pending_rq;
@@ -64,27 +69,11 @@ struct _blk_stat {
  * @param size the size of the io
  */
 void inc_cnt_atomic_arr(atomic64_t *arr, int size) {
-  if (size < 4096) {
-    atomic64_inc(&arr[_LT_4K]);
-  } else if (size == 4096) {
-    atomic64_inc(&arr[_4K]);
-  } else if (size == 8192) {
-    atomic64_inc(&arr[_8K]);
-  } else if (size == 16384) {
-    atomic64_inc(&arr[_16K]);
-  } else if (size == 32768) {
-    atomic64_inc(&arr[_32K]);
-  } else if (size == 65536) {
-    atomic64_inc(&arr[_64K]);
-  } else if (size == 131072) {
-    atomic64_inc(&arr[_128K]);
-  } else {
-    if (size > 131072) {
-      atomic64_inc(&arr[_GT_128K]);
-    } else {
-      atomic64_inc(&arr[_OTHERS]);
-    }
-  }
+  atomic64_inc(&arr[size_to_enum(size)]);
+}
+
+void add_atomic_array(atomic64_t *arr, int size, u64 val) {
+  atomic64_add(val, &arr[size_to_enum(size)]);
 }
 
 /**
@@ -96,13 +85,15 @@ void _init_blk_tr(struct _blk_stat *tr) {
   int i;
   atomic64_set(&tr->read_count, 0);
   atomic64_set(&tr->write_count, 0);
-  for (i = 0; i < 9; i++) {
-    atomic64_set(&tr->read_io[i], 0);
-    atomic64_set(&tr->write_io[i], 0);
-  }
   atomic64_set(&tr->pending_rq, 0);
   atomic64_set(&tr->read_lat, 0);
   atomic64_set(&tr->write_lat, 0);
+  for (i = 0; i < 9; i++) {
+    atomic64_set(&tr->read_io[i], 0);
+    atomic64_set(&tr->write_io[i], 0);
+    atomic64_set(&tr->read_io_lat[i], 0);
+    atomic64_set(&tr->write_io_lat[i], 0);
+  }
 }
 
 /**
@@ -116,19 +107,12 @@ void copy_blk_stat(struct blk_stat *dst, struct _blk_stat *src) {
   for (i = 0; i < 9; i++) {
     dst->read_io[i] = atomic64_read(&src->read_io[i]);
     dst->write_io[i] = atomic64_read(&src->write_io[i]);
+    dst->read_io_lat[i] = atomic64_read(&src->read_io_lat[i]);
+    dst->write_io_lat[i] = atomic64_read(&src->write_io_lat[i]);
   }
   dst->read_lat = atomic64_read(&src->read_lat);
   dst->write_lat = atomic64_read(&src->write_lat);
 }
-
-/** an abstract of an io, a node in the sliding window */
-struct bio_info {
-  struct list_head list;
-  u64 size;
-  u64 pos;
-  bool type;
-  u64 lat;
-};
 
 /** in-kernel strucutre to update blk layer statistics */
 static struct _blk_stat *inner_blk_stat;
@@ -179,11 +163,13 @@ void on_block_rq_complete(void *ignore, struct request *rq, int err,
         if (bio_data_dir(bio) == READ) {
           atomic64_inc(&inner_blk_stat->read_count);
           inc_cnt_atomic_arr(inner_blk_stat->read_io, size);
+          add_atomic_array(inner_blk_stat->read_io_lat, size, lat);
           atomic64_add(lat, &inner_blk_stat->read_lat);
         } else if (bio_data_dir(bio) == WRITE) {
           inc_cnt_atomic_arr(inner_blk_stat->write_io, size);
           atomic64_inc(&inner_blk_stat->write_count);
           atomic64_add(lat, &inner_blk_stat->write_lat);
+          add_atomic_array(inner_blk_stat->write_io_lat, size, lat);
         } else {
           pr_err("Unexpected bio direction, neither READ nor WRITE.\n");
         }

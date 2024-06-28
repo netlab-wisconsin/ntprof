@@ -38,10 +38,10 @@ struct atomic_nvme_tcp_write_breakdown {
 };
 
 struct atomic_nvme_tcp_stat {
-  struct atomic_nvme_tcp_read_breakdown read;
-  struct atomic_nvme_tcp_write_breakdown write;
-  atomic64_t read_before;
-  atomic64_t write_before;
+  struct atomic_nvme_tcp_read_breakdown read[9];
+  struct atomic_nvme_tcp_write_breakdown write[9];
+  atomic64_t read_before[9];
+  atomic64_t write_before[9];
 };
 
 void init_atomic_nvme_tcp_read_breakdown(
@@ -66,10 +66,13 @@ void init_atomic_nvme_tcp_write_breakdown(
 }
 
 void init_atomic_nvme_tcp_stat(struct atomic_nvme_tcp_stat *stat) {
-  init_atomic_nvme_tcp_read_breakdown(&stat->read);
-  init_atomic_nvme_tcp_write_breakdown(&stat->write);
-  atomic64_set(&stat->read_before, 0);
-  atomic64_set(&stat->write_before, 0);
+  int i;
+  for (i = 0; i < 9; i++) {
+    init_atomic_nvme_tcp_read_breakdown(&stat->read[i]);
+    init_atomic_nvme_tcp_write_breakdown(&stat->write[i]);
+    atomic64_set(&stat->read_before[i], 0);
+    atomic64_set(&stat->write_before[i], 0);
+  }
 }
 
 void copy_nvme_tcp_write_breakdown(struct atomic_nvme_tcp_write_breakdown *src,
@@ -95,10 +98,13 @@ void copy_nvme_tcp_read_breakdown(struct atomic_nvme_tcp_read_breakdown *src,
 
 void copy_nvme_tcp_stat(struct atomic_nvme_tcp_stat *src,
                         struct nvme_tcp_stat *dst) {
-  copy_nvme_tcp_read_breakdown(&src->read, &dst->read);
-  copy_nvme_tcp_write_breakdown(&src->write, &dst->write);
-  dst->read_before = atomic64_read(&src->read_before);
-  dst->write_before = atomic64_read(&src->write_before);
+  int i;
+  for (i = 0; i < 9; i++) {
+    copy_nvme_tcp_read_breakdown(&src->read[i], &dst->read[i]);
+    copy_nvme_tcp_write_breakdown(&src->write[i], &dst->write[i]);
+    dst->read_before[i] = atomic64_read(&src->read_before[i]);
+    dst->write_before[i] = atomic64_read(&src->write_before[i]);
+  }
 }
 
 enum nvme_tcp_trpt {
@@ -171,6 +177,7 @@ struct nvme_tcp_io_instance {
   u64 ts[EVENT_NUM];
   u64 ts2[EVENT_NUM];
   enum nvme_tcp_trpt trpt[EVENT_NUM];
+  // size of data for an event, such as a receiving event
   u64 sizs[EVENT_NUM];
   int cnt;
 
@@ -181,7 +188,7 @@ struct nvme_tcp_io_instance {
 
   /** indicate the event number exceeds the capacity, this sample is useless*/
   bool is_spoiled;
-  int size;    // request size
+  int size;    // size of the whole request
   u64 before;  // time between bio issue and entering the nvme_tcp_layer
 };
 
@@ -217,7 +224,7 @@ void print_io_instance(struct nvme_tcp_io_instance *inst) {
   }
 }
 
-static struct nvme_tcp_io_instance *current_io = NULL;
+static struct nvme_tcp_io_instance *current_io;
 
 void append_event(struct nvme_tcp_io_instance *inst, u64 ts,
                   enum nvme_tcp_trpt trpt, int size_info, u64 ts2) {
@@ -268,25 +275,20 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int len1, int len2,
     return;
   }
 
-  b = req->bio;
-  while (b) {
-    u64 lat = __bio_issue_time(time) - bio_issue_time(&b->bi_issue);
-    /** the unit of lat is ns */
-
-    if (nvme_to_sample() && current_io == NULL) {
-      /** initialize current io */
-      current_io = kmalloc(sizeof(struct nvme_tcp_io_instance), GFP_KERNEL);
-      init_nvme_tcp_io_instance(current_io, (rq_data_dir(req) == WRITE),
-                                req->tag, len1 + len2, 0, false, false, false,
-                                0);
-      current_io->before = lat;
-      append_event(current_io, time, QUEUE_RQ, -1, 0);
+  if (nvme_to_sample() && current_io == NULL) {
+    b = req->bio;
+    u64 lat = 0;
+    u32 size = 0;
+    while (b) {
+      if (!lat) lat = __bio_issue_time(time) - bio_issue_time(&b->bi_issue);
+      size += b->bi_iter.bi_size;
+      b = b->bi_next;
     }
-    b = b->bi_next;
-    /**
-     * according the sample rate, we hope to keep info about this io,
-     * but we need to make sure the previous io is processed completely
-     */
+    current_io = kmalloc(sizeof(struct nvme_tcp_io_instance), GFP_KERNEL);
+    init_nvme_tcp_io_instance(current_io, (rq_data_dir(req) == WRITE), req->tag,
+                              len1 + len2, 0, false, false, false, size);
+    current_io->before = lat;
+    append_event(current_io, time, QUEUE_RQ, -1, 0);
   }
 }
 
@@ -310,10 +312,13 @@ void init_nvmetcp_read_breakdown(struct nvmetcp_read_breakdown *rb) {
 }
 
 void init_nvme_tcp_stat(struct nvme_tcp_stat *stat) {
-  init_nvmetcp_read_breakdown(&stat->read);
-  init_nvmetcp_write_breakdown(&stat->write);
-  stat->read_before = 0;
-  stat->write_before = 0;
+  int i;
+  for (i = 0; i < 9; i++) {
+    init_nvmetcp_read_breakdown(&stat->read[i]);
+    init_nvmetcp_write_breakdown(&stat->write[i]);
+    stat->read_before[i] = 0;
+    stat->write_before[i] = 0;
+  }
 }
 
 /*
@@ -410,6 +415,8 @@ void update_read_breakdown(struct nvme_tcp_io_instance *io,
 */
 void update_write_breakdown(struct nvme_tcp_io_instance *io,
                             struct nvmetcp_write_breakdown *rb) {
+  /** get the corresponding io instance based on request size */
+
   if (io->contains_r2t) {
     /** TODO: to remove the check when it is safe */
     if (io->cnt < 11) {
@@ -446,7 +453,7 @@ void update_write_breakdown(struct nvme_tcp_io_instance *io,
  * a routine to update the sliding window
  */
 void nvmetcp_stat_update(u64 now) {
-  copy_nvme_tcp_stat(a_nvme_tcp_stat ,&shared_nvme_tcp_stat->all_time_stat);
+  copy_nvme_tcp_stat(a_nvme_tcp_stat, &shared_nvme_tcp_stat->all_time_stat);
 }
 
 /**
@@ -660,11 +667,19 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
 
     /** update the all-time statistic */
     if (rq_data_dir(req)) {
-      update_atomic_write_breakdown(current_io, &a_nvme_tcp_stat->write);
-      atomic64_add(current_io->before, &a_nvme_tcp_stat->write_before);
+      /** get the size of the request */
+      int size = current_io->size;
+      pr_info("size is %d\n", size);
+      int idx = size_to_enum(size);
+      pr_info("idx is %d\n", idx);
+      update_atomic_write_breakdown(current_io, &a_nvme_tcp_stat->write[idx]);
+      atomic64_add(current_io->before, &a_nvme_tcp_stat->write_before[idx]);
     } else {
-      update_atomic_read_breakdown(current_io, &a_nvme_tcp_stat->read);
-      atomic64_add(current_io->before, &a_nvme_tcp_stat->read_before);
+      int size = current_io->size;
+      int idx = size_to_enum(size);
+      pr_info("idx is %d\n", idx);
+      update_atomic_read_breakdown(current_io, &a_nvme_tcp_stat->read[idx]);
+      atomic64_add(current_io->before, &a_nvme_tcp_stat->read_before[idx]);
     }
     current_io = NULL;
   }
@@ -840,10 +855,13 @@ void init_shared_nvme_tcp_layer_stat(struct shared_nvme_tcp_layer_stat *stat) {
 }
 
 int init_nvmetcp_variables(void) {
+  int i;
+  current_io = NULL;
+
   atomic64_set(&nvme_sample_cnt, 0);
 
   a_nvme_tcp_stat = kmalloc(sizeof(*a_nvme_tcp_stat), GFP_KERNEL);
-  if(!a_nvme_tcp_stat) return -ENOMEM;
+  if (!a_nvme_tcp_stat) return -ENOMEM;
   init_atomic_nvme_tcp_stat(a_nvme_tcp_stat);
 
   shared_nvme_tcp_stat = vmalloc(sizeof(*shared_nvme_tcp_stat));

@@ -41,8 +41,14 @@ void print_write(struct nvmetcp_write_breakdown *ns, unsigned long long write_be
 
 void print_shared_nvme_tcp_layer_stat(struct shared_nvme_tcp_layer_stat *ns) {
   printf(HEADER2 "all time stat" RESET "\n");
-  print_read(&ns->all_time_stat.read, ns->all_time_stat.read_before);
-  print_write(&ns->all_time_stat.write, ns->all_time_stat.write_before);
+  int i;
+  char *dis_header[9] = {"<4KB", "4KB",   "8KB",    "16KB",  "32KB",
+                         "64KB", "128KB", ">128KB", "others"};
+  for(i = 0; i < 9; i++){
+    printf(HEADER3 "size=%s, \n" RESET, dis_header[i]);
+    print_read(&ns->all_time_stat.read[i], ns->all_time_stat.read_before[i]);
+    print_write(&ns->all_time_stat.write[i], ns->all_time_stat.write_before[i]);
+  }
 }
 
 void nvme_tcp_layer_monitor_display(){
