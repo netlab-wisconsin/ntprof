@@ -1,17 +1,17 @@
 
 #include "u_ntm.h"
 
-#include "u_blk_layer.h"
-#include "u_nvmetcp_layer.h"
-#include "u_tcp_layer.h"
-
 #include <ctype.h>
+
+#include "u_blk_layer.h"
+#include "u_nvme_tcp_layer.h"
+#include "u_tcp_layer.h"
 
 static volatile int keep_running = 1;
 
 // char device_name[32];
 
-Arguments* args;
+Arguments *args;
 
 bool is_number(const char *str) {
   while (*str) {
@@ -156,8 +156,8 @@ void parse_arguments(int argc, char *argv[], Arguments *args) {
 /**
  * map variables with the kernel space
  * - args
-*/
-void map_varialbes(){
+ */
+void map_varialbes() {
   char *fname;
   int fd;
 
@@ -166,8 +166,9 @@ void map_varialbes(){
   if (fd == -1) {
     goto fail_open;
   }
-  args = mmap(NULL, sizeof(Arguments), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-  if(args == MAP_FAILED) {
+  args =
+      mmap(NULL, sizeof(Arguments), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  if (args == MAP_FAILED) {
     goto fail_open;
   }
   close(fd);
@@ -197,7 +198,7 @@ void start_ntm() {
   write(fd, "1", 1);
   close(fd);
 
-return;
+  return;
 
 fail_open:
   close(fd);
@@ -251,23 +252,25 @@ int main(int argc, char **argv) {
   /** send msg to kernel space to start recording */
   start_ntm();
 
+  /** initialize monitors on different layers */
   init_blk_layer_monitor();
+  init_nvme_tcp_layer_monitor();
+  init_tcp_layer_monitor();
 
-  map_ntm_nvmetcp_data();
-  map_ntm_tcp_data();
 
   while (keep_running) {
     printf("\033[H\033[J");
     print_args(args);
     blk_layer_monitor_display();
     nvme_tcp_layer_monitor_display();
-    print_tcp_layer_stat();
+    tcp_layer_monitor_display();
     sleep(1);
   }
 
- exit_blk_layer_monitor();
-  unmap_ntm_nvmetcp_data();
-  unmap_ntm_tcp_data();
+  /** exit monitors on different layers */
+  exit_blk_layer_monitor();
+  exit_nvme_tcp_layer_monitor();
+  exit_tcp_layer_monitor();
 
   printf("start exit ntm_user\n");
 

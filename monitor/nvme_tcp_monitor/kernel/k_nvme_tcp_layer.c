@@ -1,48 +1,33 @@
-#ifndef K_NVMETCP_LAYER_H
-#define K_NVMETCP_LAYER_H
-
 // #include <linux/blkdev.h>
+#include "k_nvme_tcp_layer.h"
+
+#include <linux/blk-mq.h>
+#include <linux/blkdev.h>
 #include <linux/kernel.h>
+#include <linux/mm.h>
 #include <linux/nvme.h>
+#include <linux/proc_fs.h>
 #include <linux/tracepoint.h>
 #include <trace/events/nvme_tcp.h>
 
-#include "ntm_com.h"
+#include "k_ntm.h"
 #include "util.h"
 
-#define EVENT_NUM 64
+static atomic64_t sample_cnt;
 
-atomic64_t nvme_sample_cnt;
+struct nvme_tcp_io_instance *current_io;
 
-bool nvme_to_sample(void) {
-  return atomic64_inc_return(&nvme_sample_cnt) % args->rate == 0;
+struct proc_dir_entry *entry_nvme_tcp_dir;
+struct proc_dir_entry *entry_nvme_tcp_stat;
+static char *dir_name = "nvme_tcp";
+static char *stat_name = "stat";
+
+struct shared_nvme_tcp_layer_stat *shared_nvme_tcp_stat;
+struct atomic_nvme_tcp_stat *a_nvme_tcp_stat;
+
+static bool to_sample(void) {
+  return atomic64_inc_return(&sample_cnt) % args->rate == 0;
 }
-
-struct atomic_nvme_tcp_read_breakdown {
-  atomic64_t cnt;
-  atomic64_t t_inqueue;
-  atomic64_t t_reqcopy;
-  atomic64_t t_datacopy;
-  atomic64_t t_waiting;
-  atomic64_t t_waitproc;
-  atomic64_t t_endtoend;
-};
-
-struct atomic_nvme_tcp_write_breakdown {
-  atomic64_t cnt;
-  atomic64_t t_inqueue;
-  atomic64_t t_reqcopy;
-  atomic64_t t_datacopy;
-  atomic64_t t_waiting;
-  atomic64_t t_endtoend;
-};
-
-struct atomic_nvme_tcp_stat {
-  struct atomic_nvme_tcp_read_breakdown read[9];
-  struct atomic_nvme_tcp_write_breakdown write[9];
-  atomic64_t read_before[9];
-  atomic64_t write_before[9];
-};
 
 void init_atomic_nvme_tcp_read_breakdown(
     struct atomic_nvme_tcp_read_breakdown *rb) {
@@ -67,7 +52,7 @@ void init_atomic_nvme_tcp_write_breakdown(
 
 void init_atomic_nvme_tcp_stat(struct atomic_nvme_tcp_stat *stat) {
   int i;
-  for (i = 0; i < 9; i++) {
+  for (i = 0; i < SIZE_NUM; i++) {
     init_atomic_nvme_tcp_read_breakdown(&stat->read[i]);
     init_atomic_nvme_tcp_write_breakdown(&stat->write[i]);
     atomic64_set(&stat->read_before[i], 0);
@@ -99,29 +84,13 @@ void copy_nvme_tcp_read_breakdown(struct atomic_nvme_tcp_read_breakdown *src,
 void copy_nvme_tcp_stat(struct atomic_nvme_tcp_stat *src,
                         struct nvme_tcp_stat *dst) {
   int i;
-  for (i = 0; i < 9; i++) {
+  for (i = 0; i < SIZE_NUM; i++) {
     copy_nvme_tcp_read_breakdown(&src->read[i], &dst->read[i]);
     copy_nvme_tcp_write_breakdown(&src->write[i], &dst->write[i]);
     dst->read_before[i] = atomic64_read(&src->read_before[i]);
     dst->write_before[i] = atomic64_read(&src->write_before[i]);
   }
 }
-
-enum nvme_tcp_trpt {
-  QUEUE_RQ,
-  QUEUE_REQUEST,
-  TRY_SEND,
-  TRY_SEND_CMD_PDU,
-  TRY_SEND_DATA_PDU,
-  TRY_SEND_DATA,
-  DONE_SEND_REQ,
-  TRY_RECV,
-  RECV_PDU,
-  HANDLE_C2H_DATA,
-  RECV_DATA,
-  HANDLE_R2T,
-  PROCESS_NVME_CQE,
-};
 
 void nvme_tcp_trpt_name(enum nvme_tcp_trpt trpt, char *name) {
   switch (trpt) {
@@ -170,28 +139,6 @@ void nvme_tcp_trpt_name(enum nvme_tcp_trpt trpt, char *name) {
   }
 }
 
-struct nvme_tcp_io_instance {
-  bool is_write;
-  int req_tag;
-  int waitlist;
-  u64 ts[EVENT_NUM];
-  u64 ts2[EVENT_NUM];
-  enum nvme_tcp_trpt trpt[EVENT_NUM];
-  // size of data for an event, such as a receiving event
-  u64 sizs[EVENT_NUM];
-  int cnt;
-
-  // this is only useful for read io, maybe separate read and write io
-  bool contains_c2h;
-  // this is only for write io
-  bool contains_r2t;
-
-  /** indicate the event number exceeds the capacity, this sample is useless*/
-  bool is_spoiled;
-  int size;    // size of the whole request
-  u64 before;  // time between bio issue and entering the nvme_tcp_layer
-};
-
 void init_nvme_tcp_io_instance(struct nvme_tcp_io_instance *inst,
                                bool _is_write, int _req_tag, int _waitlist,
                                int _cnt, bool _contains_c2h, bool _contains_r2t,
@@ -224,8 +171,6 @@ void print_io_instance(struct nvme_tcp_io_instance *inst) {
   }
 }
 
-static struct nvme_tcp_io_instance *current_io;
-
 void append_event(struct nvme_tcp_io_instance *inst, u64 ts,
                   enum nvme_tcp_trpt trpt, int size_info, u64 ts2) {
   if (inst->cnt >= EVENT_NUM) {
@@ -240,18 +185,6 @@ void append_event(struct nvme_tcp_io_instance *inst, u64 ts,
   inst->cnt++;
 }
 
-// static struct nvmetcp_read_breakdown *read_breakdown;
-
-// static struct nvmetcp_write_breakdown *write_breakdown;
-
-struct proc_dir_entry *entry_nvme_tcp_dir;
-struct proc_dir_entry *entry_nvme_tcp_stat;
-
-// struct nvme_tcp_stat *nvme_tcp_stat;
-struct shared_nvme_tcp_layer_stat *shared_nvme_tcp_stat;
-
-struct atomic_nvme_tcp_stat *a_nvme_tcp_stat;
-
 /**
  * This function is called when the nvme_tcp_queue_rq tracepoint is triggered
  * @param ignore: the first parameter of the tracepoint
@@ -263,19 +196,15 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int len1, int len2,
   u16 cnt;
   struct bio *b;
 
-  if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
-    return;
-  }
+  if (!ctrl || args->io_type + rq_data_dir(req) == 1) return;
 
   /** get queue id */
   qid = (!req->q->queuedata) ? 0 : req->mq_hctx->queue_num + 1;
 
   /** ignore the request from the queue 0 (admin queue) */
-  if (qid == 0) {
-    return;
-  }
+  if (qid == 0) return;
 
-  if (nvme_to_sample() && current_io == NULL) {
+  if (to_sample() && current_io == NULL) {
     b = req->bio;
     u64 lat = 0;
     u32 size = 0;
@@ -289,35 +218,6 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int len1, int len2,
                               len1 + len2, 0, false, false, false, size);
     current_io->before = lat;
     append_event(current_io, time, QUEUE_RQ, -1, 0);
-  }
-}
-
-void init_nvmetcp_write_breakdown(struct nvmetcp_write_breakdown *wb) {
-  wb->cnt = 0;
-  wb->t_inqueue = 0;
-  wb->t_reqcopy = 0;
-  wb->t_datacopy = 0;
-  wb->t_waiting = 0;
-  wb->t_endtoend = 0;
-}
-
-void init_nvmetcp_read_breakdown(struct nvmetcp_read_breakdown *rb) {
-  rb->cnt = 0;
-  rb->t_inqueue = 0;
-  rb->t_reqcopy = 0;
-  rb->t_datacopy = 0;
-  rb->t_waiting = 0;
-  rb->t_endtoend = 0;
-  rb->t_waitproc = 0;
-}
-
-void init_nvme_tcp_stat(struct nvme_tcp_stat *stat) {
-  int i;
-  for (i = 0; i < 9; i++) {
-    init_nvmetcp_read_breakdown(&stat->read[i]);
-    init_nvmetcp_write_breakdown(&stat->write[i]);
-    stat->read_before[i] = 0;
-    stat->write_before[i] = 0;
   }
 }
 
@@ -449,16 +349,10 @@ void update_write_breakdown(struct nvme_tcp_io_instance *io,
   rb->cnt++;
 }
 
-/**
- * a routine to update the sliding window
- */
-void nvmetcp_stat_update(u64 now) {
+void nvme_tcp_stat_update(u64 now) {
   copy_nvme_tcp_stat(a_nvme_tcp_stat, &shared_nvme_tcp_stat->all_time_stat);
 }
 
-/**
- * define call back functions for all tracepoints in nvme_tcp kayer
- */
 void on_nvme_tcp_queue_request(void *ignore, struct request *req,
                                bool is_initial, long long unsigned int time) {
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
@@ -467,7 +361,6 @@ void on_nvme_tcp_queue_request(void *ignore, struct request *req,
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, QUEUE_REQUEST, -1, 0);
   }
-  // pr_info("on_nvme_tcp_queue_request\n");
 }
 
 void on_nvme_tcp_try_send(void *ignore, struct request *req,
@@ -478,7 +371,6 @@ void on_nvme_tcp_try_send(void *ignore, struct request *req,
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND, -1, 0);
   }
-  // pr_info("on_nvme_tcp_try_send\n");
 }
 
 void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int len,
@@ -494,7 +386,6 @@ void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int len,
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND_CMD_PDU, -1, 0);
   }
-  // pr_info("on_nvme_tcp_try_send_cmd_pdu\n");
 }
 
 void on_nvme_tcp_try_send_data_pdu(void *ignore, struct request *req, int len,
@@ -505,7 +396,6 @@ void on_nvme_tcp_try_send_data_pdu(void *ignore, struct request *req, int len,
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND_DATA_PDU, -1, 0);
   }
-  // pr_info("on_nvme_tcp_try_send_data_pdu\n");
 }
 
 void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int len,
@@ -516,7 +406,6 @@ void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int len,
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND_DATA, -1, 0);
   }
-  // pr_info("on_nvme_tcp_try_send_data\n");
 }
 
 void on_nvme_tcp_done_send_req(void *ignore, struct request *req,
@@ -527,7 +416,6 @@ void on_nvme_tcp_done_send_req(void *ignore, struct request *req,
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, DONE_SEND_REQ, -1, 0);
   }
-  // pr_info("on_nvme_tcp_done_send_req\n");
 }
 
 void on_nvme_tcp_try_recv(void *ignore, int offset, size_t len, int recv_stat,
@@ -551,10 +439,7 @@ void on_nvme_tcp_try_recv(void *ignore, int offset, size_t len, int recv_stat,
 
 void on_nvme_tcp_recv_pdu(void *ignore, int consumed, unsigned char pdu_type,
                           int qid, unsigned long long time) {
-  // if (req->tag == current_io->req_tag) {
-  //   append_event(current_io, time, RECV_PDU);
-  // }
-  // pr_info("on_nvme_tcp_recv_pdu\n");
+  return;
 }
 
 void on_nvme_tcp_handle_c2h_data(void *ignore, struct request *rq,
@@ -568,7 +453,6 @@ void on_nvme_tcp_handle_c2h_data(void *ignore, struct request *rq,
     append_event(current_io, time, HANDLE_C2H_DATA, data_remain, recv_time);
     current_io->contains_c2h = true;
   }
-  // pr_info("on_nvme_tcp_handle_c2h_data\n");
 }
 
 void on_nvme_tcp_recv_data(void *ignore, struct request *rq, int cp_len,
@@ -580,7 +464,6 @@ void on_nvme_tcp_recv_data(void *ignore, struct request *rq, int cp_len,
   if (current_io && rq->tag == current_io->req_tag) {
     append_event(current_io, time, RECV_DATA, cp_len, recv_time);
   }
-  // pr_info("on_nvme_tcp_recv_data\n");
 }
 
 void on_nvme_tcp_handle_r2t(void *ignore, struct request *req,
@@ -593,7 +476,6 @@ void on_nvme_tcp_handle_r2t(void *ignore, struct request *req,
     current_io->contains_r2t = true;
     append_event(current_io, time, HANDLE_R2T, -1, recv_time);
   }
-  // pr_info("on_nvme_tcp_handle_r2t\n");
 }
 
 void update_atomic_read_breakdown(struct nvme_tcp_io_instance *io,
@@ -669,21 +551,17 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
     if (rq_data_dir(req)) {
       /** get the size of the request */
       int size = current_io->size;
-      pr_info("size is %d\n", size);
       int idx = size_to_enum(size);
-      pr_info("idx is %d\n", idx);
       update_atomic_write_breakdown(current_io, &a_nvme_tcp_stat->write[idx]);
       atomic64_add(current_io->before, &a_nvme_tcp_stat->write_before[idx]);
     } else {
       int size = current_io->size;
       int idx = size_to_enum(size);
-      pr_info("idx is %d\n", idx);
       update_atomic_read_breakdown(current_io, &a_nvme_tcp_stat->read[idx]);
       atomic64_add(current_io->before, &a_nvme_tcp_stat->read_before[idx]);
     }
     current_io = NULL;
   }
-  // pr_info("on_nvme_tcp_process_nvme_cqe\n");
 }
 
 static int nvmetcp_register_tracepoint(void) {
@@ -836,29 +714,25 @@ static const struct proc_ops ntm_nvme_tcp_stat_fops = {
 };
 
 int init_nvmetcp_proc_entries(void) {
-  entry_nvme_tcp_dir = proc_mkdir("nvme_tcp", parent_dir);
+  entry_nvme_tcp_dir = proc_mkdir(dir_name, parent_dir);
   if (!entry_nvme_tcp_dir) return -ENOMEM;
 
   entry_nvme_tcp_stat =
-      proc_create("stat", 0, entry_nvme_tcp_dir, &ntm_nvme_tcp_stat_fops);
+      proc_create(stat_name, 0, entry_nvme_tcp_dir, &ntm_nvme_tcp_stat_fops);
   if (!entry_nvme_tcp_stat) return -ENOMEM;
   return 0;
 }
 
 static void remove_nvmetcp_proc_entries(void) {
-  remove_proc_entry("stat", entry_nvme_tcp_dir);
-  remove_proc_entry("nvme_tcp", parent_dir);
-}
-
-void init_shared_nvme_tcp_layer_stat(struct shared_nvme_tcp_layer_stat *stat) {
-  init_nvme_tcp_stat(&stat->all_time_stat);
+  remove_proc_entry(stat_name, entry_nvme_tcp_dir);
+  remove_proc_entry(dir_name, parent_dir);
 }
 
 int init_nvmetcp_variables(void) {
   int i;
   current_io = NULL;
 
-  atomic64_set(&nvme_sample_cnt, 0);
+  atomic64_set(&sample_cnt, 0);
 
   a_nvme_tcp_stat = kmalloc(sizeof(*a_nvme_tcp_stat), GFP_KERNEL);
   if (!a_nvme_tcp_stat) return -ENOMEM;
@@ -899,11 +773,9 @@ int init_nvme_tcp_layer_monitor(void) {
   return 0;
 }
 
-void _exit_ntm_nvmetcp_layer(void) {
+void exit_nvme_tcp_layer_monitor(void) {
   nvmetcp_unregister_tracepoint();
   remove_nvmetcp_proc_entries();
   clear_nvmetcp_variables();
   pr_info("exit nvmetcp module monitor\n");
 }
-
-#endif  // K_NVMETCP_LAYER_H

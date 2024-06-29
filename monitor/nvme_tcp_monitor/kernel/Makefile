@@ -1,6 +1,7 @@
 KERNEL_SRC := /usr/src/linux-source-5.15.0
 
 obj-m += k_ntm.o
+k_ntm-y := k_blk_layer.o k_nvme_tcp_layer.o k_tcp_layer.o k_ntm_main.o
 
 all: k_ntm
 

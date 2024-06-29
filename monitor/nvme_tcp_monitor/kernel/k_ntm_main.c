@@ -1,45 +1,47 @@
 #include "k_blk_layer.h"
-#include "k_nvmetcp_layer.h"
+#include "k_ntm.h"
+#include "k_nvme_tcp_layer.h"
 #include "k_tcp_layer.h"
 
+#include <linux/delay.h>
+#include <linux/kthread.h>
+#include <linux/mm.h>
+#include <linux/module.h>
+#include <linux/proc_fs.h>
+#include <linux/vmalloc.h>
+
 /**
- * update data periodically with the user
+ * Definition of some external variables, decleared in k_ntm.h
+ */
+Arguments *args;
+struct proc_dir_entry *parent_dir;
+int ctrl = 0;
+int qid2port[MAX_QID];
+
+struct proc_dir_entry *entry_ctrl;
+struct proc_dir_entry *entry_args;
+/** a thread, periodically update the communication data strucure */
+static struct task_struct *update_routine_thread;
+
+/** direct and file names */
+static char *dir_name = "ntm";
+static char *ctrl_name = "ctrl";
+static char *args_name = "args";
+
+/**
+ * update the shared data periodically
  */
 static int update_routine_fn(void *data) {
   while (!kthread_should_stop()) {
     u64 now = ktime_get_ns();
     blk_layer_update(now);
-    nvmetcp_stat_update(now);
+    nvme_tcp_stat_update(now);
     tcp_stat_update();
 
     /** wait for 1 second to start routine again */
     msleep(1000);
   }
-  /** exit point */
-  pr_info("update_routine_thread exiting\n");
   return 0;
-}
-
-/**
- * This function defines how user space read ctrl variable
- * @param file: the file to read
- * @param buffer: the buffer to store the content from the user space
- * @param count: the size of the buffer
- * @param pos: the position to read
- */
-static ssize_t proc_ctrl_read(struct file *file, char __user *buffer,
-                              size_t count, loff_t *pos) {
-  /** load the content of ctrl to a tmp variable, buf*/
-  char buf[4];
-  int len = snprintf(buf, sizeof(buf), "%d\n", ctrl);
-  if (*pos >= len) return 0;
-  if (count < len) return -EINVAL;
-
-  /** copy the content of the tmp variable, buf, to the user space file buffer
-   */
-  if (copy_to_user(buffer, buf, len)) return -EFAULT;
-  *pos += len;
-  return len;
 }
 
 /**
@@ -93,17 +95,14 @@ static ssize_t proc_ctrl_write(struct file *file, const char __user *buffer,
     /** unknown msg from user space */
     return -EINVAL;
   }
-
   return count;
 }
 
 /**
  * define the operations for the control command
- * - proc_read: read the ctrl variable
  * - proc_write: write the ctrl variable
  */
 static const struct proc_ops ntm_ctrl_ops = {
-    .proc_read = proc_ctrl_read,
     .proc_write = proc_ctrl_write,
 };
 
@@ -118,55 +117,50 @@ static const struct proc_ops ntm_params_ops = {
     .proc_mmap = mmap_ntm_params,
 };
 
-/**
- * initialize the proc entries
- * - /proc/ntm
- * - /proc/ntm/ctrl
- * - /proc/ntm/args
- */
 int init_ntm_proc_entries(void) {
-  /**   * create /proc/ntm directory   */
-  parent_dir = proc_mkdir("ntm", NULL);
+  /**  create /proc/ntm directory   */
+  parent_dir = proc_mkdir(dir_name, NULL);
   if (!parent_dir) {
-    pr_err("Failed to create /proc/ntm directory\n");
+    pr_err("Failed to create /proc/%s directory\n", dir_name);
     goto failed;
   }
-  /**   * create /proc/ntm/ctrl   */
-  entry_ctrl = proc_create("ctrl", 0666, parent_dir, &ntm_ctrl_ops);
+  /**  create /proc/ntm/ctrl   */
+  entry_ctrl = proc_create(ctrl_name, 0666, parent_dir, &ntm_ctrl_ops);
   if (!entry_ctrl) {
-    pr_err("Failed to create proc entry for ctrl\n");
+    pr_err("Failed to create proc entry for /proc/%s/%s\n", dir_name,
+           ctrl_name);
     goto cleanup_ntm_dir;
   }
-
   /** create /proc/ntm/args */
-  entry_args = proc_create("args", 0, parent_dir, &ntm_params_ops);
+  entry_args = proc_create(args_name, 0, parent_dir, &ntm_params_ops);
   if (!entry_args) {
-    pr_err("Failed to create proc entry for args\n");
+    pr_err("Failed to create proc entry for /proc/%s/%s\n", dir_name,
+           args_name);
     goto cleanup_ctrl;
   }
   return 0;
 
 cleanup_ctrl:
-  pr_info("clean up ctrl\n");
-  remove_proc_entry("ntm_ctrl", parent_dir);
+  pr_info("clean up /proc/%s/%s\n", dir_name, ctrl_name);
+  remove_proc_entry(ctrl_name, parent_dir);
 cleanup_ntm_dir:
-  pr_info("clean up ntm\n");
-  remove_proc_entry("ntm", NULL);
+  pr_info("clean up /proc/%s\n", dir_name);
+  remove_proc_entry(dir_name, NULL);
 failed:
   return -ENOMEM;
 }
 
 void remove_proc_entries(void) {
-  remove_proc_entry("args", parent_dir);
-  remove_proc_entry("ctrl", parent_dir);
-  remove_proc_entry("ntm", NULL);
+  remove_proc_entry(args_name, parent_dir);
+  remove_proc_entry(ctrl_name, parent_dir);
+  remove_proc_entry(dir_name, NULL);
 }
 
 void init_global_variables(void) {
-  ctrl = 0;
-  args = vmalloc(sizeof(Arguments));
   int i;
   for (i = 0; i < MAX_QID; i++) qid2port[i] = -1;
+  ctrl = 0;
+  args = vmalloc(sizeof(Arguments));
 }
 
 void free_global_variables(void) { vfree(args); }
@@ -200,7 +194,7 @@ static int __init init_ntm_module(void) {
   if (ret) {
     pr_err("Failed to initialize tcp layer\n");
     exit_blk_layer_monitor();
-    _exit_ntm_nvmetcp_layer();
+    exit_nvme_tcp_layer_monitor();
     remove_proc_entries();
     return ret;
   }
@@ -214,13 +208,10 @@ static void __exit exit_ntm_module(void) {
 
   /** exit the blk layer monitor */
   exit_tcp_layer();
-
   exit_blk_layer_monitor();
-
-  _exit_ntm_nvmetcp_layer();
+  exit_nvme_tcp_layer_monitor();
 
   remove_proc_entries();
-
   free_global_variables();
 }
 
