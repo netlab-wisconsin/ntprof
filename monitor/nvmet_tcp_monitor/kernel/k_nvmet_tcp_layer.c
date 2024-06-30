@@ -25,7 +25,8 @@ struct proc_dir_entry* entry_nvmet_tcp_dir;
 struct proc_dir_entry* entry_nvmet_tcp_stat;
 
 /** TODO: make atomic type for this */
-static struct nvmet_tcp_stat* nvmettcp_stat;
+struct nvmet_tcp_stat* nvmettcp_stat;
+struct atomic_nvmet_tcp_stat* atomic_nvmettcp_stat;
 
 static bool to_sample(void) {
   return atomic64_inc_return(&sample_cnt) % args->rate == 0;
@@ -256,35 +257,35 @@ bool is_standard_write(struct nvmet_io_instance* io_instance) {
   }
 }
 
-void update_read_breakdown(struct nvmet_tcp_read_breakdown* breakdown,
+void update_atomic_read_breakdown(struct atomic_nvmet_tcp_read_breakdown* breakdown,
                            struct nvmet_io_instance* io_instance) {
   u64 in_blk_time = io_instance->ts[2] - io_instance->ts[1];
   u64 total = io_instance->ts[io_instance->cnt - 1] - io_instance->ts[0];
-  breakdown->in_blk_time += in_blk_time;
-  breakdown->in_nvmet_tcp_time += (total - in_blk_time);
-  breakdown->end2end_time += total;
-  breakdown->cnt++;
+  atomic64_add(in_blk_time, &breakdown->in_blk_time);
+  atomic64_add(total - in_blk_time, &breakdown->in_nvmet_tcp_time);
+  atomic64_add(total, &breakdown->end2end_time);
+  atomic_inc(&breakdown->cnt);
 }
 
-void update_write_breakdown(struct nvmet_tcp_write_breakdown* breakdown,
+void update_atomic_write_breakdown(struct atomic_nvmet_tcp_write_breakdown* breakdown,
                             struct nvmet_io_instance* io_instance) {
   int cnt = io_instance->cnt;
   if (io_instance->contain_r2t) {
     u64 make_r2t_time = io_instance->ts[3] - io_instance->ts[0];
     u64 in_blk_time = io_instance->ts[cnt - 3] - io_instance->ts[cnt - 4];
     u64 total = io_instance->ts[cnt - 1] - io_instance->ts[0];
-    breakdown->make_r2t_time += make_r2t_time;
-    breakdown->in_blk_time += in_blk_time;
-    breakdown->in_nvmet_tcp_time += (total - in_blk_time - make_r2t_time);
-    breakdown->end2end_time += total;
-    breakdown->cnt++;
+    atomic64_add(make_r2t_time, &breakdown->make_r2t_time);
+    atomic64_add(in_blk_time, &breakdown->in_blk_time);
+    atomic64_add(total - in_blk_time - make_r2t_time, &breakdown->in_nvmet_tcp_time);
+    atomic64_add(total, &breakdown->end2end_time);
+    atomic_inc(&breakdown->cnt);
   } else {
     u64 in_blk_time = io_instance->ts[cnt - 3] - io_instance->ts[cnt - 4];
     u64 total = io_instance->ts[cnt - 1] - io_instance->ts[0];
-    breakdown->in_blk_time += in_blk_time;
-    breakdown->in_nvmet_tcp_time += (total - in_blk_time);
-    breakdown->end2end_time += total;
-    breakdown->cnt++;
+    atomic64_add(in_blk_time, &breakdown->in_blk_time);
+    atomic64_add(total - in_blk_time, &breakdown->in_nvmet_tcp_time);
+    atomic64_add(total, &breakdown->end2end_time);
+    atomic_inc(&breakdown->cnt);
   }
 }
 
@@ -303,16 +304,16 @@ void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
       if (!current_io->is_spoiled) {
         // pr_info("size of current req is %d\n", current_io->size);
         if (current_io->is_write) {
-          update_write_breakdown(
-              &nvmettcp_stat->all_write[size_to_enum(current_io->size)],
+          update_atomic_write_breakdown(
+              &atomic_nvmettcp_stat->write_breakdown[size_to_enum(current_io->size)],
               current_io);
           if (!is_standard_write(current_io)) {
             pr_err("write io is not standard: ");
             // print_io_instance(current_io);
           }
         } else {
-          update_read_breakdown(
-              &nvmettcp_stat->all_read[size_to_enum(current_io->size)],
+          update_atomic_read_breakdown(
+              &atomic_nvmettcp_stat->read_breakdown[size_to_enum(current_io->size)],
               current_io);
           if (!is_standard_read(current_io)) {
             // pr_err("read io is not standard: ");
@@ -362,7 +363,9 @@ void on_handle_h2c_data_pdu(void* ignore, u16 cmd_id, int qid, int datalen,
   }
 }
 
-void nvmet_tcp_stat_update(u64 now) {}
+void nvmet_tcp_stat_update(u64 now) {
+  copy_nvmet_tcp_stat(nvmettcp_stat, atomic_nvmettcp_stat);
+}
 
 static int nvmet_tcp_register_tracepoints(void) {
   int ret;
@@ -500,7 +503,9 @@ static void remove_nvmet_tcp_proc_entries(void) {
 
 int init_nvmet_tcp_variables(void) {
   atomic64_set(&sample_cnt, 0);
-  // pr_info("try to allocate size %d\n", sizeof(*nvmettcp_stat));
+  atomic_nvmettcp_stat = kmalloc(sizeof(*atomic_nvmettcp_stat), GFP_KERNEL);
+  init_atomic_nvmet_tcp_stat(atomic_nvmettcp_stat);
+
   nvmettcp_stat = vmalloc(sizeof(*nvmettcp_stat));
   if (!nvmettcp_stat) {
     pr_err("failed to allocate nvmet_tcp_stat\n");
@@ -512,6 +517,7 @@ int init_nvmet_tcp_variables(void) {
 }
 
 void free_nvmet_tcp_variables(void) {
+  if(atomic_nvmettcp_stat) kfree(atomic_nvmettcp_stat);
   if (nvmettcp_stat) vfree(nvmettcp_stat);
 }
 

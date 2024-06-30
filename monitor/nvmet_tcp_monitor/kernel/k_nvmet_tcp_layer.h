@@ -1,9 +1,11 @@
 #ifndef _K_NVME_TCP_LAYER_H_
 #define _K_NVME_TCP_LAYER_H_
 
-#include <linux/types.h>
 #include <linux/string.h>
+#include <linux/types.h>
+#include <linux/atomic.h>
 
+#include "nttm_com.h"
 
 #define EVENT_NUM 64
 
@@ -104,8 +106,9 @@ struct nvmet_io_instance {
   bool contain_r2t;
 };
 
-static inline void init_nvmet_tcp_io_instance(struct nvmet_io_instance* io_instance,
-                                u16 command_id, bool is_write, u32 size) {
+static inline void init_nvmet_tcp_io_instance(
+    struct nvmet_io_instance* io_instance, u16 command_id, bool is_write,
+    u32 size) {
   int i;
   io_instance->is_write = is_write;
   io_instance->command_id = command_id;
@@ -118,11 +121,83 @@ static inline void init_nvmet_tcp_io_instance(struct nvmet_io_instance* io_insta
   }
 }
 
+struct atomic_nvmet_tcp_read_breakdown {
+  atomic64_t in_nvmet_tcp_time;
+  atomic64_t in_blk_time;
+  atomic64_t end2end_time;
+  atomic_t cnt;
+};
+
+static inline void init_atomic_nvmet_tcp_read_breakdown(
+    struct atomic_nvmet_tcp_read_breakdown* breakdown) {
+  atomic64_set(&breakdown->in_nvmet_tcp_time, 0);
+  atomic64_set(&breakdown->in_blk_time, 0);
+  atomic64_set(&breakdown->end2end_time, 0);
+  atomic_set(&breakdown->cnt, 0);
+}
+
+static inline void copy_nvmet_tcp_read_breakdown(
+    struct nvmet_tcp_read_breakdown* dst,
+    struct atomic_nvmet_tcp_read_breakdown* src) {
+  dst->in_nvmet_tcp_time = atomic64_read(&src->in_nvmet_tcp_time);
+  dst->in_blk_time = atomic64_read(&src->in_blk_time);
+  dst->end2end_time = atomic64_read(&src->end2end_time);
+  dst->cnt = atomic_read(&src->cnt);
+}
+
+struct atomic_nvmet_tcp_write_breakdown {
+  atomic64_t make_r2t_time;
+  atomic64_t in_nvmet_tcp_time;
+  atomic64_t in_blk_time;
+  atomic64_t end2end_time;
+  atomic_t cnt;
+};
+
+static inline void init_atomic_nvmet_tcp_write_breakdown(
+    struct atomic_nvmet_tcp_write_breakdown* breakdown) {
+  atomic64_set(&breakdown->make_r2t_time, 0);
+  atomic64_set(&breakdown->in_nvmet_tcp_time, 0);
+  atomic64_set(&breakdown->in_blk_time, 0);
+  atomic64_set(&breakdown->end2end_time, 0);
+  atomic_set(&breakdown->cnt, 0);
+}
+
+static inline void copy_nvmet_tcp_write_breakdown(
+    struct nvmet_tcp_write_breakdown* dst,
+    struct atomic_nvmet_tcp_write_breakdown* src) {
+  dst->make_r2t_time = atomic64_read(&src->make_r2t_time);
+  dst->in_nvmet_tcp_time = atomic64_read(&src->in_nvmet_tcp_time);
+  dst->in_blk_time = atomic64_read(&src->in_blk_time);
+  dst->end2end_time = atomic64_read(&src->end2end_time);
+  dst->cnt = atomic_read(&src->cnt);
+}
+
+struct atomic_nvmet_tcp_stat {
+  struct atomic_nvmet_tcp_read_breakdown read_breakdown[SIZE_NUM];
+  struct atomic_nvmet_tcp_write_breakdown write_breakdown[SIZE_NUM];
+};
+
+static inline void init_atomic_nvmet_tcp_stat(
+    struct atomic_nvmet_tcp_stat* stat) {
+  int i;
+  for (i = 0; i < SIZE_NUM; i++) {
+    init_atomic_nvmet_tcp_read_breakdown(&stat->read_breakdown[i]);
+    init_atomic_nvmet_tcp_write_breakdown(&stat->write_breakdown[i]);
+  }
+}
+
+static inline void copy_nvmet_tcp_stat(
+    struct nvmet_tcp_stat* dst, struct atomic_nvmet_tcp_stat* src) {
+  int i;
+  for (i = 0; i < SIZE_NUM; i++) {
+    copy_nvmet_tcp_read_breakdown(&dst->all_read[i], &src->read_breakdown[i]);
+    copy_nvmet_tcp_write_breakdown(&dst->all_write[i], &src->write_breakdown[i]);
+  }
+}
+
 
 void nvmet_tcp_stat_update(u64 now);
 int init_nvmet_tcp_layer(void);
 void exit_nvmet_tcp_layer(void);
-
-
 
 #endif  // _K_NVME_TCP_LAYER_H_
