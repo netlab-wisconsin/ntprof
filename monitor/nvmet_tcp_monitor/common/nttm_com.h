@@ -1,30 +1,87 @@
 #ifndef _NTTM_COM_H_
 #define _NTTM_COM_H_
 
-enum size_type { _LT_4K, _4K, _8K, _16K, _32K, _64K, _128K, _GT_128K, _OTHERS };
+#include "config.h"
+
+#define SIZE_NUM 7
+
+enum size_type { _4K, _8K, _16K, _32K, _64K, _128K, _OTHERS };
 
 /** a function, given int size, return enum */ 
-inline enum size_type size_to_enum(int size) {
-  if (size < 4096) {
-    return _LT_4K;
-  } else if (size == 4096) {
-    return _4K;
-  } else if (size == 8192) {
-    return _8K;
-  } else if (size == 16384) {
-    return _16K;
-  } else if (size == 32768) {
-    return _32K;
-  } else if (size == 65536) {
-    return _64K;
-  } else if (size == 131072) {
-    return _128K;
-  } else if (size > 131072) {
-    return _GT_128K;
-  } else {
-    return _OTHERS;
+static inline enum size_type size_to_enum(int size) {
+  if(size == 4096) return _4K;
+  if(size == 8192) return _8K;
+  if(size == 16384) return _16K;
+  if(size == 32768) return _32K;
+  if(size == 65536) return _64K;
+  if(size == 131072) return _128K;
+  return _OTHERS;
+}
+
+
+static inline int size_idx(int size) {
+  if (size == 4096) return 0;
+  if (size == 8192) return 1;
+  if (size == 16384) return 2;
+  if (size == 32768) return 3;
+  if (size == 65536) return 4;
+  if (size == 131072) return 5;
+  return 6;
+}
+
+static inline char* size_name(int idx) {
+  switch (idx) {
+    case 0: return "4K";
+    case 1: return "8K";
+    case 2: return "16K";
+    case 3: return "32K";
+    case 4: return "64K";
+    case 5: return "128K";
+    case 6: return "OTHERS";
+    default: return "UNKNOWN";
   }
 }
+
+/** -------------- BLK LAYER -------------- */
+
+struct blk_stat {
+  // struct blk_sample_summary all_sample_summary;
+  unsigned long long all_read_cnt;
+  unsigned long long all_write_cnt;
+  unsigned long long all_read_io[SIZE_NUM];
+  unsigned long long all_write_io[SIZE_NUM];
+  unsigned long long all_read_time[SIZE_NUM];
+  unsigned long long all_write_time[SIZE_NUM];
+};
+
+static inline void init_blk_stat(struct blk_stat *stat) {
+  stat->all_read_cnt = 0;
+  stat->all_write_cnt = 0;
+  // stat->in_flight = 0;
+  int i;
+  for (i = 0; i < SIZE_NUM; i++) {
+    stat->all_read_io[i] = 0;
+    stat->all_write_io[i] = 0;
+    stat->all_read_time[i] = 0;
+    stat->all_write_time[i] = 0;
+  }
+}
+
+/**
+ * Increase the count of a specific size category
+ * @param arr the array to store the count of different size categories
+ * @param size the size of the io
+*/
+static inline void inc_cnt_arr(unsigned long long *arr, int size) {
+  arr[size_to_enum(size)]++;
+}
+
+static inline void add_lat_arr(unsigned long long *arr, int size, unsigned long long lat) {
+  arr[size_to_enum(size)] += lat;
+}
+
+
+/** -------------- NVME-TCP LAYER -------------- */
 
 struct nvmet_tcp_read_breakdown {
   unsigned long long in_nvmet_tcp_time;
@@ -32,6 +89,13 @@ struct nvmet_tcp_read_breakdown {
   unsigned long long end2end_time;
   unsigned long cnt;
 };
+
+static inline void init_nvmet_tcp_read_breakdown(struct nvmet_tcp_read_breakdown *breakdown) {
+  breakdown->in_nvmet_tcp_time = 0;
+  breakdown->in_blk_time = 0;
+  breakdown->end2end_time = 0;
+  breakdown->cnt = 0;
+}
 
 struct nvmet_tcp_write_breakdown {
   unsigned long long make_r2t_time;
@@ -41,56 +105,28 @@ struct nvmet_tcp_write_breakdown {
   unsigned long cnt;
 };
 
+static inline void init_nvmet_tcp_write_breakdown(struct nvmet_tcp_write_breakdown *breakdown) {
+  breakdown->make_r2t_time = 0;
+  breakdown->in_nvmet_tcp_time = 0;
+  breakdown->in_blk_time = 0;
+  breakdown->end2end_time = 0;
+  breakdown->cnt = 0;
+}
+
 struct nvmet_tcp_stat {
   /** these 2 attributes are summary for the whole trace */
-  struct nvmet_tcp_read_breakdown all_read[9];
-  struct nvmet_tcp_write_breakdown all_write[9];
+  struct nvmet_tcp_read_breakdown all_read[SIZE_NUM];
+  struct nvmet_tcp_write_breakdown all_write[SIZE_NUM];
 };
 
-struct blk_stat {
-  // struct blk_sample_summary all_sample_summary;
-  unsigned long long all_read_cnt;
-  unsigned long long all_write_cnt;
-  unsigned long long all_read_io[9];
-  unsigned long long all_write_io[9];
-  unsigned long long all_read_time[9];
-  unsigned long long all_write_time[9];
-};
-
-void init_blk_stat(struct blk_stat *stat) {
-  stat->all_read_cnt = 0;
-  stat->all_write_cnt = 0;
-  // stat->in_flight = 0;
+static inline void init_nvmet_tcp_stat(struct nvmet_tcp_stat *stat) {
   int i;
-  for (i = 0; i < 9; i++) {
-    stat->all_read_io[i] = 0;
-    stat->all_write_io[i] = 0;
-    stat->all_read_time[i] = 0;
-    stat->all_write_time[i] = 0;
+  for (i = 0; i < SIZE_NUM; i++) {
+    init_nvmet_tcp_read_breakdown(&stat->all_read[i]);
+    init_nvmet_tcp_write_breakdown(&stat->all_write[i]);
   }
 }
 
-inline void inc_cnt_arr(unsigned long long *arr, int size) {
-  if (size < 4096) {
-    arr[_LT_4K]++;
-  } else if (size == 4096) {
-    arr[_4K]++;
-  } else if (size == 8192) {
-    arr[_8K]++;
-  } else if (size == 16384) {
-    arr[_16K]++;
-  } else if (size == 32768) {
-    arr[_32K]++;
-  } else if (size == 65536) {
-    arr[_64K]++;
-  } else if (size == 131072) {
-    arr[_128K]++;
-  } else if (size > 131072) {
-    arr[_GT_128K]++;
-  } else {
-    arr[_OTHERS]++;
-  }
-}
 
 struct tcp_stat_one_queue {
   int pkt_in_flight;
@@ -102,12 +138,12 @@ struct tcp_stat {
   struct tcp_stat_one_queue sks[MAX_QID];
 };
 
-void init_tcp_stat(struct tcp_stat *stat) {
+static inline void init_tcp_stat(struct tcp_stat *stat) {
   int i;
   for (i = 0; i < MAX_QID; i++) {
     stat->sks[i].pkt_in_flight = 0;
     stat->sks[i].cwnd = 0;
-    strcpy(stat->sks[i].last_event, "");
+    stat->sks[i].last_event[0] = '\0';
   }
 }
 

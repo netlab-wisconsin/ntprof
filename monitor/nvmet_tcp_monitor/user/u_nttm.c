@@ -256,9 +256,9 @@ int main(int argc, char **argv) {
   /** send msg to kernel space to start recording */
   start_nttm();
 
-  map_nttm_blk_data();
-  map_nttm_nvmet_tcp_data();
-  map_nttm_tcp_data();
+  init_blk_layer_monitor();
+  init_nvmet_tcp_layer_monitor();
+  init_tcp_layer_monitor();
 
   while (keep_running) {
     printf("\033[H\033[J");
@@ -270,9 +270,9 @@ int main(int argc, char **argv) {
     sleep(1);
   }
 
-  unmap_nttm_tcp_data();
-  unmap_nttm_nvmet_tcp_data();
-  unmap_nttm_blk_data();
+  exit_tcp_layer_monitor();
+  exit_nvmet_tcp_layer_monitor();
+  exit_blk_layer_monitor();
 
   printf("start exit nttm_user\n");
 

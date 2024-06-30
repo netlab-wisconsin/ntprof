@@ -15,6 +15,18 @@
 #include "k_blk_layer.h"
 #include "k_tcp_layer.h"
 
+/** external variables defined here */
+Arguments* args;
+int qid2port[MAX_QID];
+int ctrl = 0;
+struct proc_dir_entry *parent_dir;
+
+
+struct proc_dir_entry *entry_ctrl;
+struct proc_dir_entry *entry_args;
+/** a thread, periodically update the communication data strucure */
+struct task_struct *update_routine_thread;
+
 /**
  * update data periodically with the user
  */
