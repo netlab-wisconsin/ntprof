@@ -1,92 +1,94 @@
 #!/bin/bash
 
-# Define the output file
 output_file="fio_results.csv"
 
-# Check if the output file already exists
 if [ -f "$output_file" ]; then
-    # Ask the user if they want to remove the existing file
-    read -p "$output_file exists. Remove it? (y/n): " answer
-
-    # If the user answers 'y', remove the file
-    if [ "$answer" = "y" ]; then
-        rm "$output_file"
-        echo "Removed $output_file."
-    else
-        echo "Continuing without removing $output_file."
-    fi
+    rm "$output_file"
 fi
 
-# Define the workload types, I/O depths, and the CSV header
-# workload_types=("write" "randwrite")
-workload_types=("read" "randread")
-io_depths=(1 2 4 6 8 10 12 14 16 18 20 22 24 26 28 30 32)
-echo "Workload Type,I/O Depth,Block Size,Average Latency (usec),IOPS,Bandwidth (MB/s)" > "$output_file"
+workload_types=("randread")
+io_depths=(32)
+jobs=(1)
+devices=("/dev/nvme4n1")
+block_sizes=("4K")
+# block_sizes=("4K")
+echo "Workload,io_depth,block_size,jobn,mean_lat(usec),p999lat(usec),iops,bw(MB/s)" > "$output_file"
 
-# Function to extract metrics from fio output
-extract_metrics() {
+run_fio() {
+    local device="$1"
+    local workload_type="$2"
+    local io_depth="$3"
+    local block_size="$4"
+    local jobn="$5"
+    local output_file="${device//\//_}.fio_out"
+    # echo the command
+    echo "sudo fio --name=test --filename=$device --size=20G --direct=1 --time_based --runtime=60 --cpus_allowed=0 --cpus_allowed_policy=split --ioengine=libaio --group_reporting --rw=$workload_type --numjobs=$jobn --bs=$block_size --iodepth=$io_depth"
+
+    sudo fio --name=test --filename="$device" --size=20G --direct=1 --time_based --runtime=60 --cpus_allowed=0 --cpus_allowed_policy=split --ioengine=libaio --group_reporting --output-format=terse --rw="$workload_type" --numjobs=$jobn --bs="$block_size" --iodepth="$io_depth" > "$output_file" &
+}
+
+extract_and_summarize_metrics() {
     local workload_type="$1"
     local io_depth="$2"
     local block_size="$3"
-    local fio_output="$4"
+    local jobn="$4"
+    local total_iops=0
+    local total_bw=0
+    local total_mean_lat=0
+    local total_p99_9_lat=0
+    local count=0
 
-    # Extract IOPS
-    iops=$(echo "$fio_output" | grep -oP 'IOPS=\K[\d.]+k?' | tr -d 'K' | awk '{print ($0+0) * (/k$/ ? 1000 : 1)}')
-    
-    # Directly extract bandwidth in MB/s
-    bw_mbs=$(echo "$fio_output" | grep -oP 'BW=\K\d+MiB/s \((\d+)MB/s\)' | grep -oP '\(\d+MB/s\)' | grep -oP '\d+')
+    for device in "${devices[@]}"; do
+        local output_file_="${device//\//_}.fio_out"
+        local fio_output=$(cat "$output_file_")
 
-    # Extract and convert average latency
-    # First, try to extract latency in microseconds (usec)
-    avg_lat_usec=$(echo "$fio_output" | grep -Po ' lat \(usec\):.*avg=\K\d+(\.\d+)?')
-
-    # If not found, try to extract in milliseconds (msec) and convert to usec
-    if [ -z "$avg_lat_usec" ]; then
-        avg_lat_msec=$(echo "$fio_output" | grep -Po ' lat \(msec\):.*avg=\K\d+(\.\d+)?')
-        if [ -n "$avg_lat_msec" ]; then
-            # Convert msec to usec
-            avg_lat=$(echo "$avg_lat_msec" | awk '{print $1 * 1000}')
+        if [ "$workload_type" == "randread" ]; then
+            local bw_kib=$(echo "$fio_output" | cut -d';' -f7)
+            local iops=$(echo "$fio_output" | cut -d';' -f8)
+            local mean_lat=$(echo "$fio_output" | cut -d';' -f16)
+            local p99_9_lat=$(echo "$fio_output" | cut -d';' -f32 | cut -d'=' -f2)
         else
-            echo "Error: Average latency unit not recognized."
-            echo "Raw fio output:"
-            echo "$fio_output"
-            return 1 # Return with error
+            local bw_kib=$(echo "$fio_output" | cut -d';' -f48)
+            local iops=$(echo "$fio_output" | cut -d';' -f49)
+            local mean_lat=$(echo "$fio_output" | cut -d';' -f57)
+            local p99_9_lat=$(echo "$fio_output" | cut -d';' -f73 | cut -d'=' -f2)
         fi
-    else
-        avg_lat=$avg_lat_usec
-    fi
 
-    # Check for extraction errors
-    if [ -z "$iops" ] || [ -z "$bw_mbs" ] || [ -z "$avg_lat" ]; then
-        echo "Error extracting metrics for workload type=$workload_type, iodepth=$io_depth, block size=$block_size"
-        echo "Raw fio output:"
-        echo "$fio_output"
-        return 1 # Return with error
-    fi
+        local bw_mbs=$(echo "scale=2; $bw_kib / 1024" | bc)
+        printf "device=%s, iops=%d, bw=%s MB/s, meanlat=%s usec, p999lat=%s usec\n" "$device" "$iops" "$bw_mbs" "$mean_lat" "$p99_9_lat"
+        total_iops=$((total_iops + iops))
+        total_bw=$(echo "$total_bw + $bw_mbs" | bc)
+        total_mean_lat=$(echo "$total_mean_lat + $mean_lat" | bc)
+        total_p99_9_lat=$(echo "$total_p99_9_lat + $p99_9_lat" | bc)
+        ((count++))
+    done
 
-    # Save the metrics to the output file
-    echo "$workload_type,$io_depth,$block_size,$avg_lat,$iops,$bw_mbs" >> "$output_file"
+    local avg_mean_lat=$(echo "scale=2; $total_mean_lat / $count" | bc)
+    local avg_p99_9_lat=$(echo "scale=2; $total_p99_9_lat / $count" | bc)
+
+    echo "$workload_type,$io_depth,$block_size,$jobn,$avg_mean_lat,$avg_p99_9_lat,$total_iops,$total_bw" >> "$output_file"
+
+    for device in "${devices[@]}"; do
+        local output_file="${device//\//_}.fio_out"
+        rm "$output_file"
+    done
 }
 
-# Main loop to run fio with different parameters
 for workload_type in "${workload_types[@]}"; do
     for io_depth in "${io_depths[@]}"; do
-        # Set block size based on workload type
-        block_size="4K" # Default
-        if [ "$workload_type" == "read" ]; then
-            block_size="128K"
-        fi
+        for jobn in "${jobs[@]}"; do
+            for block_size in "${block_sizes[@]}"; do
+                printf "Running fio for workload type=%s, iodepth=%d, block size=%s...\n" "$workload_type" "$io_depth" "$block_size"
+                for device in "${devices[@]}"; do
+                    run_fio "$device" "$workload_type" "$io_depth" "$block_size" "$jobn"
+                done
 
-        echo "Running fio with workload type=$workload_type, iodepth=$io_depth, and block size=$block_size..."
+                wait
 
-        # Execute fio command and store output
-        fio_output=$(sudo fio --name=test --filename=/dev/nvme4n1 --rw=$workload_type --ioengine=libaio --numjobs=16 --time_based --runtime=20 --group_reporting --bs=$block_size --direct=1 --iodepth=$io_depth)
-        
-        # Extract and save the required metrics
-        if ! extract_metrics "$workload_type" "$io_depth" "$block_size" "$fio_output"; then
-            echo "Failed to extract metrics. See error above."
-        fi
+                extract_and_summarize_metrics "$workload_type" "$io_depth" "$block_size" "$jobn"
+            done
+        done
     done
 done
 
-echo "Experiments completed. Results saved to $output_file."
+printf "Experiments completed. Results saved to %s.\n" "$output_file"
