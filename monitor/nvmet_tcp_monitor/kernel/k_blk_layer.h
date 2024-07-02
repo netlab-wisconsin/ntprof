@@ -25,15 +25,15 @@ static inline void blk_trpt_name(enum blk_trpt trpt, char *name) {
   }
 }
 
-struct blk_io_instance {
-  bool is_write;
-  struct bio *bio;
-  u64 ts[BLK_EVENT_NUM];
-  enum blk_trpt trpt[BLK_EVENT_NUM];
-  u8 cnt;
-  u32 size;
-  bool is_spoiled;
-};
+// struct blk_io_instance {
+//   bool is_write;
+//   struct bio *bio;
+//   u64 ts[BLK_EVENT_NUM];
+//   enum blk_trpt trpt[BLK_EVENT_NUM];
+//   u8 cnt;
+//   u32 size;
+//   bool is_spoiled;
+// };
 
 struct atomic_blk_stat {
   atomic64_t read_cnt;

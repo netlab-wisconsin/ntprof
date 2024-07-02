@@ -36,8 +36,8 @@ static int update_routine_fn(void *data) {
     
     /** update the statistic here */
     blk_layer_update(now);
-    nvmet_tcp_stat_update(now);
-    tcp_stat_update();
+    // nvmet_tcp_stat_update(now);
+    // tcp_stat_update();
 
     /** wait for 1 second to start routine again */
     msleep(1000);
@@ -206,8 +206,8 @@ static int __init init_nttm_module(void) {
 
   /** initialize the monitor modules on different layers */
   init_blk_layer();
-  init_nvmet_tcp_layer();
-  init_tcp_layer();
+  // init_nvmet_tcp_layer();
+  // init_tcp_layer();
 
   return 0;
 }
@@ -216,8 +216,8 @@ static void __exit exit_nttm_module(void) {
   pr_info("NVMeTCP monitoring module exited\n");
 
   /** exit monitor modules on different layers */
-  exit_tcp_layer();
-  exit_nvmet_tcp_layer();
+  // exit_tcp_layer();
+  // exit_nvmet_tcp_layer();
   exit_blk_layer();
 
   remove_proc_entries();
