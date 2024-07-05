@@ -1,5 +1,5 @@
 cd /usr/src/linux-source-5.15.0
-sudo make modules SUBDIRS=drivers/nvme/target -j31
+sudo make modules SUBDIRS=drivers/nvme/target -j63
 sudo insmod ./drivers/nvme/target/nvmet.ko
 sudo insmod ./drivers/nvme/target/nvmet-tcp.ko
 cd ~
@@ -19,14 +19,14 @@ create_namespace() {
 
 # 为每个设备创建和配置命名空间
 create_namespace 7 /dev/nvme0n1
-create_namespace 8 /dev/nvme1n1
-create_namespace 9 /dev/nvme2n1
-create_namespace 10 /dev/nvme3n1
+#create_namespace 8 /dev/nvme1n1
+#create_namespace 9 /dev/nvme2n1
+#create_namespace 10 /dev/nvme3n1
 
 # 创建 NVMe over TCP 端口
 sudo mkdir -p /sys/kernel/config/nvmet/ports/1
 sudo sh -c "echo ipv4 > /sys/kernel/config/nvmet/ports/1/addr_adrfam"
-sudo sh -c "echo 10.10.1.2 > /sys/kernel/config/nvmet/ports/1/addr_traddr"
+sudo sh -c "echo 10.10.1.3 > /sys/kernel/config/nvmet/ports/1/addr_traddr"
 sudo sh -c "echo tcp > /sys/kernel/config/nvmet/ports/1/addr_trtype"
 sudo sh -c "echo 4420 > /sys/kernel/config/nvmet/ports/1/addr_trsvcid"
 
