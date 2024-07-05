@@ -6,7 +6,7 @@ sudo apt-get update || { echo "Failed to update package lists, please check your
 
 # Install required packages for kernel compilation
 echo "Installing required packages..."
-sudo apt-get install -y flex bison build-essential libncurses-dev libssl-dev libelf-dev bc dwarves || { echo "Failed to install packages"; exit 1; }
+sudo apt-get install -y flex bison build-essential libncurses-dev libssl-dev libelf-dev bc dwarves cpufrequtils || { echo "Failed to install packages"; exit 1; }
 
 # Start compiling the kernel
 echo "Starting kernel compilation..."
