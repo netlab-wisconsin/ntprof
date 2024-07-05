@@ -7,7 +7,8 @@ if [ -f "$output_file" ]; then
 fi
 
 workload_types=("randread")
-io_depths=(32)
+io_depths=(4)
+
 jobs=(1)
 devices=("/dev/nvme4n1")
 block_sizes=("4K")
@@ -22,7 +23,7 @@ run_fio() {
     local jobn="$5"
     local output_file="${device//\//_}.fio_out"
     # echo the command
-    echo "sudo fio --name=test --filename=$device --size=20G --direct=1 --time_based --runtime=60 --cpus_allowed=0 --cpus_allowed_policy=split --ioengine=libaio --group_reporting --rw=$workload_type --numjobs=$jobn --bs=$block_size --iodepth=$io_depth"
+    echo "sudo fio --name=test --filename=$device --size=20G --direct=1 --time_based --runtime=60 --cpus_allowed=10 --cpus_allowed_policy=split --ioengine=libaio --group_reporting --rw=$workload_type --numjobs=$jobn --bs=$block_size --iodepth=$io_depth"
 
     sudo fio --name=test --filename="$device" --size=20G --direct=1 --time_based --runtime=60 --cpus_allowed=0 --cpus_allowed_policy=split --ioengine=libaio --group_reporting --output-format=terse --rw="$workload_type" --numjobs=$jobn --bs="$block_size" --iodepth="$io_depth" > "$output_file" &
 }
