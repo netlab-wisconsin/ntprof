@@ -114,6 +114,8 @@ WantedBy=multi-user.target" | sudo tee $SERVICE_FILE > /dev/null
     # restart systemd settints
     sudo systemctl daemon-reload
 
+    sudo systemctl enable set_msr.service
+
     # start set_msr service
     sudo systemctl start set_msr.service
 fi
