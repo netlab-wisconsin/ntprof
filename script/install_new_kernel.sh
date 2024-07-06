@@ -17,7 +17,7 @@ sudo make install || { echo "Kernel installation failed"; exit 1; }
 
 # Update GRUB configuration
 echo "Updating GRUB configuration..."
-sudo update-grub || { echo "GRUB update failed"; exit 1; }
+
 
 
 # Apply configuration changes for journald and GRUB
@@ -46,7 +46,81 @@ else
     echo "log_buf_len=60G is already set in $GRUB_CONF"
 fi
 
+# Step 3: Modify /etc/default/grub to set intel_pt.disable=1 and intel_pstate=active
+
+GRUB_CMDLINE_DEFAULT=$(grep "^GRUB_CMDLINE_LINUX_DEFAULT=" $GRUB_CONF)
+
+if [[ "$GRUB_CMDLINE_DEFAULT" != *"intel_pt.disable=1"* || "$GRUB_CMDLINE_DEFAULT" != *"intel_pstate=active"* ]]; then
+    echo "Modifying $GRUB_CONF to set intel_pt.disable=1 and intel_pstate=active"
+    sudo sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1 quiet splash intel_pt.disable=1 intel_pstate=active"/' $GRUB_CONF
+    sudo update-grub
+else
+    echo "GRUB_CMDLINE_LINUX_DEFAULT already contains the necessary parameters"
+fi
+
 echo "Configuration changes applied. Please reboot the system for changes to take effect."
+
+
+sudo update-grub || { echo "GRUB update failed"; exit 1; }
+
+# Step 4, install perf and cpupower if not installed
+
+# install perf, if /usr/local/bin/perf exists, then skip the installation
+if [ ! -f /usr/local/bin/perf ]; then
+    echo "Installing perf..."
+    cd /usr/src/linux-source-5.15.0/tools/perf
+    sudo make -j31
+    sudo cp perf /usr/local/bin
+else
+    echo "perf is already installed"
+fi
+
+# install cpupower, if /usr/bin/cpupower exists, then skip the installation
+if [ ! -f /usr/bin/cpupower ]; then
+    echo "Installing cpupower..."
+    sudo apt-get install libpci-dev gettext
+    cd /usr/src/linux-source-5.15.0/tools/power/cpupower
+    sudo make
+    sudo ln -s libcpupower.so.0 /usr/lib/libcpupower.so.0
+    echo "/usr/src/linux-source-5.15.0/tools/power/cpupower" | sudo tee /etc/ld.so.conf.d/cpupower.conf
+    sudo ldconfig
+    sudo make install
+else
+    echo "cpupower is already installed"
+fi
+
+
+# setup set_msr service on startup
+SERVICE_FILE="/etc/systemd/system/set_msr.service"
+
+if [ ! -f "$SERVICE_FILE" ]; then
+    # create file if doesn;
+    echo "[Unit]
+Description=Set MSR Registers at Boot
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/modprobe msr
+ExecStart=/usr/sbin/wrmsr 0x570 0
+ExecStart=/usr/sbin/wrmsr -a 0x1a0 0x4000850089
+ExecStart=/usr/bin/cpupower frequency-set -g performance
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target" | sudo tee $SERVICE_FILE > /dev/null
+
+    # 重新加载 systemd 配置
+    sudo systemctl daemon-reload
+
+    # 启动 set_msr 服务
+    sudo systemctl start set_msr.service
+fi
+
+# 检查 set_msr 服务状态
+sudo systemctl status set_msr.service
+
+
 
 # Reboot immediately
 echo "Kernel installation completed, rebooting now..."
