@@ -6,7 +6,7 @@ sudo apt-get update || { echo "Failed to update package lists, please check your
 
 # Install required packages for kernel compilation
 echo "Installing required packages..."
-sudo apt-get install -y flex bison build-essential libncurses-dev libssl-dev libelf-dev bc dwarves cpufrequtils || { echo "Failed to install packages"; exit 1; }
+sudo apt-get install -y flex bison build-essential libncurses-dev libssl-dev libelf-dev bc dwarves cpufrequtils msr-tools || { echo "Failed to install packages"; exit 1; }
 
 # Start compiling the kernel
 echo "Starting kernel compilation..."
@@ -91,6 +91,7 @@ fi
 
 
 # setup set_msr service on startup
+# it is responsible for (1) disable intel_pt, (2) disable turbo boost, (3) set 'performance' governor
 SERVICE_FILE="/etc/systemd/system/set_msr.service"
 
 if [ ! -f "$SERVICE_FILE" ]; then
@@ -110,14 +111,14 @@ RemainAfterExit=true
 [Install]
 WantedBy=multi-user.target" | sudo tee $SERVICE_FILE > /dev/null
 
-    # 重新加载 systemd 配置
+    # restart systemd settints
     sudo systemctl daemon-reload
 
-    # 启动 set_msr 服务
+    # start set_msr service
     sudo systemctl start set_msr.service
 fi
 
-# 检查 set_msr 服务状态
+# check the status of set_msr
 sudo systemctl status set_msr.service
 
 
