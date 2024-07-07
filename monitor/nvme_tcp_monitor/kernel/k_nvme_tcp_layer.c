@@ -198,6 +198,12 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int len1, int len2,
 
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) return;
 
+  if(req->rq_disk && req->rq_disk->disk_name) {
+    if (!is_same_dev_name(req->rq_disk->disk_name, args->dev)) return;
+  } else {
+    return;
+  }
+
   /** get queue id */
   qid = (!req->q->queuedata) ? 0 : req->mq_hctx->queue_num + 1;
 
