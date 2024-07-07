@@ -190,7 +190,7 @@ void append_event(struct nvme_tcp_io_instance *inst, u64 ts,
  * @param ignore: the first parameter of the tracepoint
  * @param req: the request
  */
-void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int len1, int len2,
+void on_nvme_tcp_queue_rq(void *ignore, struct request *req, bool *to_trace, int len1, int len2,
                           long long unsigned int time) {
   u32 qid;
   u16 cnt;
@@ -224,6 +224,7 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int len1, int len2,
                               len1 + len2, 0, false, false, false, size);
     current_io->before = lat;
     append_event(current_io, time, QUEUE_RQ, -1, 0);
+    *to_trace = true;
   }
 }
 
