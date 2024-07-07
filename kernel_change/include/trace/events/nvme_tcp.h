@@ -37,8 +37,11 @@ TRACE_EVENT(nvme_tcp_queue_rq,
         __entry->send_len = send_len;
     ),
     /** print all fields */
+    /** we can use __print_disk_name(__entry->disk) to print disk name
+     * but it requires export some extra symbol, so we are not using it
+     */
     TP_printk("nvme%d: %sqid=%d, rtag=%d, cmdid=%u, slba=%llu, pos=%llu, length=%u, is_write=%d, req_len=%d, send_len=%d",
-        __entry->ctrl_id, __print_disk_name(__entry->disk),
+        __entry->ctrl_id, "",
         __entry->qid, __entry->r_tag, __entry->cid, __entry->slba, __entry->pos, __entry->length, __entry->is_write,
         __entry->req_len, __entry->send_len)
 );
@@ -76,7 +79,7 @@ TRACE_EVENT(nvme_tcp_queue_request,
     ),
     /** print all fields */
     TP_printk("nvme%d: %sqid=%d, rtag=%d, cmdid=%u, slba=%llu, pos=%llu, length=%u, is_write=%d, is_init=%s",
-        __entry->ctrl_id, __print_disk_name(__entry->disk),
+        __entry->ctrl_id, "",
         __entry->qid, __entry->r_tag, __entry->cid, __entry->slba, __entry->pos, __entry->length, __entry->is_write, __entry->tag?"true":"false")
 );
 
@@ -107,7 +110,7 @@ TRACE_EVENT(nvme_tcp_try_send_cmd_pdu,
         __entry->is_write = (rq_data_dir(rq) == WRITE);
     ),
     TP_printk("nvme%d: %sqid=%d, rtag=%d, cmdid=%u, slba=%llu, request_length=%u, send_bytes=%d, is_write=%d",
-        __entry->ctrl_id, __print_disk_name(__entry->disk),
+        __entry->ctrl_id, "",
         __entry->qid, __entry->rtag, __entry->cid, __entry->slba, __entry->length, __entry->len, __entry->is_write)
 );
 
@@ -138,7 +141,7 @@ TRACE_EVENT(nvme_tcp_try_send_data_pdu,
         __entry->is_write = (rq_data_dir(rq) == WRITE);
     ),
     TP_printk("nvme%d: %sqid=%d, rtag=%d, cmdid=%u, slba=%llu, req_len=%u, send_len=%d, is_write=%d",
-        __entry->ctrl_id, __print_disk_name(__entry->disk),
+        __entry->ctrl_id, "",
         __entry->qid, __entry->rtag, __entry->cid, __entry->slba, __entry->length, __entry->len, __entry->is_write)
 );
 
@@ -171,7 +174,7 @@ TRACE_EVENT(nvme_tcp_done_send_req,
         __entry->is_write = (rq_data_dir(rq) == WRITE);
     ),
     TP_printk("nvme%d: %sqid=%d, rtag=%d, cmdid=%u, slba=%llu, req_len=%u, is_write=%d",
-        __entry->ctrl_id, __print_disk_name(__entry->disk),
+        __entry->ctrl_id, "",
         __entry->qid, __entry->rtag, __entry->cid, __entry->slba, __entry->length, __entry->is_write)
 );
 
@@ -235,7 +238,7 @@ TRACE_EVENT(nvme_tcp_handle_c2h_data,
         __entry->cid = nvme_req(rq)->cmd->common.command_id;
     ),
     TP_printk("nvme%d: %sqid=%d, rtag=%d, data_remain=%d, is_write=%d, cmdid=%d",
-        __entry->ctrl_id, __print_disk_name(__entry->disk),
+        __entry->ctrl_id, "",
         __entry->qid, __entry->rtag, __entry->data_remain, __entry->is_write, __entry->cid)
 );
 
@@ -259,7 +262,7 @@ TRACE_EVENT(nvme_tcp_recv_data,
         __entry->is_write = (rq_data_dir(rq) == WRITE);
     ),
     TP_printk("nvme%d: %sqid=%d, rtag=%d, cp_len=%d, is_write=%d",
-        __entry->ctrl_id, __print_disk_name(__entry->disk),
+        __entry->ctrl_id, "",
         __entry->qid, __entry->rtag, __entry->cp_len, __entry->is_write)
 
 );
@@ -294,7 +297,7 @@ TRACE_EVENT(nvme_tcp_process_nvme_cqe,
     ),
     /** print all fields */
     TP_printk("nvme%d: %sqid=%d, rtag=%d, cmdid=%u, slba=%llu, pos=%llu, length=%u, is_write=%d",
-        __entry->ctrl_id, __print_disk_name(__entry->disk),
+        __entry->ctrl_id, "",
         __entry->qid, __entry->r_tag, __entry->cid, __entry->slba, __entry->pos, __entry->length, __entry->is_write)
 );
 
