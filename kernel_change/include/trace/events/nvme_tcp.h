@@ -8,8 +8,8 @@
 #include <linux/nvme.h>
 
 TRACE_EVENT(nvme_tcp_queue_rq,
-    TP_PROTO(struct request *req, int req_len, int send_len, unsigned long long time),
-    TP_ARGS(req, req_len, send_len, time),
+    TP_PROTO(struct request *req, bool *to_trace, int req_len, int send_len, unsigned long long time),
+    TP_ARGS(req, to_trace, req_len, send_len, time),
     TP_STRUCT__entry(
         __array(char, disk, DISK_NAME_LEN)
         __field(int, ctrl_id)
@@ -51,8 +51,8 @@ TRACE_EVENT(nvme_tcp_queue_rq,
  * tag = 1 if the request is the initial request, 0 if it is a subsequent data pdu
 */
 TRACE_EVENT(nvme_tcp_queue_request,
-    TP_PROTO(struct request *req, bool tag,  unsigned long long time),
-    TP_ARGS(req, tag, time),
+    TP_PROTO(struct request *req, int cmdid, bool tag,  unsigned long long time),
+    TP_ARGS(req, cmdid, tag, time),
     TP_STRUCT__entry(
         __array(char, disk, DISK_NAME_LEN)
         __field(int, ctrl_id)

@@ -162,7 +162,8 @@ void init_nvme_tcp_io_instance(struct nvme_tcp_io_instance *inst,
 
 void print_io_instance(struct nvme_tcp_io_instance *inst) {
   int i;
-  pr_info("req_tag: %d, waitlist: %d\n", inst->req_tag, inst->waitlist);
+  pr_info("req_tag: %d, cmdid: %d, waitlist: %d\n", inst->req_tag,
+          inst->cmdid, inst->waitlist);
   for (i = 0; i < inst->cnt; i++) {
     char name[32];
     nvme_tcp_trpt_name(inst->trpt[i], name);
@@ -360,13 +361,14 @@ void nvme_tcp_stat_update(u64 now) {
   copy_nvme_tcp_stat(a_nvme_tcp_stat, &shared_nvme_tcp_stat->all_time_stat);
 }
 
-void on_nvme_tcp_queue_request(void *ignore, struct request *req,
+void on_nvme_tcp_queue_request(void *ignore, struct request *req, int cmdid,
                                bool is_initial, long long unsigned int time) {
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, QUEUE_REQUEST, -1, 0);
+    current_io->cmdid = cmdid;
   }
 }
 
@@ -553,6 +555,8 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
   }
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, PROCESS_NVME_CQE, -1, recv_time);
+
+    print_io_instance(current_io);
 
     /** update the all-time statistic */
     if (rq_data_dir(req)) {

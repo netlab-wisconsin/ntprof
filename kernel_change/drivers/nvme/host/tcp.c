@@ -364,7 +364,7 @@ static inline void nvme_tcp_queue_request(struct nvme_tcp_request *req,
 	struct nvme_tcp_queue *queue = req->queue;
 	bool empty;
 
-	trace_nvme_tcp_queue_request(blk_mq_rq_from_pdu(req), sync, ktime_get_real_ns());
+	trace_nvme_tcp_queue_request(blk_mq_rq_from_pdu(req), req->req.cmd->common.command_id, sync, ktime_get_real_ns());
 
 	empty = llist_add(&req->lentry, &queue->req_list) &&
 		list_empty(&queue->send_list) && !queue->request;

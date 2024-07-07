@@ -54,6 +54,7 @@ struct nvme_tcp_io_instance {
   bool is_write;
   int req_tag;
   int waitlist;
+  int cmdid;
   u64 ts[EVENT_NUM];
   u64 ts2[EVENT_NUM];
   enum nvme_tcp_trpt trpt[EVENT_NUM];
