@@ -29,7 +29,8 @@ struct nvmet_tcp_stat* nvmettcp_stat;
 struct atomic_nvmet_tcp_stat* atomic_nvmettcp_stat;
 
 static bool to_sample(void) {
-  return atomic64_inc_return(&sample_cnt) % args->rate == 0;
+  // return atomic64_inc_return(&sample_cnt) % args->rate == 0;
+  return true;
 }
 
 
@@ -301,6 +302,7 @@ void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
       append_event(current_io, TRY_SEND_RESPONSE, time);
       /** insert the current io sample to the sample sliding window */
       // print_io_instance(current_io);
+      print_io_instance(current_io);
       if (!current_io->is_spoiled) {
         // pr_info("size of current req is %d\n", current_io->size);
         if (current_io->is_write) {

@@ -256,23 +256,23 @@ int main(int argc, char **argv) {
   /** send msg to kernel space to start recording */
   start_nttm();
 
-  init_blk_layer_monitor();
-  // init_nvmet_tcp_layer_monitor();
+  // init_blk_layer_monitor();
+  init_nvmet_tcp_layer_monitor();
   // init_tcp_layer_monitor();
 
   while (keep_running) {
     printf("\033[H\033[J");
     printf("Arguments:\n");
     print_args(args);
-    print_blk_layer_stat();
-    // print_nvmet_tcp_layer_stat();
+    // print_blk_layer_stat();
+    print_nvmet_tcp_layer_stat();
     // print_tcp_layer_stat();
     sleep(1);
   }
 
   // exit_tcp_layer_monitor();
-  // exit_nvmet_tcp_layer_monitor();
-  exit_blk_layer_monitor();
+  exit_nvmet_tcp_layer_monitor();
+  // exit_blk_layer_monitor();
 
   printf("start exit nttm_user\n");
 

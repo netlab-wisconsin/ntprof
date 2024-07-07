@@ -35,8 +35,8 @@ static int update_routine_fn(void *data) {
     u64 now = ktime_get_ns();
     
     /** update the statistic here */
-    blk_layer_update(now);
-    // nvmet_tcp_stat_update(now);
+    // blk_layer_update(now);
+    nvmet_tcp_stat_update(now);
     // tcp_stat_update();
 
     /** wait for 1 second to start routine again */
@@ -205,8 +205,8 @@ static int __init init_nttm_module(void) {
   if(ret) return ret;
 
   /** initialize the monitor modules on different layers */
-  init_blk_layer();
-  // init_nvmet_tcp_layer();
+  // init_blk_layer();
+  init_nvmet_tcp_layer();
   // init_tcp_layer();
 
   return 0;
@@ -217,8 +217,8 @@ static void __exit exit_nttm_module(void) {
 
   /** exit monitor modules on different layers */
   // exit_tcp_layer();
-  // exit_nvmet_tcp_layer();
-  exit_blk_layer();
+  exit_nvmet_tcp_layer();
+  // exit_blk_layer();
 
   remove_proc_entries();
   free_global_variables();
