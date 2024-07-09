@@ -167,7 +167,7 @@ void print_io_instance(struct nvme_tcp_io_instance *inst) {
   for (i = 0; i < inst->cnt; i++) {
     char name[32];
     nvme_tcp_trpt_name(inst->trpt[i], name);
-    pr_info("ts: %llu, trpt: %s, size: %llu, ts2: %llu\n", inst->ts[i], name,
+    pr_info("event%d, %llu, %s, size: %llu, ts2: %llu\n", i, inst->ts[i], name,
             inst->sizs[i], inst->ts2[i]);
   }
 }
