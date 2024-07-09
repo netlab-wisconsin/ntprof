@@ -53,7 +53,7 @@ void print_io_instance(struct nvmet_io_instance* io_instance) {
           io_instance->cnt, io_instance->is_spoiled);
   for (i = 0; i < io_instance->cnt; i++) {
     nvmet_tcp_trpt_name(io_instance->trpt[i], name);
-    pr_info("event %d: %s, ts: %llu\n", i, name, io_instance->ts[i]);
+    pr_info("event%d, %llu, %s\n", i, io_instance->ts[i], name);
   }
 }
 
