@@ -76,6 +76,7 @@ void print_usage() {
   printf("  -qid=<queue_id>     Queue ID (default: all queues)\n");
   printf(
       "  -nrate=<nrate>      Network packet sample rate (default: 0.00001)\n");
+  printf("  -detail=<print>     Print detail or not (default: false)");
 }
 
 void parse_qid(const char *qid_str, Arguments *args) {
@@ -115,6 +116,7 @@ void parse_arguments(int argc, char *argv[], Arguments *args) {
   args->qid[0] = 0;
   args->qstr[0] = '\0';
   args->nrate = 100000;
+  args->detail = 0;
 
   for (int i = 2; i < argc; i++) {
     if (strncmp(argv[i], "-dev=", 5) == 0) {
@@ -145,6 +147,16 @@ void parse_arguments(int argc, char *argv[], Arguments *args) {
       parse_qid(argv[i] + 5, args);
     } else if (strncmp(argv[i], "-nrate=", 7) == 0) {
       args->nrate = atof(argv[i] + 7);
+    } else if (strncmp(argv[i], "-detail=", 8) == 0) {
+      if (strcmp(argv[i] + 8, "true") == 0) {
+        args->detail = 1;
+      } else if (strcmp(argv[i] + 8, "false") == 0) {
+        args->detail = 0;
+      } else {
+        printf("Invalid detail: %s\n", argv[i] + 8);
+        print_usage();
+        exit(EXIT_FAILURE);
+      }
     } else {
       printf("Invalid argument: %s\n", argv[i]);
       print_usage();

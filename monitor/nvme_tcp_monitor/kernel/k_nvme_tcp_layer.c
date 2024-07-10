@@ -556,7 +556,8 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, PROCESS_NVME_CQE, -1, recv_time);
 
-    print_io_instance(current_io);
+    if(args->detail)
+      print_io_instance(current_io);
 
     /** update the all-time statistic */
     if (rq_data_dir(req)) {
