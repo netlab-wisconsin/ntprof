@@ -301,8 +301,8 @@ void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, TRY_SEND_RESPONSE, time);
       /** insert the current io sample to the sample sliding window */
-      // print_io_instance(current_io);
-      print_io_instance(current_io);
+      if(args->detail)
+        print_io_instance(current_io);
       if (!current_io->is_spoiled) {
         // pr_info("size of current req is %d\n", current_io->size);
         if (current_io->is_write) {

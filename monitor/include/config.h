@@ -29,6 +29,9 @@ typedef struct {
   char qstr[MAX_QID];
   /** network packet sample rate */
   unsigned int nrate;
+
+  /** to print detailed tracing info or not */
+  short detail;
 } Arguments;
 
 #endif  // _CONFIG_H_
