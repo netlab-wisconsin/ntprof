@@ -32,7 +32,7 @@ bool is_number(const char *str) {
  */
 void print_args(Arguments *args) {
   printf("dev: %s\t", args->dev);
-  printf("rate: %.3f\t", args->rate);
+  printf("rate: %d\t", args->rate);
   char io_type_str[32];
   switch (args->io_type) {
     case _READ:
@@ -64,7 +64,7 @@ void print_args(Arguments *args) {
   //   printf("%d, %d \t", i, args->qid[i]);
   // }
   // printf("\n");
-  printf("nrate: %.5f\n", args->nrate);
+  printf("nrate: %d\n", args->nrate);
 }
 
 void int_handler(int dummy) { keep_running = 0; }
@@ -81,6 +81,7 @@ void print_usage() {
   printf("  -qid=<queue_id>     Queue ID (default: all queues)\n");
   printf(
       "  -nrate=<nrate>      Network packet sample rate (default: 0.00001)\n");
+  printf("  -detail=<print>     Print detail or not (default: false)");
 }
 
 void parse_qid(const char *qid_str, Arguments *args) {
@@ -112,20 +113,21 @@ void parse_qid(const char *qid_str, Arguments *args) {
 void parse_arguments(int argc, char *argv[], Arguments *args) {
   /** setting default value */
   strcpy(args->dev, "all devices");
-  args->rate = 0.001;
+  args->rate = 1000;
   args->io_type = _BOTH;
   args->win = 10;
   args->io_size = -1;
   memset(args->qid, 1, sizeof(args->qid));
   args->qid[0] = 0;
   args->qstr[0] = '\0';
-  args->nrate = 0.00001;
+  args->nrate = 100000;
+  args->detail = 0;
 
   for (int i = 2; i < argc; i++) {
     if (strncmp(argv[i], "-dev=", 5) == 0) {
       strcpy(args->dev, argv[i] + 5);
     } else if (strncmp(argv[i], "-rate=", 6) == 0) {
-      args->rate = atof(argv[i] + 6);
+      args->rate = atoi(argv[i] + 6);
     } else if (strncmp(argv[i], "-type=", 6) == 0) {
       char *type = argv[i] + 6;
       if (type[0] >= 'A' && type[0] <= 'Z') {
@@ -149,7 +151,17 @@ void parse_arguments(int argc, char *argv[], Arguments *args) {
     } else if (strncmp(argv[i], "-qid=", 5) == 0) {
       parse_qid(argv[i] + 5, args);
     } else if (strncmp(argv[i], "-nrate=", 7) == 0) {
-      args->nrate = atof(argv[i] + 7);
+      args->nrate = atoi(argv[i] + 7);
+    } else if (strncmp(argv[i], "-detail=", 8) == 0) {
+      if (strcmp(argv[i] + 8, "true") == 0) {
+        args->detail = 1;
+      } else if (strcmp(argv[i] + 8, "false") == 0) {
+        args->detail = 0;
+      } else {
+        printf("Invalid detail: %s\n", argv[i] + 8);
+        print_usage();
+        exit(EXIT_FAILURE);
+      }
     } else {
       printf("Invalid argument: %s\n", argv[i]);
       print_usage();
@@ -256,23 +268,23 @@ int main(int argc, char **argv) {
   /** send msg to kernel space to start recording */
   start_nttm();
 
-  map_nttm_blk_data();
-  map_nttm_nvmet_tcp_data();
-  map_nttm_tcp_data();
+  // init_blk_layer_monitor();
+  init_nvmet_tcp_layer_monitor();
+  // init_tcp_layer_monitor();
 
   while (keep_running) {
     printf("\033[H\033[J");
     printf("Arguments:\n");
     print_args(args);
+    // print_blk_layer_stat();
     print_nvmet_tcp_layer_stat();
-    print_blk_layer_stat();
-    print_tcp_layer_stat();
+    // print_tcp_layer_stat();
     sleep(1);
   }
 
-  unmap_nttm_tcp_data();
-  unmap_nttm_nvmet_tcp_data();
-  unmap_nttm_blk_data();
+  // exit_tcp_layer_monitor();
+  exit_nvmet_tcp_layer_monitor();
+  // exit_blk_layer_monitor();
 
   printf("start exit nttm_user\n");
 

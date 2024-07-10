@@ -11,11 +11,8 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <stdbool.h>
-
 #include "ntm_com.h"
 
-
-static struct shared_blk_layer_stat *shared;
 
 void blk_layer_monitor_display();
 

@@ -29,8 +29,8 @@ TRACE_EVENT(nvmet_tcp_try_recv_pdu,
 );
 
 TRACE_EVENT(nvmet_tcp_done_recv_pdu,
-    TP_PROTO(u16 cmd_id, int qid, bool is_write, unsigned long long time),
-    TP_ARGS(cmd_id, qid, is_write, time),
+    TP_PROTO(u16 cmd_id, int qid, bool is_write, int size, unsigned long long time),
+    TP_ARGS(cmd_id, qid, is_write, size, time),
     TP_STRUCT__entry(
         __field(u16, cmd_id)
         __field(int, qid)

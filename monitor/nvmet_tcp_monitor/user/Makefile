@@ -2,7 +2,7 @@ CC = gcc
 
 CFLAGS = -I$(PWD)/../../include -I$(PWD)/../common -I$(PWD)
 
-SRCS = u_nttm.c
+SRCS = u_nttm.c u_blk_layer.c  u_nvmet_tcp_layer.c u_tcp_layer.c 
 OBJS = $(SRCS:.c=.o)
 
 TARGET = u_nttm

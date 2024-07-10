@@ -3,61 +3,52 @@
 #include "output.h"
 #include "u_ntm.h"
 
+static struct shared_blk_layer_stat *shared;
+
 void print_shared_blk_stat(struct shared_blk_layer_stat *shared) {
   printf(HEADER1 "[BLOCK LAYER]" RESET "\n");
   printf("device_name: %s\n", args->dev);
-  char *dis_header[9] = {"<4KB", "4KB",   "8KB",    "16KB",  "32KB",
-                         "64KB", "128KB", ">128KB", "others"};
   printf(HEADER2 "all time:\n" RESET);
-  printf(HEADER3 "\t [read] \t" RESET);
+  printf(HEADER3 "[read] \t" RESET);
   printf("total bio: %llu, ", shared->all_time_stat.read_count);
-  printf("avg lat(us): %.6f\n", (float)shared->all_time_stat.read_lat / 1000 /
+  printf("avg lat(us): %.2f\n", (float)shared->all_time_stat.read_lat / 1000 /
                                     shared->all_time_stat.read_count);
 
-  printf(HEADER3 "\t [read dist] \t" RESET);
+  printf(HEADER3 "[read dist] \t" RESET);
   int i;
-  for (i = 0; i < 9; i++) {
-    printf(" [%s: %.2f]", dis_header[i],
+  for (i = 0; i < SIZE_NUM; i++) {
+    printf(" [%s: %.2f]", size_name(i),
            (float)shared->all_time_stat.read_io[i] /
                shared->all_time_stat.read_count);
   }
   printf("\n");
 
-  printf(HEADER3 "\t [write] \t" RESET);
+  printf(HEADER3 "[read lat] \t" RESET);
+  for (i = 0; i < SIZE_NUM; i++) {
+    printf(" [%s: %.2f]", size_name(i),
+           (float)shared->all_time_stat.read_io_lat[i] / 1000 /
+               shared->all_time_stat.read_io[i]);
+  }
+  printf("\n");
+
+  printf(HEADER3 "[write] \t" RESET);
   printf("total bio: %llu, ", shared->all_time_stat.write_count);
-  printf("avg lat(us): %.6f\n", (float)shared->all_time_stat.write_lat / 1000 /
+  printf("avg lat(us): %.2f\n", (float)shared->all_time_stat.write_lat / 1000 /
                                     shared->all_time_stat.write_count);
 
-  printf(HEADER3 "\t [write dist] \t" RESET);
-  for (i = 0; i < 9; i++) {
-    printf(" [%s: %.2f]", dis_header[i],
+  printf(HEADER3 "[write dist] \t" RESET);
+  for (i = 0; i < SIZE_NUM; i++) {
+    printf(" [%s: %.2f]", size_name(i),
            (float)shared->all_time_stat.write_io[i] /
                shared->all_time_stat.write_count);
   }
   printf("\n");
 
-  printf(HEADER2 "last %d sec\n" RESET, args->win);
-  printf(HEADER3 "\t [read] \t" RESET);
-  printf("total bio: %llu, ", shared->sw_stat.read_count);
-  printf("avg lat(us): %.6f\n",
-         (float)shared->sw_stat.read_lat / 1000 / shared->sw_stat.read_count);
-
-  printf(HEADER3 "\t [read dist] \t" RESET);
-  for (i = 0; i < 9; i++) {
-    printf(" [%s: %.2f]", dis_header[i],
-           (float)shared->sw_stat.read_io[i] / shared->sw_stat.read_count);
-  }
-  printf("\n");
-
-  printf(HEADER3 "\t [write] \t" RESET);
-  printf("total bio: %llu, ", shared->sw_stat.write_count);
-  printf("avg lat(us): %.6f\n",
-         (float)shared->sw_stat.write_lat / 1000 / shared->sw_stat.write_count);
-
-  printf(HEADER3 "\t [write dist] \t" RESET);
-  for (i = 0; i < 9; i++) {
-    printf(" [%s: %.2f]", dis_header[i],
-           (float)shared->sw_stat.write_io[i] / shared->sw_stat.write_count);
+  printf(HEADER3 "[write lat] \t" RESET);
+  for (i = 0; i < SIZE_NUM; i++) {
+    printf(" [%s: %.2f]", size_name(i),
+           (float)shared->all_time_stat.write_io_lat[i] / 1000 /
+               shared->all_time_stat.write_io[i]);
   }
   printf("\n");
 
@@ -92,6 +83,7 @@ void map_ntm_blk_data() {
  * unmap the blk layer statistic data structures
  */
 void unmap_ntm_blk_data() {
+  if(shared)
   munmap(shared, sizeof(struct shared_blk_layer_stat));
 }
 

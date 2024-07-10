@@ -445,7 +445,7 @@ static void nvmet_setup_c2h_data_pdu(struct nvmet_tcp_cmd *cmd)
 	u8 hdgst = nvmet_tcp_hdgst_len(cmd->queue);
 	u8 ddgst = nvmet_tcp_ddgst_len(cmd->queue);
 
-	trace_nvmet_tcp_setup_c2h_data_pdu(cmd->req.cqe->command_id, queue->idx, ktime_get_ns());
+	trace_nvmet_tcp_setup_c2h_data_pdu(cmd->req.cqe->command_id, queue->idx, ktime_get_real_ns());
 
 	cmd->offset = 0;
 	cmd->state = NVMET_TCP_SEND_DATA_PDU;
@@ -479,7 +479,7 @@ static void nvmet_setup_r2t_pdu(struct nvmet_tcp_cmd *cmd)
 	struct nvmet_tcp_queue *queue = cmd->queue;
 	u8 hdgst = nvmet_tcp_hdgst_len(cmd->queue);
 
-	trace_nvmet_tcp_setup_r2t_pdu(cmd->req.cmd->common.command_id, queue->idx, ktime_get_ns());
+	trace_nvmet_tcp_setup_r2t_pdu(cmd->req.cmd->common.command_id, queue->idx, ktime_get_real_ns());
 
 	cmd->offset = 0;
 	cmd->state = NVMET_TCP_SEND_R2T;
@@ -506,7 +506,7 @@ static void nvmet_setup_response_pdu(struct nvmet_tcp_cmd *cmd)
 	struct nvmet_tcp_queue *queue = cmd->queue;
 	u8 hdgst = nvmet_tcp_hdgst_len(cmd->queue);
 
-	trace_nvmet_tcp_setup_response_pdu(cmd->req.cqe->command_id, queue->idx, ktime_get_ns());
+	trace_nvmet_tcp_setup_response_pdu(cmd->req.cqe->command_id, queue->idx, ktime_get_real_ns());
 
 	cmd->offset = 0;
 	cmd->state = NVMET_TCP_SEND_RESPONSE;
@@ -583,7 +583,7 @@ static void nvmet_tcp_queue_response(struct nvmet_req *req)
 			return;
 	}
 
-	trace_nvmet_tcp_queue_response(cmd->req.cmd->common.command_id, queue->idx, nvme_is_write(cmd->req.cmd), ktime_get_ns());
+	trace_nvmet_tcp_queue_response(cmd->req.cmd->common.command_id, queue->idx, nvme_is_write(cmd->req.cmd), ktime_get_real_ns());
 
 	llist_add(&cmd->lentry, &queue->resp_list);
 	queue_work_on(queue_cpu(queue), nvmet_tcp_wq, &cmd->queue->io_work);
@@ -594,7 +594,7 @@ static void nvmet_tcp_execute_request(struct nvmet_tcp_cmd *cmd)
 	if (unlikely(cmd->flags & NVMET_TCP_F_INIT_FAILED))
 		nvmet_tcp_queue_response(&cmd->req);
 	else {
-		trace_nvmet_tcp_exec_write_req(cmd->req.cmd->common.command_id, cmd->queue->idx, nvme_is_write(cmd->req.cmd), ktime_get_ns());
+		trace_nvmet_tcp_exec_write_req(cmd->req.cmd->common.command_id, cmd->queue->idx, nvme_is_write(cmd->req.cmd), ktime_get_real_ns());
 		cmd->req.execute(&cmd->req);
 	}
 		
@@ -616,7 +616,7 @@ static int nvmet_try_send_data_pdu(struct nvmet_tcp_cmd *cmd)
 	cmd->offset += ret;
 	left -= ret;
 
-	trace_nvmet_tcp_try_send_data_pdu(cmd->req.cqe->command_id, cmd->queue->idx, ret, left, ktime_get_ns());
+	trace_nvmet_tcp_try_send_data_pdu(cmd->req.cqe->command_id, cmd->queue->idx, ret, left, ktime_get_real_ns());
 
 	if (left)
 		return -EAGAIN;
@@ -646,7 +646,7 @@ static int nvmet_try_send_data(struct nvmet_tcp_cmd *cmd, bool last_in_batch)
 		if (ret <= 0)
 			return ret;
 
-		trace_nvmet_tcp_try_send_data(cmd->req.cqe->command_id, queue->idx, ret, ktime_get_ns());
+		trace_nvmet_tcp_try_send_data(cmd->req.cqe->command_id, queue->idx, ret, ktime_get_real_ns());
 
 		cmd->offset += ret;
 		cmd->wbytes_done += ret;
@@ -699,7 +699,7 @@ static int nvmet_try_send_response(struct nvmet_tcp_cmd *cmd,
 	cmd->offset += ret;
 	left -= ret;
 
-	trace_nvmet_tcp_try_send_response(cmd->req.cqe->command_id, cmd->queue->idx, ret, left, ktime_get_ns());
+	trace_nvmet_tcp_try_send_response(cmd->req.cqe->command_id, cmd->queue->idx, ret, left, ktime_get_real_ns());
 
 	if (left)
 		return -EAGAIN;
@@ -730,7 +730,7 @@ static int nvmet_try_send_r2t(struct nvmet_tcp_cmd *cmd, bool last_in_batch)
 	cmd->offset += ret;
 	left -= ret;
 
-	trace_nvmet_tcp_try_send_r2t(cmd->req.cmd->common.command_id, cmd->queue->idx, ret, left, ktime_get_ns());
+	trace_nvmet_tcp_try_send_r2t(cmd->req.cmd->common.command_id, cmd->queue->idx, ret, left, ktime_get_real_ns());
 
 	if (left)
 		return -EAGAIN;
@@ -1000,7 +1000,7 @@ static int nvmet_tcp_handle_h2c_data_pdu(struct nvmet_tcp_queue *queue)
 			nvmet_tcp_ddgst_len(queue) -
 			sizeof(*data);
 
- 	trace_nvmet_tcp_handle_h2c_data_pdu(cmd->req.cmd->common.command_id, queue->idx, exp_data_len, ktime_get_ns());
+ 	trace_nvmet_tcp_handle_h2c_data_pdu(cmd->req.cmd->common.command_id, queue->idx, exp_data_len, ktime_get_real_ns());
 
 
 	cmd->pdu_len = le32_to_cpu(data->data_length);
@@ -1057,9 +1057,9 @@ static int nvmet_tcp_done_recv_pdu(struct nvmet_tcp_queue *queue)
 	req = &queue->cmd->req;
 	memcpy(req->cmd, nvme_cmd, sizeof(*nvme_cmd));
 
-	
-
-	trace_nvmet_tcp_done_recv_pdu(queue->pdu.cmd.cmd.common.command_id, queue->idx, nvme_is_write(&queue->pdu.cmd.cmd), ktime_get_ns());
+	if(queue->pdu.cmd.tag){
+		trace_nvmet_tcp_done_recv_pdu(queue->pdu.cmd.cmd.common.command_id, queue->idx, nvme_is_write(&queue->pdu.cmd.cmd), le32_to_cpu(req->cmd->common.dptr.sgl.length), ktime_get_real_ns());
+	} 
 
 	if (unlikely(!nvmet_req_init(req, &queue->nvme_cq,
 			&queue->nvme_sq, &nvmet_tcp_ops))) {
@@ -1093,7 +1093,7 @@ static int nvmet_tcp_done_recv_pdu(struct nvmet_tcp_queue *queue)
 		nvmet_tcp_queue_response(&queue->cmd->req);
 		goto out;
 	}
-	trace_nvmet_tcp_exec_read_req(req->cmd->common.command_id, queue->idx, nvme_is_write(req->cmd), ktime_get_ns());
+	trace_nvmet_tcp_exec_read_req(req->cmd->common.command_id, queue->idx, nvme_is_write(req->cmd), ktime_get_real_ns());
 	queue->cmd->req.execute(&queue->cmd->req);
 out:
 	nvmet_prepare_receive_pdu(queue);
@@ -1165,7 +1165,7 @@ recv:
 		queue->left = hdr->hlen - queue->offset + hdgst;
 
 		int remote_port = ntohs((tcp_sk(queue->sock->sk))->inet_conn.icsk_inet.inet_dport);
-		trace_nvmet_tcp_try_recv_pdu(hdr->type,hdr->hlen, queue->left, queue->idx, remote_port, ktime_get_ns());
+		trace_nvmet_tcp_try_recv_pdu(hdr->type,hdr->hlen, queue->left, queue->idx, remote_port, ktime_get_real_ns());
 		
 		goto recv;
 	}
@@ -1205,7 +1205,7 @@ static int nvmet_tcp_try_recv_data(struct nvmet_tcp_queue *queue)
 			cmd->recv_msg.msg_flags);
 		if (ret <= 0)
 			return ret;
-		trace_nvmet_tcp_try_recv_data(cmd->req.cmd->common.command_id, queue->idx, ret, ktime_get_ns());
+		trace_nvmet_tcp_try_recv_data(cmd->req.cmd->common.command_id, queue->idx, ret, ktime_get_real_ns());
 		cmd->pdu_recv += ret;
 		cmd->rbytes_done += ret;
 	}

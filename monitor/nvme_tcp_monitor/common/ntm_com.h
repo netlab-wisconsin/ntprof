@@ -3,9 +3,45 @@
 
 #include "config.h"
 
+#define SIZE_NUM 7
 
-enum size_type { _LT_4K, _4K, _8K, _16K, _32K, _64K, _128K, _GT_128K, _OTHERS };
+enum size_type { _4K, _8K, _16K, _32K, _64K, _128K, _OTHERS };
 
+/** a function, given int size, return enum */ 
+static inline enum size_type size_to_enum(int size) {
+  if (size == 4096) return _4K;
+  if (size == 8192) return _8K;
+  if (size == 16384) return _16K;
+  if (size == 32768) return _32K;
+  if (size == 65536) return _64K;
+  if (size == 131072) return _128K;
+  return _OTHERS;
+}
+
+static inline int size_idx(int size) {
+  if (size == 4096) return 0;
+  if (size == 8192) return 1;
+  if (size == 16384) return 2;
+  if (size == 32768) return 3;
+  if (size == 65536) return 4;
+  if (size == 131072) return 5;
+  return 6;
+}
+
+static inline char* size_name(int idx) {
+  switch (idx) {
+    case 0: return "4K";
+    case 1: return "8K";
+    case 2: return "16K";
+    case 3: return "32K";
+    case 4: return "64K";
+    case 5: return "128K";
+    case 6: return "OTHERS";
+    default: return "UNKNOWN";
+  }
+}
+
+/** -------------- BLOCK LAYER -------------- */
 
 /**
  * a data structure to store the blk layer statistics
@@ -22,33 +58,37 @@ struct blk_stat {
    * the sizs are divided into 9 categories
    * refers to enum size_type
    */
-  unsigned long long read_io[9];
+  unsigned long long read_io[SIZE_NUM];
   /** write io number of different sizes */
-  unsigned long long write_io[9];
+  unsigned long long write_io[SIZE_NUM];
   /** TODO: number of io in-flight */
-  unsigned long long pending_rq;
+  // unsigned long long pending_rq;
 
   unsigned long long read_lat;
   unsigned long long write_lat;
+  unsigned long long read_io_lat[SIZE_NUM];
+  unsigned long long write_io_lat[SIZE_NUM];
 };
 
 
 /**
  * Initialize the blk_stat structure
  * set all the fields to 0
- * @param tr the blk_stat structure to be initialized
+ * @param stat the blk_stat structure to be initialized
  */
-inline void init_blk_tr(struct blk_stat *tr) {
+static inline void init_blk_stat(struct blk_stat *stat) {
   int i;
-  tr->read_count = 0;
-  tr->write_count = 0;
-  for (i = 0; i < 9; i++) {
-    tr->read_io[i] = 0;
-    tr->write_io[i] = 0;
+  stat->read_count = 0;
+  stat->write_count = 0;
+  for (i = 0; i < SIZE_NUM; i++) {
+    stat->read_io[i] = 0;
+    stat->write_io[i] = 0;
+    stat->read_io_lat[i] = 0;
+    stat->write_io_lat[i] = 0;
   }
-  tr->pending_rq = 0;
-  tr->read_lat = 0;
-  tr->write_lat = 0;
+  // stat->pending_rq = 0;
+  stat->read_lat = 0;
+  stat->write_lat = 0;
 }
 
 /**
@@ -56,34 +96,25 @@ inline void init_blk_tr(struct blk_stat *tr) {
  * @param arr the array to store the count of different size categories
  * @param size the size of the io
 */
-inline void inc_cnt_arr(unsigned long long *arr, int size) {
-  if (size < 4096) {
-    arr[_LT_4K]++;
-  } else if (size == 4096) {
-    arr[_4K]++;
-  } else if (size == 8192) {
-    arr[_8K]++;
-  } else if (size == 16384) {
-    arr[_16K]++;
-  } else if (size == 32768) {
-    arr[_32K]++;
-  } else if (size == 65536) {
-    arr[_64K]++;
-  } else if (size == 131072) {
-    arr[_128K]++;
-  } else if (size > 131072) {
-    arr[_GT_128K]++;
-  } else {
-    arr[_OTHERS]++;
-  } 
+static inline void inc_cnt_arr(unsigned long long *arr, int size) {
+  arr[size_to_enum(size)]++;
+}
+
+static inline void add_lat_arr(unsigned long long *arr, int size, unsigned long long lat) {
+  arr[size_to_enum(size)] += lat;
 }
 
 /** this struct is shared between kernel space and the user space */
 struct shared_blk_layer_stat{
   struct blk_stat all_time_stat;
-  struct blk_stat sw_stat;
 };
 
+static inline void init_shared_blk_layer_stat(struct shared_blk_layer_stat *stat) {
+  init_blk_stat(&stat->all_time_stat);
+}
+
+
+/** -------------- NVME-TCP LAYER -------------- */
 
 struct nvmetcp_read_breakdown {
   int cnt;
@@ -95,7 +126,15 @@ struct nvmetcp_read_breakdown {
   unsigned long long t_endtoend;
 };
 
-
+static inline void init_nvmetcp_read_breakdown(struct nvmetcp_read_breakdown *rb) {
+  rb->cnt = 0;
+  rb->t_inqueue = 0;
+  rb->t_reqcopy = 0;
+  rb->t_datacopy = 0;
+  rb->t_waiting = 0;
+  rb->t_waitproc = 0;
+  rb->t_endtoend = 0;
+}
 
 struct nvmetcp_write_breakdown {
   int cnt;
@@ -106,17 +145,42 @@ struct nvmetcp_write_breakdown {
   unsigned long long t_endtoend;
 };
 
+static inline void init_nvmetcp_write_breakdown(struct nvmetcp_write_breakdown *wb) {
+  wb->cnt = 0;
+  wb->t_inqueue = 0;
+  wb->t_reqcopy = 0;
+  wb->t_datacopy = 0;
+  wb->t_waiting = 0;
+  wb->t_endtoend = 0;
+}
+
 struct nvme_tcp_stat {
-  struct nvmetcp_read_breakdown read;
-  struct nvmetcp_write_breakdown write;
-  unsigned long long read_before;
-  unsigned long long write_before;
+  struct nvmetcp_read_breakdown read[SIZE_NUM];
+  struct nvmetcp_write_breakdown write[SIZE_NUM];
+  unsigned long long read_before[SIZE_NUM];
+  unsigned long long write_before[SIZE_NUM];
 };
+
+static inline void init_nvme_tcp_stat(struct nvme_tcp_stat *stat) {
+  int i;
+  for (i = 0; i < SIZE_NUM; i++) {
+    init_nvmetcp_read_breakdown(&stat->read[i]);
+    init_nvmetcp_write_breakdown(&stat->write[i]);
+    stat->read_before[i] = 0;
+    stat->write_before[i] = 0;
+  }
+}
 
 struct shared_nvme_tcp_layer_stat {
   struct nvme_tcp_stat all_time_stat;
-  struct nvme_tcp_stat sw_stat;
 };
+
+static inline void init_shared_nvme_tcp_layer_stat(struct shared_nvme_tcp_layer_stat *stat) {
+  init_nvme_tcp_stat(&stat->all_time_stat);
+}
+
+
+/** -------------- TCP LAYER -------------- */
 
 struct tcp_stat_one_queue {
   int pkt_in_flight;
@@ -128,13 +192,13 @@ struct tcp_stat {
   struct tcp_stat_one_queue sks[MAX_QID];
 };
 
-inline void init_tcp_stat(struct tcp_stat *stat) {
+static inline void init_tcp_stat(struct tcp_stat *stat) {
   int i;
   for (i = 0; i < MAX_QID; i++) {
     stat->sks[i].pkt_in_flight = 0;
     stat->sks[i].cwnd = 0;
+    stat->sks[0].last_event[0] = '\0';
   }
-  stat->sks[0].last_event[0] = '\0';
 }
 
 #endif // NTM_COM_H

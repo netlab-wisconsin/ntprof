@@ -7,6 +7,7 @@
 #include <linux/types.h>
 #include <linux/string.h>
 #include <stdbool.h>
+#include <linux/slab.h>
 
 /** sliding window */
 struct sliding_window {
@@ -21,7 +22,7 @@ struct sliding_window {
  * initialize a sliding window
  * @param sw: the sliding window to be initialized
  */
-void init_sliding_window(struct sliding_window *sw) {
+static inline void init_sliding_window(struct sliding_window *sw) {
   INIT_LIST_HEAD(&sw->list);
   atomic64_set(&sw->count, 0);
   spin_lock_init(&sw->lock);
@@ -43,7 +44,7 @@ struct sw_node {
  * @param sw: the sliding window
  * @param node: the node to be added
  */
-void add_to_sliding_window(struct sliding_window *sw, struct sw_node *node) {
+static inline void add_to_sliding_window(struct sliding_window *sw, struct sw_node *node) {
   spin_lock(&sw->lock);
   list_add_tail(&node->list, &sw->list);
   atomic64_inc(&sw->count);
@@ -55,7 +56,7 @@ void add_to_sliding_window(struct sliding_window *sw, struct sw_node *node) {
  * @param sw: the sliding window
  * @param timestamp: the timestamp
  */
-int remove_from_sliding_window(struct sliding_window *sw, u64 expire) {
+static inline int remove_from_sliding_window(struct sliding_window *sw, u64 expire) {
   struct list_head *pos, *q;
   struct sw_node *node;
   u64 cnt = 0;
@@ -77,7 +78,7 @@ int remove_from_sliding_window(struct sliding_window *sw, u64 expire) {
   return cnt;
 }
 
-void clear_sliding_window(struct sliding_window *sw) {
+static inline void clear_sliding_window(struct sliding_window *sw) {
   struct list_head *pos, *q;
   struct sw_node *node;
   spin_lock(&sw->lock);
@@ -93,18 +94,18 @@ void clear_sliding_window(struct sliding_window *sw) {
 
 
 
-static bool parse_nvme_name(const char *name, int *ctrl_id, int *ns_id) {
-    int path_id; // 临时变量用于解析路径 ID
+static inline bool parse_nvme_name(const char *name, int *ctrl_id, int *ns_id) {
+    int path_id;
 
-    // 检查名称是否以 "nvme" 开头
+    // check if starts with "nvme"
     if (strstr(name, "nvme") != name)
         return false;
 
-    // 尝试解析格式 nvme<ctrl_id>c<path_id>n<ns_id>
+    // try to parse nvme<ctrl_id>c<path_id>n<ns_id>
     if (sscanf(name, "nvme%dc%dn%d", ctrl_id, &path_id, ns_id) == 3)
         return true;
 
-    // 尝试解析格式 nvme<ctrl_id>n<ns_id>
+    // try to parse nvme<ctrl_id>n<ns_id>
     if (sscanf(name, "nvme%dn%d", ctrl_id, ns_id) == 2)
         return true;
 
@@ -112,23 +113,23 @@ static bool parse_nvme_name(const char *name, int *ctrl_id, int *ns_id) {
 }
 
 /** todo this method can be time consuming */
-bool is_same_dev_name(char *name1, char *name2) {
+static inline bool is_same_dev_name(char *name1, char *name2) {
     int ctrl_id1, ns_id1;
     int ctrl_id2, ns_id2;
 
-    // 如果名称完全相同，则返回 true
+    // if identical, return true
     if (strcmp(name1, name2) == 0)
         return true;
 
-    // 解析第一个设备名称
+    // parse the first device name
     if (!parse_nvme_name(name1, &ctrl_id1, &ns_id1))
         return false;
 
-    // 解析第二个设备名称
+    // parse the second device name
     if (!parse_nvme_name(name2, &ctrl_id2, &ns_id2))
         return false;
 
-    // 比较控制器 ID 和命名空间 ID
+    // compare the parsed values
     return (ctrl_id1 == ctrl_id2) && (ns_id1 == ns_id2);
 }
 
