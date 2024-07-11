@@ -7,17 +7,16 @@
 
 enum size_type { _4K, _8K, _16K, _32K, _64K, _128K, _OTHERS };
 
-/** a function, given int size, return enum */ 
+/** a function, given int size, return enum */
 static inline enum size_type size_to_enum(int size) {
-  if(size == 4096) return _4K;
-  if(size == 8192) return _8K;
-  if(size == 16384) return _16K;
-  if(size == 32768) return _32K;
-  if(size == 65536) return _64K;
-  if(size == 131072) return _128K;
+  if (size == 4096) return _4K;
+  if (size == 8192) return _8K;
+  if (size == 16384) return _16K;
+  if (size == 32768) return _32K;
+  if (size == 65536) return _64K;
+  if (size == 131072) return _128K;
   return _OTHERS;
 }
-
 
 static inline int size_idx(int size) {
   if (size == 4096) return 0;
@@ -29,16 +28,24 @@ static inline int size_idx(int size) {
   return 6;
 }
 
-static inline char* size_name(int idx) {
+static inline char *size_name(int idx) {
   switch (idx) {
-    case 0: return "4K";
-    case 1: return "8K";
-    case 2: return "16K";
-    case 3: return "32K";
-    case 4: return "64K";
-    case 5: return "128K";
-    case 6: return "OTHERS";
-    default: return "UNKNOWN";
+    case 0:
+      return "4K";
+    case 1:
+      return "8K";
+    case 2:
+      return "16K";
+    case 3:
+      return "32K";
+    case 4:
+      return "64K";
+    case 5:
+      return "128K";
+    case 6:
+      return "OTHERS";
+    default:
+      return "UNKNOWN";
   }
 }
 
@@ -71,44 +78,52 @@ static inline void init_blk_stat(struct blk_stat *stat) {
  * Increase the count of a specific size category
  * @param arr the array to store the count of different size categories
  * @param size the size of the io
-*/
+ */
 static inline void inc_cnt_arr(unsigned long long *arr, int size) {
   arr[size_to_enum(size)]++;
 }
 
-static inline void add_lat_arr(unsigned long long *arr, int size, unsigned long long lat) {
+static inline void add_lat_arr(unsigned long long *arr, int size,
+                               unsigned long long lat) {
   arr[size_to_enum(size)] += lat;
 }
-
 
 /** -------------- NVME-TCP LAYER -------------- */
 
 struct nvmet_tcp_read_breakdown {
-  unsigned long long in_nvmet_tcp_time;
-  unsigned long long in_blk_time;
-  unsigned long long end2end_time;
+  unsigned long long cmd_caps_q;
+  unsigned long long cmd_proc;
+  unsigned long long sub_and_exec;
+  unsigned long long comp_q;
+  unsigned long long resp_proc;
+  unsigned long long end2end;
   unsigned long cnt;
 };
 
-static inline void init_nvmet_tcp_read_breakdown(struct nvmet_tcp_read_breakdown *breakdown) {
-  breakdown->in_nvmet_tcp_time = 0;
-  breakdown->in_blk_time = 0;
-  breakdown->end2end_time = 0;
+static inline void init_nvmet_tcp_read_breakdown(
+    struct nvmet_tcp_read_breakdown *breakdown) {
+  breakdown->cmd_caps_q = 0;
+  breakdown->cmd_proc = 0;
+  breakdown->sub_and_exec = 0;
+  breakdown->comp_q = 0;
+  breakdown->resp_proc = 0;
+  breakdown->end2end = 0;
   breakdown->cnt = 0;
 }
 
 struct nvmet_tcp_write_breakdown {
   unsigned long long make_r2t_time;
-  unsigned long long in_nvmet_tcp_time;
-  unsigned long long in_blk_time;
+  unsigned long long nvmet_tcp_processing;
+  unsigned long long nvme_submission_and_execution;
   unsigned long long end2end_time;
   unsigned long cnt;
 };
 
-static inline void init_nvmet_tcp_write_breakdown(struct nvmet_tcp_write_breakdown *breakdown) {
+static inline void init_nvmet_tcp_write_breakdown(
+    struct nvmet_tcp_write_breakdown *breakdown) {
   breakdown->make_r2t_time = 0;
-  breakdown->in_nvmet_tcp_time = 0;
-  breakdown->in_blk_time = 0;
+  breakdown->nvmet_tcp_processing = 0;
+  breakdown->nvme_submission_and_execution = 0;
   breakdown->end2end_time = 0;
   breakdown->cnt = 0;
 }
@@ -126,7 +141,6 @@ static inline void init_nvmet_tcp_stat(struct nvmet_tcp_stat *stat) {
     init_nvmet_tcp_write_breakdown(&stat->all_write[i]);
   }
 }
-
 
 struct tcp_stat_one_queue {
   int pkt_in_flight;

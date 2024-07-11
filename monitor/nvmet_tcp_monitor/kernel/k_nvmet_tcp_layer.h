@@ -123,26 +123,35 @@ static inline void init_nvmet_tcp_io_instance(
 }
 
 struct atomic_nvmet_tcp_read_breakdown {
-  atomic64_t in_nvmet_tcp_time;
-  atomic64_t in_blk_time;
-  atomic64_t end2end_time;
+  atomic64_t cmd_caps_q;
+  atomic64_t cmd_proc;
+  atomic64_t sub_and_exec;
+  atomic64_t comp_q;
+  atomic64_t resp_proc;
+  atomic64_t end2end;
   atomic_t cnt;
 };
 
 static inline void init_atomic_nvmet_tcp_read_breakdown(
     struct atomic_nvmet_tcp_read_breakdown* breakdown) {
-  atomic64_set(&breakdown->in_nvmet_tcp_time, 0);
-  atomic64_set(&breakdown->in_blk_time, 0);
-  atomic64_set(&breakdown->end2end_time, 0);
+  atomic64_set(&breakdown->cmd_caps_q, 0);
+  atomic64_set(&breakdown->cmd_proc, 0);  
+  atomic64_set(&breakdown->sub_and_exec, 0);
+  atomic64_set(&breakdown->comp_q, 0);
+  atomic64_set(&breakdown->resp_proc, 0);
+  atomic64_set(&breakdown->end2end, 0);
   atomic_set(&breakdown->cnt, 0);
 }
 
 static inline void copy_nvmet_tcp_read_breakdown(
     struct nvmet_tcp_read_breakdown* dst,
     struct atomic_nvmet_tcp_read_breakdown* src) {
-  dst->in_nvmet_tcp_time = atomic64_read(&src->in_nvmet_tcp_time);
-  dst->in_blk_time = atomic64_read(&src->in_blk_time);
-  dst->end2end_time = atomic64_read(&src->end2end_time);
+  dst->cmd_caps_q = atomic64_read(&src->cmd_caps_q);
+  dst->cmd_proc = atomic64_read(&src->cmd_proc);
+  dst->sub_and_exec = atomic64_read(&src->sub_and_exec);
+  dst->comp_q = atomic64_read(&src->comp_q);
+  dst->resp_proc = atomic64_read(&src->resp_proc);
+  dst->end2end = atomic64_read(&src->end2end);
   dst->cnt = atomic_read(&src->cnt);
 }
 
@@ -167,8 +176,8 @@ static inline void copy_nvmet_tcp_write_breakdown(
     struct nvmet_tcp_write_breakdown* dst,
     struct atomic_nvmet_tcp_write_breakdown* src) {
   dst->make_r2t_time = atomic64_read(&src->make_r2t_time);
-  dst->in_nvmet_tcp_time = atomic64_read(&src->in_nvmet_tcp_time);
-  dst->in_blk_time = atomic64_read(&src->in_blk_time);
+  dst->nvmet_tcp_processing = atomic64_read(&src->in_nvmet_tcp_time);
+  dst->nvme_submission_and_execution = atomic64_read(&src->in_blk_time);
   dst->end2end_time = atomic64_read(&src->end2end_time);
   dst->cnt = atomic_read(&src->cnt);
 }

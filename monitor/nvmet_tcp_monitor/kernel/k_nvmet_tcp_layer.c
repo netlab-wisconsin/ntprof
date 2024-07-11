@@ -261,11 +261,19 @@ bool is_standard_write(struct nvmet_io_instance* io_instance) {
 
 void update_atomic_read_breakdown(struct atomic_nvmet_tcp_read_breakdown* breakdown,
                            struct nvmet_io_instance* io_instance) {
-  u64 in_blk_time = io_instance->ts[2] - io_instance->ts[1];
-  u64 total = io_instance->ts[io_instance->cnt - 1] - io_instance->ts[0];
-  atomic64_add(in_blk_time, &breakdown->in_blk_time);
-  atomic64_add(total - in_blk_time, &breakdown->in_nvmet_tcp_time);
-  atomic64_add(total, &breakdown->end2end_time);
+  u64 cmd_caps_q = io_instance->ts[0] - io_instance->recv_ts[0];
+  u64 cmd_proc = io_instance->ts[1] - io_instance->ts[0];
+  u64 sub_and_exec = io_instance->ts[2] - io_instance->ts[1];
+  u64 comp_q = io_instance->ts[3] - io_instance->ts[2];
+  u64 resp_proc = io_instance->ts[io_instance->cnt-1] - io_instance->ts[3];
+
+  atomic64_add(cmd_caps_q, &breakdown->cmd_caps_q);
+  atomic64_add(cmd_proc, &breakdown->cmd_proc);
+  atomic64_add(sub_and_exec, &breakdown->sub_and_exec);
+  atomic64_add(comp_q, &breakdown->comp_q);
+  atomic64_add(resp_proc, &breakdown->resp_proc);
+  atomic64_add(io_instance->ts[io_instance->cnt - 1] - io_instance->recv_ts[0],
+               &breakdown->end2end);
   atomic_inc(&breakdown->cnt);
 }
 
