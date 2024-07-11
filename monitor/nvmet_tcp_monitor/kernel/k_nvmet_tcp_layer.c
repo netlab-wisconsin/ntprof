@@ -35,10 +35,11 @@ static bool to_sample(void) {
 
 
 void append_event(struct nvmet_io_instance* io_instance,
-                  enum nvmet_tcp_trpt trpt, u64 ts) {
+                  enum nvmet_tcp_trpt trpt, u64 ts, long long recv_time) {
   if (io_instance->cnt < EVENT_NUM) {
     io_instance->trpt[io_instance->cnt] = trpt;
     io_instance->ts[io_instance->cnt] = ts;
+    io_instance->recv_ts[io_instance->cnt] = recv_time;
     io_instance->cnt++;
   } else {
     io_instance->is_spoiled = true;
@@ -53,7 +54,7 @@ void print_io_instance(struct nvmet_io_instance* io_instance) {
           io_instance->cnt, io_instance->is_spoiled);
   for (i = 0; i < io_instance->cnt; i++) {
     nvmet_tcp_trpt_name(io_instance->trpt[i], name);
-    pr_info("event%d, %llu, %s\n", i, io_instance->ts[i], name);
+    pr_info("event%d, %llu, %s, %lld\n", i, io_instance->ts[i], name, io_instance->recv_ts[i]);
   }
 }
 
@@ -70,7 +71,7 @@ void on_try_recv_pdu(void* ignore, u8 pdu_type, u8 hdr_len, int queue_left,
 }
 
 void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
-                      int size, unsigned long long time) {
+                      int size, unsigned long long time, long long recv_time) {
   if (ctrl && args->qid[qid] && args->io_type + is_write != 1) {
     if (to_sample()) {
       // pr_info("DONE_RECV_PDU: cmd_id: %d, qid: %d, is_write: %d, time:
@@ -80,7 +81,7 @@ void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
         current_io = kmalloc(sizeof(struct nvmet_io_instance), GFP_KERNEL);
 
         init_nvmet_tcp_io_instance(current_io, cmd_id, is_write, size);
-        append_event(current_io, DONE_RECV_PDU, time);
+        append_event(current_io, DONE_RECV_PDU, time, recv_time);
       } else {
         pr_info("current_io is not NULL\n");
       }
@@ -97,7 +98,7 @@ void on_exec_read_req(void* ignore, u16 cmd_id, int qid, bool is_write,
     // pr_info("EXEC_READ_REQ: cmd_id: %d, qid: %d, is_write: %d, time: %llu\n",
     // cmd_id, qid, is_write, time);
     if (current_io && current_io->command_id == cmd_id) {
-      append_event(current_io, EXEC_READ_REQ, time);
+      append_event(current_io, EXEC_READ_REQ, time, 0);
     }
   }
 }
@@ -113,7 +114,7 @@ void on_exec_write_req(void* ignore, u16 cmd_id, int qid, bool is_write,
     // %llu\n",
     //         cmd_id, qid, is_write, time);
     if (current_io && current_io->command_id == cmd_id) {
-      append_event(current_io, EXEC_WRITE_REQ, time);
+      append_event(current_io, EXEC_WRITE_REQ, time, 0);
     }
   }
 }
@@ -125,7 +126,7 @@ void on_queue_response(void* ignore, u16 cmd_id, int qid, bool is_write,
     // %llu\n",
     //         cmd_id, qid, is_write, time);
     if (current_io && current_io->command_id == cmd_id) {
-      append_event(current_io, QUEUE_RESPONSE, time);
+      append_event(current_io, QUEUE_RESPONSE, time, 0);
     }
   }
 }
@@ -136,7 +137,7 @@ void on_setup_c2h_data_pdu(void* ignore, u16 cmd_id, int qid,
     // pr_info("SETUP_C2H_DATA_PDU: cmd_id: %d, qid: %d, time: %llu\n", cmd_id,
     //         qid, time);
     if (current_io && current_io->command_id == cmd_id) {
-      append_event(current_io, SETUP_C2H_DATA_PDU, time);
+      append_event(current_io, SETUP_C2H_DATA_PDU, time, 0);
     }
   }
 }
@@ -148,7 +149,7 @@ void on_setup_r2t_pdu(void* ignore, u16 cmd_id, int qid,
     //         time);
     if (current_io && current_io->command_id == cmd_id) {
       current_io->contain_r2t = true;
-      append_event(current_io, SETUP_R2T_PDU, time);
+      append_event(current_io, SETUP_R2T_PDU, time, 0);
     }
   }
 }
@@ -159,7 +160,7 @@ void on_setup_response_pdu(void* ignore, u16 cmd_id, int qid,
     // pr_info("SETUP_RESPONSE_PDU: cmd_id: %d, qid: %d, time: %llu\n", cmd_id,
     //         qid, time);
     if (current_io && current_io->command_id == cmd_id) {
-      append_event(current_io, SETUP_RESPONSE_PDU, time);
+      append_event(current_io, SETUP_RESPONSE_PDU, time, 0);
     }
   }
 }
@@ -173,7 +174,7 @@ void on_try_send_data_pdu(void* ignore, u16 cmd_id, int qid, int cp_len,
     //     "%llu\n",
     //     cmd_id, qid, cp_len, left, time);
     if (current_io && current_io->command_id == cmd_id) {
-      append_event(current_io, TRY_SEND_DATA_PDU, time);
+      append_event(current_io, TRY_SEND_DATA_PDU, time, 0);
     }
   }
 }
@@ -186,7 +187,7 @@ void on_try_send_r2t(void* ignore, u16 cmd_id, int qid, int cp_len, int left,
     //     "%llu\n",
     //     cmd_id, qid, cp_len, left, time);
     if (current_io && current_io->command_id == cmd_id) {
-      append_event(current_io, TRY_SEND_R2T, time);
+      append_event(current_io, TRY_SEND_R2T, time, 0);
     }
   }
 }
@@ -299,7 +300,7 @@ void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
     //     "%llu\n",
     //     cmd_id, qid, cp_len, left, time);
     if (current_io && current_io->command_id == cmd_id) {
-      append_event(current_io, TRY_SEND_RESPONSE, time);
+      append_event(current_io, TRY_SEND_RESPONSE, time, 0);
       /** insert the current io sample to the sample sliding window */
       if(args->detail)
         print_io_instance(current_io);
@@ -336,18 +337,18 @@ void on_try_send_data(void* ignore, u16 cmd_id, int qid, int cp_len,
     // pr_info("TRY_SEND_DATA: cmd_id: %d, qid: %d, cp_len: %d, time: %llu\n",
     //         cmd_id, qid, cp_len, time);
     if (current_io && current_io->command_id == cmd_id) {
-      append_event(current_io, TRY_SEND_DATA, time);
+      append_event(current_io, TRY_SEND_DATA, time, 0);
     }
   }
 }
 
 void on_try_recv_data(void* ignore, u16 cmd_id, int qid, int cp_len,
-                      unsigned long long time) {
+                      unsigned long long time, long long recv_time) {
   if (ctrl && args->qid[qid]) {
     // pr_info("TRY_RECV_DATA: cmd_id: %d, qid: %d, cp_len: %d, time: %llu\n",
     //         cmd_id, qid, cp_len, time);
     if (current_io && current_io->command_id == cmd_id) {
-      append_event(current_io, TRY_RECV_DATA, time);
+      append_event(current_io, TRY_RECV_DATA, time, recv_time);
     }
   }
 }
@@ -360,7 +361,7 @@ void on_handle_h2c_data_pdu(void* ignore, u16 cmd_id, int qid, int datalen,
     //     %llu\n", cmd_id, qid, datalen, time);
     if (current_io && current_io->command_id == cmd_id) {
       current_io->size = datalen;
-      append_event(current_io, HANDLE_H2C_DATA_PDU, time);
+      append_event(current_io, HANDLE_H2C_DATA_PDU, time, 0);
     }
   }
 }

@@ -1020,7 +1020,7 @@ static int nvmet_tcp_handle_h2c_data_pdu(struct nvmet_tcp_queue *queue)
 	return 0;
 }
 
-static int nvmet_tcp_done_recv_pdu(struct nvmet_tcp_queue *queue)
+static int nvmet_tcp_done_recv_pdu(struct nvmet_tcp_queue *queue, long long recv_time)
 {
 	struct nvme_tcp_hdr *hdr = &queue->pdu.cmd.hdr;
 	struct nvme_command *nvme_cmd = &queue->pdu.cmd.cmd;
@@ -1058,7 +1058,7 @@ static int nvmet_tcp_done_recv_pdu(struct nvmet_tcp_queue *queue)
 	memcpy(req->cmd, nvme_cmd, sizeof(*nvme_cmd));
 
 	if(queue->pdu.cmd.tag){
-		trace_nvmet_tcp_done_recv_pdu(queue->pdu.cmd.cmd.common.command_id, queue->idx, nvme_is_write(&queue->pdu.cmd.cmd), le32_to_cpu(req->cmd->common.dptr.sgl.length), ktime_get_real_ns());
+		trace_nvmet_tcp_done_recv_pdu(queue->pdu.cmd.cmd.common.command_id, queue->idx, nvme_is_write(&queue->pdu.cmd.cmd), le32_to_cpu(req->cmd->common.dptr.sgl.length), ktime_get_real_ns(), recv_time);
 	} 
 
 	if (unlikely(!nvmet_req_init(req, &queue->nvme_cq,
@@ -1134,6 +1134,7 @@ static int nvmet_tcp_try_recv_pdu(struct nvmet_tcp_queue *queue)
 	int len;
 	struct kvec iov;
 	struct msghdr msg = { .msg_flags = MSG_DONTWAIT };
+	long long recv_time = 0;
 
 recv:
 	char ckbuf[CMSG_SPACE(sizeof(struct __kernel_old_timespec))];
@@ -1151,8 +1152,10 @@ recv:
 	if(cmsg == NULL) {
 		pr_err("cmsg is NULL\n");
 	} else {
-		struct __kernel_old_timespec * ts = (struct __kernel_old_timespec *)CMSG_DATA(cmsg);
-		long long recv_time = ((s64) ts->tv_sec * NSEC_PER_SEC) + ts->tv_nsec;
+		if(recv_time == 0) {
+			struct __kernel_old_timespec * ts = (struct __kernel_old_timespec *)CMSG_DATA(cmsg);
+			recv_time = ((s64) ts->tv_sec * NSEC_PER_SEC) + ts->tv_nsec;
+		}		
 	}
 
 	queue->offset += len;
@@ -1194,7 +1197,7 @@ recv:
 		return -EPROTO;
 	}
 
-	return nvmet_tcp_done_recv_pdu(queue);
+	return nvmet_tcp_done_recv_pdu(queue, recv_time);
 }
 
 static void nvmet_tcp_prep_recv_ddgst(struct nvmet_tcp_cmd *cmd)
@@ -1211,13 +1214,22 @@ static int nvmet_tcp_try_recv_data(struct nvmet_tcp_queue *queue)
 {
 	struct nvmet_tcp_cmd  *cmd = queue->cmd;
 	int ret;
+	long long recv_time = 0;
 
 	while (msg_data_left(&cmd->recv_msg)) {
+		char ckbuf[CMSG_SPACE(sizeof(struct __kernel_old_timespec))];
+		cmd->recv_msg.msg_control = ckbuf;
+		cmd->recv_msg.msg_controllen = sizeof(ckbuf);
+		struct cmsghdr *cmsg = CMSG_FIRSTHDR(&cmd->recv_msg); 
 		ret = sock_recvmsg(cmd->queue->sock, &cmd->recv_msg,
 			cmd->recv_msg.msg_flags);
 		if (ret <= 0)
 			return ret;
-		trace_nvmet_tcp_try_recv_data(cmd->req.cmd->common.command_id, queue->idx, ret, ktime_get_real_ns());
+		if(cmsg == NULL || CMSG_DATA(cmsg) == NULL) 
+			pr_err("cmsg is NULL or CMSG_DATA is NULL\n");
+		struct __kernel_old_timespec * ts = (struct __kernel_old_timespec *)CMSG_DATA(cmsg);
+		recv_time = ((s64) ts->tv_sec * NSEC_PER_SEC) + ts->tv_nsec;
+		trace_nvmet_tcp_try_recv_data(cmd->req.cmd->common.command_id, queue->idx, ret, ktime_get_real_ns(), recv_time);
 		cmd->pdu_recv += ret;
 		cmd->rbytes_done += ret;
 	}

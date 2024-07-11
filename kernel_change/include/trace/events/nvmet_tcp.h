@@ -29,8 +29,8 @@ TRACE_EVENT(nvmet_tcp_try_recv_pdu,
 );
 
 TRACE_EVENT(nvmet_tcp_done_recv_pdu,
-    TP_PROTO(u16 cmd_id, int qid, bool is_write, int size, unsigned long long time),
-    TP_ARGS(cmd_id, qid, is_write, size, time),
+    TP_PROTO(u16 cmd_id, int qid, bool is_write, int size, unsigned long long time, long long recv_time),
+    TP_ARGS(cmd_id, qid, is_write, size, time, recv_time),
     TP_STRUCT__entry(
         __field(u16, cmd_id)
         __field(int, qid)
@@ -162,9 +162,21 @@ TRACE_EVENT( nvmet_tcp_handle_h2c_data_pdu,
         __entry->cmd_id, __entry->qid, __entry->datalen)
 );
 
-DEFINE_EVENT(nvmet_tcp_handle_h2c_data_pdu, nvmet_tcp_try_recv_data,
-    TP_PROTO(u16 cmd_id, int qid, int datalen, unsigned long long time),
-    TP_ARGS(cmd_id, qid, datalen, time)
+TRACE_EVENT(nvmet_tcp_try_recv_data,
+    TP_PROTO(u16 cmd_id, int qid, int datalen, unsigned long long time, long long recv_time),
+    TP_ARGS(cmd_id, qid, datalen, time, recv_time),
+    TP_STRUCT__entry(
+        __field(u16, cmd_id)
+        __field(int, qid)
+        __field(int, datalen)
+    ),
+    TP_fast_assign(
+        __entry->cmd_id = cmd_id;
+        __entry->qid = qid;
+        __entry->datalen = datalen;
+    ),
+    TP_printk("cmd_id=%u, qid=%d, datalen=%d",
+        __entry->cmd_id, __entry->qid, __entry->datalen)
 );
 
 TRACE_EVENT(nvmet_tcp_alloc_queue,

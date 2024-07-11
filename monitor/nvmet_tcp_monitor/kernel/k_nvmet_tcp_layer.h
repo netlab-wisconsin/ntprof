@@ -99,6 +99,7 @@ struct nvmet_io_instance {
   bool is_write;
   u16 command_id;
   u64 ts[EVENT_NUM];
+  long long recv_ts[EVENT_NUM]; 
   enum nvmet_tcp_trpt trpt[EVENT_NUM];
   u8 cnt;
   u32 size;
