@@ -1687,6 +1687,9 @@ static int nvmet_tcp_alloc_queue(struct nvmet_tcp_port *port,
 	ret = nvmet_tcp_set_queue_sock(queue);
 	if (ret)
 		goto out_destroy_sq;
+	
+	// enable recv timestamp
+	sock_enable_timestamps(queue->sock->sk);
 
 	return 0;
 out_destroy_sq:
