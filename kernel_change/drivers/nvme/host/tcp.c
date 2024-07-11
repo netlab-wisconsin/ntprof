@@ -28,7 +28,7 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(nvme_tcp_try_send_cmd_pdu);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvme_tcp_try_send_data_pdu);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvme_tcp_done_send_req);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvme_tcp_try_recv);
-EXPORT_TRACEPOINT_SYMBOL_GPL(nvme_tcp_recv_pdu);
+// EXPORT_TRACEPOINT_SYMBOL_GPL(nvme_tcp_recv_pdu);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvme_tcp_handle_c2h_data);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvme_tcp_recv_data);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvme_tcp_process_nvme_cqe);
@@ -597,7 +597,7 @@ static int nvme_tcp_process_nvme_cqe(struct nvme_tcp_queue *queue,
 }
 
 static int nvme_tcp_handle_c2h_data(struct nvme_tcp_queue *queue,
-		struct nvme_tcp_data_pdu *pdu, u64 time)
+		struct nvme_tcp_data_pdu *pdu, s64 time)
 {
 	struct request *rq;
 
@@ -632,7 +632,7 @@ static int nvme_tcp_handle_c2h_data(struct nvme_tcp_queue *queue,
 }
 
 static int nvme_tcp_handle_comp(struct nvme_tcp_queue *queue,
-		struct nvme_tcp_rsp_pdu *pdu, u64 time)
+		struct nvme_tcp_rsp_pdu *pdu, s64 time)
 {
 	struct nvme_completion *cqe = &pdu->cqe;
 	int ret = 0;
@@ -709,7 +709,7 @@ static int nvme_tcp_setup_h2c_data_pdu(struct nvme_tcp_request *req,
 
 
 static int nvme_tcp_handle_r2t(struct nvme_tcp_queue *queue,
-		struct nvme_tcp_r2t_pdu *pdu, u64 time)
+		struct nvme_tcp_r2t_pdu *pdu, s64 time)
 {
 	struct nvme_tcp_request *req;
 	struct request *rq;
@@ -740,7 +740,7 @@ static int nvme_tcp_handle_r2t(struct nvme_tcp_queue *queue,
 }
 
 static int nvme_tcp_recv_pdu(struct nvme_tcp_queue *queue, struct sk_buff *skb,
-		unsigned int *offset, size_t *len, u64 time)
+		unsigned int *offset, size_t *len, s64 time)
 {
 	struct nvme_tcp_hdr *hdr;
 	char *pdu = queue->pdu;
@@ -924,17 +924,18 @@ static int nvme_tcp_recv_skb(read_descriptor_t *desc, struct sk_buff *skb,
 	size_t consumed = len;
 	int result;
 
-	u64 now = ktime_get_real_ns();
+	s64 recv_time = (s64)skb->tstamp;
+	s64 now = ktime_get_real_ns();
 
-	trace_nvme_tcp_try_recv(offset, len, nvme_tcp_recv_state(queue), nvme_tcp_queue_id(queue), now);
+	trace_nvme_tcp_try_recv(offset, len, nvme_tcp_recv_state(queue), nvme_tcp_queue_id(queue), now, recv_time);
 
 	while (len) {
 		switch (nvme_tcp_recv_state(queue)) {
 		case NVME_TCP_RECV_PDU:
-			result = nvme_tcp_recv_pdu(queue, skb, &offset, &len, now);
+			result = nvme_tcp_recv_pdu(queue, skb, &offset, &len, recv_time);
 			break;
 		case NVME_TCP_RECV_DATA:
-			result = nvme_tcp_recv_data(queue, skb, &offset, &len, now);
+			result = nvme_tcp_recv_data(queue, skb, &offset, &len, recv_time);
 			break;
 		case NVME_TCP_RECV_DDGST:
 			result = nvme_tcp_recv_ddgst(queue, skb, &offset, &len);
@@ -1549,6 +1550,9 @@ static int nvme_tcp_alloc_queue(struct nvme_ctrl *nctrl,
 
 	/* Set TCP no delay */
 	tcp_sock_set_nodelay(queue->sock->sk);
+
+	/* Enable recv timestamp */
+	sock_enable_timestamps(queue->sock->sk);
 
 	/*
 	 * Cleanup whatever is sitting in the TCP transmit queue on socket
@@ -2528,7 +2532,12 @@ static blk_status_t nvme_tcp_queue_rq(struct blk_mq_hw_ctx *hctx,
 	// pr_info("mylog: nvme_tcp_queue_rq, req_len:%d, send_len:%d\n", req_len, send_len);
 
 	bool to_trace = false;
-	trace_nvme_tcp_queue_rq(rq, &to_trace, req_len, send_len, ktime_get_real_ns());
+
+	/** 
+	 * the timestamp compares bio issue time, which calls ktime_get_ns. More details in 
+	 * bio_issue_init in blk_types.h
+	*/
+	trace_nvme_tcp_queue_rq(rq, &to_trace, req_len, send_len, ktime_get_ns());
 
 	if (!nvme_check_ready(&queue->ctrl->ctrl, rq, queue_ready))
 		return nvme_fail_nonready_command(&queue->ctrl->ctrl, rq);
@@ -2536,6 +2545,8 @@ static blk_status_t nvme_tcp_queue_rq(struct blk_mq_hw_ctx *hctx,
 	ret = nvme_tcp_setup_cmd_pdu(ns, rq);
 	if (unlikely(ret))
 		return ret;
+
+	// pr_info("reqtag: %d, cmdid: %d, to_trace=%d", rq->tag, req->req.cmd->common.command_id, to_trace);
 	
 	((struct nvme_tcp_cmd_pdu *)req->pdu)->tag = to_trace;
 

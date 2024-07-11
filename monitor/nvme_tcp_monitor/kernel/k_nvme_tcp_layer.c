@@ -428,7 +428,7 @@ void on_nvme_tcp_done_send_req(void *ignore, struct request *req,
 }
 
 void on_nvme_tcp_try_recv(void *ignore, int offset, size_t len, int recv_stat,
-                          int qid, unsigned long long time) {
+                          int qid, unsigned long long time, long long recv_time) {
   // if (req->tag == current_io->req_tag) {
   // append_event(current_io, time, TRY_RECV);
   // }
@@ -442,19 +442,19 @@ void on_nvme_tcp_try_recv(void *ignore, int offset, size_t len, int recv_stat,
       pr_err("write io contains c2h data\n");
     }
     // current_io->sizs[current_io->cnt] = len;
-    append_event(current_io, time, TRY_RECV, len, 0);
+    append_event(current_io, time, TRY_RECV, len, recv_time);
   }
 }
 
-void on_nvme_tcp_recv_pdu(void *ignore, int consumed, unsigned char pdu_type,
-                          int qid, unsigned long long time) {
-  return;
-}
+// void on_nvme_tcp_recv_pdu(void *ignore, int consumed, unsigned char pdu_type,
+//                           int qid, unsigned long long time) {
+//   return;
+// }
 
 void on_nvme_tcp_handle_c2h_data(void *ignore, struct request *rq,
                                  int data_remain, int qid,
                                  unsigned long long time,
-                                 unsigned long long recv_time) {
+                                 long long recv_time) {
   if (!ctrl || args->io_type + rq_data_dir(rq) == 1) {
     return;
   }
@@ -466,7 +466,7 @@ void on_nvme_tcp_handle_c2h_data(void *ignore, struct request *rq,
 
 void on_nvme_tcp_recv_data(void *ignore, struct request *rq, int cp_len,
                            int qid, unsigned long long time,
-                           unsigned long long recv_time) {
+                           long long recv_time) {
   if (!ctrl || args->io_type + rq_data_dir(rq) == 1) {
     return;
   }
@@ -477,7 +477,7 @@ void on_nvme_tcp_recv_data(void *ignore, struct request *rq, int cp_len,
 
 void on_nvme_tcp_handle_r2t(void *ignore, struct request *req,
                             unsigned long long time,
-                            unsigned long long recv_time) {
+                            long long recv_time) {
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
@@ -549,7 +549,7 @@ void update_atomic_write_breakdown(struct nvme_tcp_io_instance *io,
 
 void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
                                   unsigned long long time,
-                                  unsigned long long recv_time) {
+                                  long long recv_time) {
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
@@ -634,16 +634,16 @@ static int nvmetcp_register_tracepoint(void) {
     pr_err("Failed to register nvme_tcp_try_recv\n");
     goto unregister_done_send_req;
   }
-  pr_info("register nvme_tcp_recv_pdu");
-  if ((ret = register_trace_nvme_tcp_recv_pdu(on_nvme_tcp_recv_pdu, NULL))) {
-    pr_err("Failed to register nvme_tcp_recv_pdu\n");
-    goto unregister_try_recv;
-  }
+  // pr_info("register nvme_tcp_recv_pdu");
+  // if ((ret = register_trace_nvme_tcp_recv_pdu(on_nvme_tcp_recv_pdu, NULL))) {
+  //   pr_err("Failed to register nvme_tcp_recv_pdu\n");
+  //   goto unregister_try_recv;
+  // }
   pr_info("register nvme_tcp_handle_c2h_data");
   if ((ret = register_trace_nvme_tcp_handle_c2h_data(
            on_nvme_tcp_handle_c2h_data, NULL))) {
     pr_err("Failed to register nvme_tcp_handle_c2h_data\n");
-    goto unregister_recv_pdu;
+    goto unregister_try_recv;
   }
   pr_info("register nvme_tcp_recv_data");
   if ((ret = register_trace_nvme_tcp_recv_data(on_nvme_tcp_recv_data, NULL))) {
@@ -671,8 +671,8 @@ unregister_recv_data:
   unregister_trace_nvme_tcp_recv_data(on_nvme_tcp_recv_data, NULL);
 unregister_handle_c2h_data:
   unregister_trace_nvme_tcp_handle_c2h_data(on_nvme_tcp_handle_c2h_data, NULL);
-unregister_recv_pdu:
-  unregister_trace_nvme_tcp_recv_pdu(on_nvme_tcp_recv_pdu, NULL);
+// unregister_recv_pdu:
+//   unregister_trace_nvme_tcp_recv_pdu(on_nvme_tcp_recv_pdu, NULL);
 unregister_try_recv:
   unregister_trace_nvme_tcp_try_recv(on_nvme_tcp_try_recv, NULL);
 unregister_done_send_req:
@@ -706,7 +706,7 @@ static void nvmetcp_unregister_tracepoint(void) {
   unregister_trace_nvme_tcp_try_send_data(on_nvme_tcp_try_send_data, NULL);
   unregister_trace_nvme_tcp_done_send_req(on_nvme_tcp_done_send_req, NULL);
   unregister_trace_nvme_tcp_try_recv(on_nvme_tcp_try_recv, NULL);
-  unregister_trace_nvme_tcp_recv_pdu(on_nvme_tcp_recv_pdu, NULL);
+  // unregister_trace_nvme_tcp_recv_pdu(on_nvme_tcp_recv_pdu, NULL);
   unregister_trace_nvme_tcp_handle_c2h_data(on_nvme_tcp_handle_c2h_data, NULL);
   unregister_trace_nvme_tcp_recv_data(on_nvme_tcp_recv_data, NULL);
   unregister_trace_nvme_tcp_handle_r2t(on_nvme_tcp_handle_r2t, NULL);
