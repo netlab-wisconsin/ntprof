@@ -162,8 +162,8 @@ void init_nvme_tcp_io_instance(struct nvme_tcp_io_instance *inst,
 
 void print_io_instance(struct nvme_tcp_io_instance *inst) {
   int i;
-  pr_info("req_tag: %d, cmdid: %d, waitlist: %d\n", inst->req_tag,
-          inst->cmdid, inst->waitlist);
+  pr_info("req_tag: %d, cmdid: %d, waitlist: %d\n", inst->req_tag, inst->cmdid,
+          inst->waitlist);
   for (i = 0; i < inst->cnt; i++) {
     char name[32];
     nvme_tcp_trpt_name(inst->trpt[i], name);
@@ -191,15 +191,15 @@ void append_event(struct nvme_tcp_io_instance *inst, u64 ts,
  * @param ignore: the first parameter of the tracepoint
  * @param req: the request
  */
-void on_nvme_tcp_queue_rq(void *ignore, struct request *req, bool *to_trace, int len1, int len2,
-                          long long unsigned int time) {
+void on_nvme_tcp_queue_rq(void *ignore, struct request *req, bool *to_trace,
+                          int len1, int len2, long long unsigned int time) {
   u32 qid;
   u16 cnt;
   struct bio *b;
 
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) return;
 
-  if(req->rq_disk && req->rq_disk->disk_name) {
+  if (req->rq_disk && req->rq_disk->disk_name) {
     if (!is_same_dev_name(req->rq_disk->disk_name, args->dev)) return;
   } else {
     return;
@@ -250,32 +250,34 @@ bool is_standard_read(struct nvme_tcp_io_instance *io) {
   return true;
 }
 
-void update_read_breakdown(struct nvme_tcp_io_instance *io,
-                           struct nvmetcp_read_breakdown *rb) {
-  int i;
-  if (!is_standard_read(io)) {
-    pr_err("event sequence is not correct\n");
-    print_io_instance(io);
-    // BUG();
-    return;
-  }
-  rb->cnt++;
-  rb->t_inqueue += io->ts[2] - io->ts[1];
-  rb->t_reqcopy += io->ts[4] - io->ts[2];
+// void update_read_breakdown(struct nvme_tcp_io_instance *io,
+//                            struct nvmetcp_read_breakdown *rb) {
+//   pr_info("update_read_breakdown\n");
+//   int i;
+//   if (!is_standard_read(io)) {
+//     pr_err("event sequence is not correct\n");
+//     print_io_instance(io);
+//     // BUG();
+//     return;
+//   }
+//   rb->cnt++;
+//   rb->t_inqueue += io->ts[2] - io->ts[1];
+//   rb->t_reqcopy += io->ts[4] - io->ts[2];
 
-  /**  */
-  rb->t_waitproc += io->ts[5] - io->ts2[5];
-  rb->t_waiting += io->ts2[5] - io->ts[4];
+//   /**  */
+//   rb->t_waitproc += io->ts[5] - io->ts2[5];
+//   rb->t_waiting += io->ts2[5] - io->ts[4];
 
-  for (i = 6; i < io->cnt; i++) {
-    if (io->trpt[i] == RECV_DATA) {
-      rb->t_datacopy += io->ts[i] - io->ts[i - 1];
-    } else if (io->trpt[i] == TRY_RECV) {
-      rb->t_waiting += io->ts[i] - io->ts[i - 1];
-    }
-  }
-  rb->t_endtoend += io->ts[io->cnt - 1] - io->ts[0];
-}
+//   for (i = 6; i < io->cnt; i++) {
+//     if (io->trpt[i] == RECV_DATA) {
+//       rb->t_datacopy += io->ts[i] - io->ts[i - 1];
+//     } else if (io->trpt[i] == TRY_RECV) {
+//       rb->t_waiting += io->ts[i] - io->ts[i - 1];
+//     }
+//   }
+//   rb->t_endtoend += io->ts[io->cnt - 1] - io->ts[1];
+//   pr_info("end to end %d\n", io->ts[io->cnt - 1] - io->ts[1]);
+// }
 
 /**
  *
@@ -428,7 +430,8 @@ void on_nvme_tcp_done_send_req(void *ignore, struct request *req,
 }
 
 void on_nvme_tcp_try_recv(void *ignore, int offset, size_t len, int recv_stat,
-                          int qid, unsigned long long time, long long recv_time) {
+                          int qid, unsigned long long time,
+                          long long recv_time) {
   // if (req->tag == current_io->req_tag) {
   // append_event(current_io, time, TRY_RECV);
   // }
@@ -453,8 +456,7 @@ void on_nvme_tcp_try_recv(void *ignore, int offset, size_t len, int recv_stat,
 
 void on_nvme_tcp_handle_c2h_data(void *ignore, struct request *rq,
                                  int data_remain, int qid,
-                                 unsigned long long time,
-                                 long long recv_time) {
+                                 unsigned long long time, long long recv_time) {
   if (!ctrl || args->io_type + rq_data_dir(rq) == 1) {
     return;
   }
@@ -476,8 +478,7 @@ void on_nvme_tcp_recv_data(void *ignore, struct request *rq, int cp_len,
 }
 
 void on_nvme_tcp_handle_r2t(void *ignore, struct request *req,
-                            unsigned long long time,
-                            long long recv_time) {
+                            unsigned long long time, long long recv_time) {
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
@@ -511,7 +512,7 @@ void update_atomic_read_breakdown(struct nvme_tcp_io_instance *io,
       atomic64_add(io->ts[i] - io->ts[i - 1], &rb->t_waiting);
     }
   }
-  atomic64_add(io->ts[io->cnt - 1] - io->ts[0], &rb->t_endtoend);
+  atomic64_add(io->ts[io->cnt - 1] - io->ts[1], &rb->t_endtoend);
 }
 
 void update_atomic_write_breakdown(struct nvme_tcp_io_instance *io,
@@ -556,8 +557,7 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, PROCESS_NVME_CQE, -1, recv_time);
 
-    if(args->detail)
-      print_io_instance(current_io);
+    if (args->detail) print_io_instance(current_io);
 
     /** update the all-time statistic */
     if (rq_data_dir(req)) {
