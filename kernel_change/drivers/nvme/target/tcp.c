@@ -1136,12 +1136,24 @@ static int nvmet_tcp_try_recv_pdu(struct nvmet_tcp_queue *queue)
 	struct msghdr msg = { .msg_flags = MSG_DONTWAIT };
 
 recv:
+	char ckbuf[CMSG_SPACE(sizeof(struct __kernel_old_timespec))];
+	msg.msg_control = ckbuf;
+	msg.msg_controllen = sizeof(ckbuf);
+	struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg); 
+
 	iov.iov_base = (void *)&queue->pdu + queue->offset;
 	iov.iov_len = queue->left;
 	len = kernel_recvmsg(queue->sock, &msg, &iov, 1,
 			iov.iov_len, msg.msg_flags);
 	if (unlikely(len < 0))
 		return len;
+
+	if(cmsg == NULL) {
+		pr_err("cmsg is NULL\n");
+	} else {
+		struct __kernel_old_timespec * ts = (struct __kernel_old_timespec *)CMSG_DATA(cmsg);
+		long long recv_time = ((s64) ts->tv_sec * NSEC_PER_SEC) + ts->tv_nsec;
+	}
 
 	queue->offset += len;
 	queue->left -= len;
