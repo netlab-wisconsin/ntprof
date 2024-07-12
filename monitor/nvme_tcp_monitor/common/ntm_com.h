@@ -118,40 +118,48 @@ static inline void init_shared_blk_layer_stat(struct shared_blk_layer_stat *stat
 
 struct nvmetcp_read_breakdown {
   int cnt;
-  unsigned long long t_inqueue;
-  unsigned long long t_reqcopy;
-  unsigned long long t_datacopy;
-  unsigned long long t_waiting;
-  unsigned long long t_waitproc;
-  unsigned long long t_endtoend;
+  long long sub_q;
+  long long req_proc;
+  long long waiting;
+  long long comp_q;
+  long long resp_proc;
+  long long e2e;
 };
 
 static inline void init_nvmetcp_read_breakdown(struct nvmetcp_read_breakdown *rb) {
   rb->cnt = 0;
-  rb->t_inqueue = 0;
-  rb->t_reqcopy = 0;
-  rb->t_datacopy = 0;
-  rb->t_waiting = 0;
-  rb->t_waitproc = 0;
-  rb->t_endtoend = 0;
+  rb->sub_q = 0;
+  rb->req_proc = 0;
+  rb->waiting = 0;
+  rb->comp_q = 0;
+  rb->resp_proc = 0;
+  rb->e2e = 0;
 }
 
 struct nvmetcp_write_breakdown {
   int cnt;
-  unsigned long long t_inqueue;
-  unsigned long long t_reqcopy;
-  unsigned long long t_datacopy;
-  unsigned long long t_waiting;
-  unsigned long long t_endtoend;
+  long long sub_q1;
+  long long req_proc1;
+  long long waiting1;
+  long long ready_q;
+  long long sub_q2;
+  long long req_proc2;
+  long long waiting2;
+  long long comp_q;
+  long long e2e;
 };
 
 static inline void init_nvmetcp_write_breakdown(struct nvmetcp_write_breakdown *wb) {
   wb->cnt = 0;
-  wb->t_inqueue = 0;
-  wb->t_reqcopy = 0;
-  wb->t_datacopy = 0;
-  wb->t_waiting = 0;
-  wb->t_endtoend = 0;
+  wb->sub_q1 = 0;
+  wb->req_proc1 = 0;
+  wb->waiting1 = 0;
+  wb->ready_q = 0;
+  wb->sub_q2 = 0;
+  wb->req_proc2 = 0;
+  wb->waiting2 = 0;
+  wb->comp_q = 0;
+  wb->e2e = 0;
 }
 
 struct nvme_tcp_stat {

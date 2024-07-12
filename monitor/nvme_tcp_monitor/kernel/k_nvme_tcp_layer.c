@@ -13,6 +13,8 @@
 #include "k_ntm.h"
 #include "util.h"
 
+#define BIG_NUM 1720748973000000000
+
 static atomic64_t sample_cnt;
 
 struct nvme_tcp_io_instance *current_io;
@@ -27,69 +29,6 @@ struct atomic_nvme_tcp_stat *a_nvme_tcp_stat;
 
 static bool to_sample(void) {
   return atomic64_inc_return(&sample_cnt) % args->rate == 0;
-}
-
-void init_atomic_nvme_tcp_read_breakdown(
-    struct atomic_nvme_tcp_read_breakdown *rb) {
-  atomic64_set(&rb->cnt, 0);
-  atomic64_set(&rb->t_inqueue, 0);
-  atomic64_set(&rb->t_reqcopy, 0);
-  atomic64_set(&rb->t_datacopy, 0);
-  atomic64_set(&rb->t_waiting, 0);
-  atomic64_set(&rb->t_waitproc, 0);
-  atomic64_set(&rb->t_endtoend, 0);
-}
-
-void init_atomic_nvme_tcp_write_breakdown(
-    struct atomic_nvme_tcp_write_breakdown *wb) {
-  atomic64_set(&wb->cnt, 0);
-  atomic64_set(&wb->t_inqueue, 0);
-  atomic64_set(&wb->t_reqcopy, 0);
-  atomic64_set(&wb->t_datacopy, 0);
-  atomic64_set(&wb->t_waiting, 0);
-  atomic64_set(&wb->t_endtoend, 0);
-}
-
-void init_atomic_nvme_tcp_stat(struct atomic_nvme_tcp_stat *stat) {
-  int i;
-  for (i = 0; i < SIZE_NUM; i++) {
-    init_atomic_nvme_tcp_read_breakdown(&stat->read[i]);
-    init_atomic_nvme_tcp_write_breakdown(&stat->write[i]);
-    atomic64_set(&stat->read_before[i], 0);
-    atomic64_set(&stat->write_before[i], 0);
-  }
-}
-
-void copy_nvme_tcp_write_breakdown(struct atomic_nvme_tcp_write_breakdown *src,
-                                   struct nvmetcp_write_breakdown *dst) {
-  dst->cnt = atomic64_read(&src->cnt);
-  dst->t_inqueue = atomic64_read(&src->t_inqueue);
-  dst->t_reqcopy = atomic64_read(&src->t_reqcopy);
-  dst->t_datacopy = atomic64_read(&src->t_datacopy);
-  dst->t_waiting = atomic64_read(&src->t_waiting);
-  dst->t_endtoend = atomic64_read(&src->t_endtoend);
-}
-
-void copy_nvme_tcp_read_breakdown(struct atomic_nvme_tcp_read_breakdown *src,
-                                  struct nvmetcp_read_breakdown *dst) {
-  dst->cnt = atomic64_read(&src->cnt);
-  dst->t_inqueue = atomic64_read(&src->t_inqueue);
-  dst->t_reqcopy = atomic64_read(&src->t_reqcopy);
-  dst->t_datacopy = atomic64_read(&src->t_datacopy);
-  dst->t_waiting = atomic64_read(&src->t_waiting);
-  dst->t_waitproc = atomic64_read(&src->t_waitproc);
-  dst->t_endtoend = atomic64_read(&src->t_endtoend);
-}
-
-void copy_nvme_tcp_stat(struct atomic_nvme_tcp_stat *src,
-                        struct nvme_tcp_stat *dst) {
-  int i;
-  for (i = 0; i < SIZE_NUM; i++) {
-    copy_nvme_tcp_read_breakdown(&src->read[i], &dst->read[i]);
-    copy_nvme_tcp_write_breakdown(&src->write[i], &dst->write[i]);
-    dst->read_before[i] = atomic64_read(&src->read_before[i]);
-    dst->write_before[i] = atomic64_read(&src->write_before[i]);
-  }
 }
 
 void nvme_tcp_trpt_name(enum nvme_tcp_trpt trpt, char *name) {
@@ -162,13 +101,17 @@ void init_nvme_tcp_io_instance(struct nvme_tcp_io_instance *inst,
 
 void print_io_instance(struct nvme_tcp_io_instance *inst) {
   int i;
-  pr_info("req_tag: %d, cmdid: %d, waitlist: %d\n", inst->req_tag, inst->cmdid,
-          inst->waitlist);
+  pr_info("req_tag: %d, cmdid: %d, waitlist: %d, e2e: %llu\n", inst->req_tag,
+          inst->cmdid, inst->waitlist, inst->ts[inst->cnt - 1] - inst->ts[1]);
   for (i = 0; i < inst->cnt; i++) {
     char name[32];
     nvme_tcp_trpt_name(inst->trpt[i], name);
-    pr_info("event%d, %llu, %s, size: %llu, ts2: %llu\n", i, inst->ts[i], name,
-            inst->sizs[i], inst->ts2[i]);
+    if (inst->trpt[i] == HANDLE_C2H_DATA) {
+      pr_info("event%d, %llu, %s, size: %llu, ts2: %llu\n", i,
+              inst->ts2[i] - BIG_NUM, "TCP_RECV", inst->sizs[i], inst->ts2[i]);
+    }
+    pr_info("event%d, %llu, %s, size: %llu, ts2: %llu\n", i,
+            inst->ts[i] - BIG_NUM, name, inst->sizs[i], inst->ts2[i]);
   }
 }
 
@@ -224,139 +167,9 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, bool *to_trace,
     init_nvme_tcp_io_instance(current_io, (rq_data_dir(req) == WRITE), req->tag,
                               len1 + len2, 0, false, false, false, size);
     current_io->before = lat;
-    append_event(current_io, time, QUEUE_RQ, -1, 0);
+    append_event(current_io, time, QUEUE_RQ, 0, 0);
     *to_trace = true;
   }
-}
-
-/*
- * 0: QUEUE_RQ
- * 1: QUEUE_REQUEST
- * 2: TRY_SEND
- * 3: TRY_SEND_CMD_PDU
- * 4: DONE_SEND_REQ
- * 5: HANDLE_C2H_DATA
- * */
-bool is_standard_read(struct nvme_tcp_io_instance *io) {
-  if (io->cnt < 6) {
-    return false;
-  }
-  if (io->trpt[0] != QUEUE_RQ || io->trpt[1] != QUEUE_REQUEST ||
-      io->trpt[2] != TRY_SEND || io->trpt[3] != TRY_SEND_CMD_PDU ||
-      io->trpt[4] != DONE_SEND_REQ || io->trpt[5] != HANDLE_C2H_DATA ||
-      io->trpt[io->cnt - 1] != PROCESS_NVME_CQE) {
-    return false;
-  }
-  return true;
-}
-
-// void update_read_breakdown(struct nvme_tcp_io_instance *io,
-//                            struct nvmetcp_read_breakdown *rb) {
-//   pr_info("update_read_breakdown\n");
-//   int i;
-//   if (!is_standard_read(io)) {
-//     pr_err("event sequence is not correct\n");
-//     print_io_instance(io);
-//     // BUG();
-//     return;
-//   }
-//   rb->cnt++;
-//   rb->t_inqueue += io->ts[2] - io->ts[1];
-//   rb->t_reqcopy += io->ts[4] - io->ts[2];
-
-//   /**  */
-//   rb->t_waitproc += io->ts[5] - io->ts2[5];
-//   rb->t_waiting += io->ts2[5] - io->ts[4];
-
-//   for (i = 6; i < io->cnt; i++) {
-//     if (io->trpt[i] == RECV_DATA) {
-//       rb->t_datacopy += io->ts[i] - io->ts[i - 1];
-//     } else if (io->trpt[i] == TRY_RECV) {
-//       rb->t_waiting += io->ts[i] - io->ts[i - 1];
-//     }
-//   }
-//   rb->t_endtoend += io->ts[io->cnt - 1] - io->ts[1];
-//   pr_info("end to end %d\n", io->ts[io->cnt - 1] - io->ts[1]);
-// }
-
-/**
- *
- *
- * without r2t
-  0	 QUEUE_RQ
-  1	 QUEUE_REQUEST
-  2	 TRY_SEND
-  3	 TRY_SEND_CMD_PDU
-  4	 TRY_SEND_DATA
-    ... <TRY_SEND_DATA>
-  5	 DONE_SEND_REQ
-  6	 PROCESS_NVME_CQE
-
-  with r2t
-  0	 QUEUE_RQ
-  1	 QUEUE_REQUEST
-  2	 TRY_SEND
-  3	 TRY_SEND_CMD_PDU
-  4	 DONE_SEND_REQ
-  5	 HANDLE_R2T
-  6	 QUEUE_REQUEST
-  7	 TRY_SEND
-  8	 TRY_SEND_DATA_PDU
-  9	 TRY_SEND_DATA
-  10	 TRY_SEND_DATA
-  11	 TRY_SEND_DATA
-  12	 TRY_SEND_DATA
-  13	 TRY_SEND_DATA
-  14	 TRY_SEND_DATA
-  15	 TRY_SEND_DATA
-  16	 TRY_SEND_DATA
-  17	 TRY_SEND_DATA
-  18	 TRY_SEND_DATA
-  19	 TRY_SEND_DATA
-  20	 TRY_SEND_DATA
-  21	 TRY_SEND_DATA
-  22	 TRY_SEND_DATA
-  23	 TRY_SEND_DATA
-  24	 TRY_SEND_DATA
-  25	 DONE_SEND_REQ
-  26	 PROCESS_NVME_CQE
-
- *
-*/
-void update_write_breakdown(struct nvme_tcp_io_instance *io,
-                            struct nvmetcp_write_breakdown *rb) {
-  /** get the corresponding io instance based on request size */
-
-  if (io->contains_r2t) {
-    /** TODO: to remove the check when it is safe */
-    if (io->cnt < 11) {
-      pr_err("event number for write containing r2t is < 11 \n");
-      return;
-    }
-    if (io->trpt[0] != QUEUE_RQ || io->trpt[1] != QUEUE_REQUEST ||
-        io->trpt[2] != TRY_SEND || io->trpt[4] != DONE_SEND_REQ ||
-        io->trpt[5] != HANDLE_R2T || io->trpt[6] != QUEUE_REQUEST ||
-        io->trpt[7] != TRY_SEND || io->trpt[io->cnt - 2] != DONE_SEND_REQ ||
-        io->trpt[io->cnt - 1] != PROCESS_NVME_CQE) {
-      BUG();
-      return;
-    }
-
-    rb->t_inqueue += io->ts[2] - io->ts[1];
-    rb->t_inqueue += io->ts[7] - io->ts[6];
-    rb->t_reqcopy += io->ts[4] - io->ts[2];
-    rb->t_waiting += io->ts[5] - io->ts[4];
-    rb->t_waiting += io->ts[io->cnt - 1] - io->ts[io->cnt - 2];
-    rb->t_datacopy += io->ts[io->cnt - 2] - io->ts[7];
-
-  } else {
-    rb->t_inqueue += io->ts[2] - io->ts[1];
-    rb->t_reqcopy += io->ts[3] - io->ts[2];
-    rb->t_datacopy += io->ts[io->cnt - 2] - io->ts[3];
-    rb->t_waiting += io->ts[io->cnt - 1] - io->ts[io->cnt - 2];
-  }
-  rb->t_endtoend += io->ts[io->cnt - 1] - io->ts[0];
-  rb->cnt++;
 }
 
 void nvme_tcp_stat_update(u64 now) {
@@ -369,7 +182,7 @@ void on_nvme_tcp_queue_request(void *ignore, struct request *req, int cmdid,
     return;
   }
   if (current_io && req->tag == current_io->req_tag) {
-    append_event(current_io, time, QUEUE_REQUEST, -1, 0);
+    append_event(current_io, time, QUEUE_REQUEST, 0, 0);
     current_io->cmdid = cmdid;
   }
 }
@@ -380,7 +193,7 @@ void on_nvme_tcp_try_send(void *ignore, struct request *req,
     return;
   }
   if (current_io && req->tag == current_io->req_tag) {
-    append_event(current_io, time, TRY_SEND, -1, 0);
+    append_event(current_io, time, TRY_SEND, 0, 0);
   }
 }
 
@@ -395,7 +208,7 @@ void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int len,
     pr_info("set qid %d to port %d\n", qid, local_port);
   }
   if (current_io && req->tag == current_io->req_tag) {
-    append_event(current_io, time, TRY_SEND_CMD_PDU, -1, 0);
+    append_event(current_io, time, TRY_SEND_CMD_PDU, 0, 0);
   }
 }
 
@@ -405,7 +218,7 @@ void on_nvme_tcp_try_send_data_pdu(void *ignore, struct request *req, int len,
     return;
   }
   if (current_io && req->tag == current_io->req_tag) {
-    append_event(current_io, time, TRY_SEND_DATA_PDU, -1, 0);
+    append_event(current_io, time, TRY_SEND_DATA_PDU, 0, 0);
   }
 }
 
@@ -415,7 +228,7 @@ void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int len,
     return;
   }
   if (current_io && req->tag == current_io->req_tag) {
-    append_event(current_io, time, TRY_SEND_DATA, -1, 0);
+    append_event(current_io, time, TRY_SEND_DATA, len, 0);
   }
 }
 
@@ -425,7 +238,7 @@ void on_nvme_tcp_done_send_req(void *ignore, struct request *req,
     return;
   }
   if (current_io && req->tag == current_io->req_tag) {
-    append_event(current_io, time, DONE_SEND_REQ, -1, 0);
+    append_event(current_io, time, DONE_SEND_REQ, 0, 0);
   }
 }
 
@@ -484,67 +297,115 @@ void on_nvme_tcp_handle_r2t(void *ignore, struct request *req,
   }
   if (current_io && req->tag == current_io->req_tag) {
     current_io->contains_r2t = true;
-    append_event(current_io, time, HANDLE_R2T, -1, recv_time);
+    append_event(current_io, time, HANDLE_R2T, 0, recv_time);
   }
+}
+
+bool is_valid_read(struct nvme_tcp_io_instance *io) {
+  if (io->cnt < 8) {
+    return false;
+  }
+  int ret = true;
+  ret = ret && io->trpt[0] == QUEUE_RQ;
+  ret = ret && io->trpt[1] == QUEUE_REQUEST;
+  ret = ret && io->trpt[2] == TRY_SEND;
+  ret = ret && io->trpt[3] == TRY_SEND_CMD_PDU;
+  ret = ret && io->trpt[4] == DONE_SEND_REQ;
+  ret = ret && io->trpt[5] == HANDLE_C2H_DATA;
+  int i;
+  for (i = 6; i < io->cnt - 1; i++) {
+    ret = ret && io->trpt[i] == RECV_DATA;
+  }
+  ret = ret && io->trpt[io->cnt - 1] == PROCESS_NVME_CQE;
+  return ret;
 }
 
 void update_atomic_read_breakdown(struct nvme_tcp_io_instance *io,
                                   struct atomic_nvme_tcp_read_breakdown *rb) {
   int i;
-  if (!is_standard_read(io)) {
+  if (!is_valid_read(io)) {
     pr_err("event sequence is not correct\n");
     print_io_instance(io);
-    // BUG();
     return;
   }
   atomic64_inc(&rb->cnt);
-  atomic64_add(io->ts[2] - io->ts[1], &rb->t_inqueue);
-  atomic64_add(io->ts[4] - io->ts[2], &rb->t_reqcopy);
+  atomic64_add(io->ts[2] - io->ts[1], &rb->sub_q);
+  atomic64_add(io->ts[3] - io->ts[2], &rb->req_proc);
+  atomic64_add(io->ts2[5] - io->ts[3], &rb->waiting);
+  atomic64_add(io->ts[5] - io->ts2[5], &rb->comp_q);
+  atomic64_add(io->ts[io->cnt - 1] - io->ts[5], &rb->resp_proc);
+  atomic64_add(io->ts[io->cnt - 1] - io->ts[1], &rb->e2e);
+}
 
-  /**  */
-  atomic64_add(io->ts[5] - io->ts2[5], &rb->t_waitproc);
-  atomic64_add(io->ts2[5] - io->ts[4], &rb->t_waiting);
-
-  for (i = 6; i < io->cnt; i++) {
-    if (io->trpt[i] == RECV_DATA) {
-      atomic64_add(io->ts[i] - io->ts[i - 1], &rb->t_datacopy);
-    } else if (io->trpt[i] == TRY_RECV) {
-      atomic64_add(io->ts[i] - io->ts[i - 1], &rb->t_waiting);
+bool is_valid_write(struct nvme_tcp_io_instance *io, bool contains_r2t) {
+  if (contains_r2t) {
+    if (io->cnt < 11) {
+      return false;
     }
+    int ret = true;
+    ret = ret && io->trpt[0] == QUEUE_RQ;
+    ret = ret && io->trpt[1] == QUEUE_REQUEST;
+    ret = ret && io->trpt[2] == TRY_SEND;
+    ret = ret && io->trpt[3] == TRY_SEND_CMD_PDU;
+    ret = ret && io->trpt[4] == DONE_SEND_REQ;
+    ret = ret && io->trpt[5] == HANDLE_R2T;
+    ret = ret && io->trpt[6] == QUEUE_REQUEST;
+    ret = ret && io->trpt[7] == TRY_SEND;
+    ret = ret && io->trpt[8] == TRY_SEND_DATA_PDU;
+    int i;
+    for (i = 9; i < io->cnt - 2; i++) {
+      ret = ret && io->trpt[i] == TRY_SEND_DATA;
+    }
+    ret = ret && io->trpt[io->cnt - 2] == DONE_SEND_REQ;
+    ret = ret && io->trpt[io->cnt - 1] == PROCESS_NVME_CQE;
+    return ret;
+  } else {
+    if (io->cnt < 6) {
+      return false;
+    }
+    int ret = true;
+    ret = ret && io->trpt[0] == QUEUE_RQ;
+    ret = ret && io->trpt[1] == QUEUE_REQUEST;
+    ret = ret && io->trpt[2] == TRY_SEND;
+    ret = ret && io->trpt[3] == TRY_SEND_CMD_PDU;
+    int i;
+    for (i = 4; i < io->cnt - 2; i++) {
+      ret = ret && io->trpt[i] == TRY_SEND_DATA;
+    }
+    ret = ret && io->trpt[io->cnt - 2] == DONE_SEND_REQ;
+    ret = ret && io->trpt[io->cnt - 1] == PROCESS_NVME_CQE;
+    return ret;
   }
-  atomic64_add(io->ts[io->cnt - 1] - io->ts[1], &rb->t_endtoend);
 }
 
 void update_atomic_write_breakdown(struct nvme_tcp_io_instance *io,
                                    struct atomic_nvme_tcp_write_breakdown *wb) {
   if (io->contains_r2t) {
-    if (io->cnt < 11) {
-      pr_err("event number for write containing r2t is < 11 \n");
+    if (!is_valid_write(io, true)) {
+      pr_err("event sequence is not correct\n");
+      print_io_instance(io);
       return;
     }
-    if (io->trpt[0] != QUEUE_RQ || io->trpt[1] != QUEUE_REQUEST ||
-        io->trpt[2] != TRY_SEND || io->trpt[4] != DONE_SEND_REQ ||
-        io->trpt[5] != HANDLE_R2T || io->trpt[6] != QUEUE_REQUEST ||
-        io->trpt[7] != TRY_SEND || io->trpt[io->cnt - 2] != DONE_SEND_REQ ||
-        io->trpt[io->cnt - 1] != PROCESS_NVME_CQE) {
-      BUG();
-      return;
-    }
-
-    atomic64_add(io->ts[2] - io->ts[1], &wb->t_inqueue);
-    atomic64_add(io->ts[7] - io->ts[6], &wb->t_inqueue);
-    atomic64_add(io->ts[4] - io->ts[2], &wb->t_reqcopy);
-    atomic64_add(io->ts[5] - io->ts[4], &wb->t_waiting);
-    atomic64_add(io->ts[io->cnt - 1] - io->ts[io->cnt - 2], &wb->t_waiting);
-    atomic64_add(io->ts[io->cnt - 2] - io->ts[7], &wb->t_datacopy);
-
+    atomic64_add(io->ts[2] - io->ts[1], &wb->sub_q1);
+    atomic64_add(io->ts[3] - io->ts[2], &wb->req_proc1);
+    atomic64_add(io->ts2[5] - io->ts[3], &wb->waiting1);
+    atomic64_add(io->ts[5] - io->ts2[5], &wb->ready_q);
+    atomic64_add(io->ts[7] - io->ts[5], &wb->sub_q2);
+    atomic64_add(io->ts[io->cnt - 3] - io->ts[7], &wb->req_proc2);
+    atomic64_add(io->ts2[io->cnt - 1] - io->ts[io->cnt - 3], &wb->waiting2);
+    atomic64_add(io->ts[io->cnt - 1] - io->ts2[io->cnt - 1], &wb->comp_q);
   } else {
-    atomic64_add(io->ts[2] - io->ts[1], &wb->t_inqueue);
-    atomic64_add(io->ts[3] - io->ts[2], &wb->t_reqcopy);
-    atomic64_add(io->ts[io->cnt - 2] - io->ts[3], &wb->t_datacopy);
-    atomic64_add(io->ts[io->cnt - 1] - io->ts[io->cnt - 2], &wb->t_waiting);
+    if (!is_valid_write(io, false)) {
+      pr_err("event sequence is not correct\n");
+      print_io_instance(io);
+      return;
+    }
+    atomic64_add(io->ts[3] - io->ts[2], &wb->sub_q1);
+    atomic64_add(io->ts[io->cnt - 3] - io->ts[2], &wb->req_proc1);
+    atomic64_add(io->ts2[io->cnt - -1] - io->ts[io->cnt - 3], &wb->waiting1);
+    atomic64_add(io->ts[io->cnt - 1] - io->ts2[io->cnt - 1], &wb->comp_q);
   }
-  atomic64_add(io->ts[io->cnt - 1] - io->ts[0], &wb->t_endtoend);
+  atomic64_add(io->ts[io->cnt - 1] - io->ts[1], &wb->e2e);
   atomic64_inc(&wb->cnt);
 }
 
@@ -555,7 +416,7 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
     return;
   }
   if (current_io && req->tag == current_io->req_tag) {
-    append_event(current_io, time, PROCESS_NVME_CQE, -1, recv_time);
+    append_event(current_io, time, PROCESS_NVME_CQE, 0, recv_time);
 
     if (args->detail) print_io_instance(current_io);
 
