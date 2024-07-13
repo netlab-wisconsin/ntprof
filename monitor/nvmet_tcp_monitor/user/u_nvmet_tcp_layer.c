@@ -60,15 +60,44 @@ void print_read_breakdown(struct nvmet_tcp_read_breakdown *ns) {
 void print_write_breakdown(struct nvmet_tcp_write_breakdown *ns) {
   printf("\t write breakdown: \t");
   if (ns->cnt) {
+
+  // breakdown->cmd_caps_q = 0;
+  // breakdown->cmd_proc = 0;
+  // breakdown->r2t_sub_q = 0;
+  // breakdown->r2t_resp_proc = 0;
+  // breakdown->wait_for_data = 0;
+  // breakdown->write_cmd_q = 0;
+  // breakdown->write_cmd_proc = 0;
+  // breakdown->nvme_sub_exec = 0;
+  // breakdown->comp_q = 0;
+  // breakdown->resp_proc = 0;
+  // breakdown->cnt = 0;
+
+
     printf("cnt: %lu\t", ns->cnt);
-    printf("make_r2t_time(us): %.2f, ",
-           (float)ns->make_r2t_time / 1000 / ns->cnt);
-    printf("nvmet_tcp_processing(us): %.2f, ",
-           (float)ns->nvmet_tcp_processing / 1000 / ns->cnt);
-    printf("nvme_submission_and_execution(us): %.2f, ",
-           (float)ns->nvme_submission_and_execution / 1000 / ns->cnt);
-    printf("end2end_time(us): %.2f\n",
-           (float)ns->end2end_time / 1000 / ns->cnt);
+    printf("cmd_caps_q(us): %.2f, ",
+           (float)ns->cmd_caps_q / 1000 / ns->cnt);
+    printf("cmd_proc(us): %.2f, ",
+            (float)ns->cmd_proc / 1000 / ns->cnt);
+    printf("r2t_sub_q(us): %.2f, ",
+            (float)ns->r2t_sub_q / 1000 / ns->cnt);
+    printf("r2t_resp_proc(us): %.2f, ",
+            (float)ns->r2t_resp_proc / 1000 / ns->cnt);
+    printf("wait_for_data(us): %.2f, ",
+            (float)ns->wait_for_data / 1000 / ns->cnt);
+    printf("write_cmd_q(us): %.2f, ",
+            (float)ns->write_cmd_q / 1000 / ns->cnt);
+    printf("write_cmd_proc(us): %.2f, ",
+            (float)ns->write_cmd_proc / 1000 / ns->cnt);
+    printf("nvme_sub_exec(us): %.2f, ",
+            (float)ns->nvme_sub_exec / 1000 / ns->cnt);
+    printf("comp_q(us): %.2f, ",
+            (float)ns->comp_q / 1000 / ns->cnt);
+    printf("resp_proc(us): %.2f, ",
+            (float)ns->resp_proc / 1000 / ns->cnt);
+    printf("e2e(us): %.2f\n",
+            (float)ns->e2e / 1000 / ns->cnt);
+    printf("\n");
   } else {
     printf("cnt: %lu\n", ns->cnt);
   }

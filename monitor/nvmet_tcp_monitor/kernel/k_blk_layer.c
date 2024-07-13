@@ -125,10 +125,11 @@ void inc_raw_blk_stat(u64 start, u64 now, bool is_write, bool size,
 void on_block_rq_complete(void *ignore, struct request *rq, int err,
                           unsigned int nr_bytes) {
   if (ctrl && args->io_type + rq_data_dir(rq) != 1) {
+    struct bio *bio;
     if (rq->rq_disk == NULL) return;
     if (!is_same_dev_name(rq->rq_disk->disk_name, args->dev)) return;
 
-    struct bio *bio = rq->bio;
+    bio = rq->bio;
     while (bio) {
       if (blk_to_sample()) {
         /** update inner_blk_stat to record all sampled bio */

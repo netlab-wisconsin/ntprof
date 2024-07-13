@@ -62,10 +62,10 @@ struct blk_stat {
 };
 
 static inline void init_blk_stat(struct blk_stat *stat) {
+  int i;
   stat->all_read_cnt = 0;
   stat->all_write_cnt = 0;
   // stat->in_flight = 0;
-  int i;
   for (i = 0; i < SIZE_NUM; i++) {
     stat->all_read_io[i] = 0;
     stat->all_write_io[i] = 0;
@@ -112,19 +112,33 @@ static inline void init_nvmet_tcp_read_breakdown(
 }
 
 struct nvmet_tcp_write_breakdown {
-  unsigned long long make_r2t_time;
-  unsigned long long nvmet_tcp_processing;
-  unsigned long long nvme_submission_and_execution;
-  unsigned long long end2end_time;
-  unsigned long cnt;
+  long long cmd_caps_q;
+  long long cmd_proc;
+  long long r2t_sub_q;
+  long long r2t_resp_proc;
+  long long wait_for_data;
+  long long write_cmd_q;
+  long long write_cmd_proc;
+  long long nvme_sub_exec;
+  long long comp_q;
+  long long resp_proc;
+  long long e2e;
+  long cnt;
 };
 
 static inline void init_nvmet_tcp_write_breakdown(
     struct nvmet_tcp_write_breakdown *breakdown) {
-  breakdown->make_r2t_time = 0;
-  breakdown->nvmet_tcp_processing = 0;
-  breakdown->nvme_submission_and_execution = 0;
-  breakdown->end2end_time = 0;
+  breakdown->cmd_caps_q = 0;
+  breakdown->cmd_proc = 0;
+  breakdown->r2t_sub_q = 0;
+  breakdown->r2t_resp_proc = 0;
+  breakdown->wait_for_data = 0;
+  breakdown->write_cmd_q = 0;
+  breakdown->write_cmd_proc = 0;
+  breakdown->nvme_sub_exec = 0;
+  breakdown->comp_q = 0;
+  breakdown->resp_proc = 0;
+  breakdown->e2e = 0;
   breakdown->cnt = 0;
 }
 

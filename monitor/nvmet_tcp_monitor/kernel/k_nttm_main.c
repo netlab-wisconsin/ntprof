@@ -189,9 +189,9 @@ void remove_proc_entries(void) {
 }
 
 void init_global_variables(void) {
+  int i;
   ctrl = 0;
   args = vmalloc(sizeof(Arguments));
-  int i;
   for (i = 0; i < MAX_QID; i++) qid2port[i] = -1;
 }
 

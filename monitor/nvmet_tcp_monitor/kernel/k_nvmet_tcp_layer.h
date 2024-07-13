@@ -4,6 +4,7 @@
 #include <linux/string.h>
 #include <linux/types.h>
 #include <linux/atomic.h>
+#include <linux/printk.h>
 
 #include "nttm_com.h"
 
@@ -122,6 +123,23 @@ static inline void init_nvmet_tcp_io_instance(
   }
 }
 
+#define BIG_MNUM 1720748973000000000
+
+static inline void print_io_instance(struct nvmet_io_instance* io_instance) {
+  char name[32];
+  int i = 0;
+  pr_info("command_id: %d, is_write: %d, size: %d, cnt: %d, is_spoiled: %d\n",
+          io_instance->command_id, io_instance->is_write, io_instance->size,
+          io_instance->cnt, io_instance->is_spoiled);
+  pr_info("event%d, %llu, %s, %lld\n", i, io_instance->recv_ts[i] - BIG_MNUM,
+          "TCP_RECV", io_instance->recv_ts[i]);
+  for (i = 0; i < io_instance->cnt; i++) {
+    nvmet_tcp_trpt_name(io_instance->trpt[i], name);
+    pr_info("event%d, %llu, %s, %lld\n", i, io_instance->ts[i] - BIG_MNUM, name,
+            io_instance->recv_ts[i]);
+  }
+}
+
 struct atomic_nvmet_tcp_read_breakdown {
   atomic64_t cmd_caps_q;
   atomic64_t cmd_proc;
@@ -156,29 +174,50 @@ static inline void copy_nvmet_tcp_read_breakdown(
 }
 
 struct atomic_nvmet_tcp_write_breakdown {
-  atomic64_t make_r2t_time;
-  atomic64_t in_nvmet_tcp_time;
-  atomic64_t in_blk_time;
-  atomic64_t end2end_time;
+  atomic64_t cmd_caps_q;
+  atomic64_t cmd_proc;
+  atomic64_t r2t_sub_q;
+  atomic64_t r2t_resp_proc;
+  atomic64_t wait_for_data;
+  atomic64_t write_cmd_q;
+  atomic64_t write_cmd_proc;
+  atomic64_t nvme_sub_exec;
+  atomic64_t comp_q;
+  atomic64_t resp_proc;
+  atomic64_t e2e;
   atomic_t cnt;
 };
 
 static inline void init_atomic_nvmet_tcp_write_breakdown(
     struct atomic_nvmet_tcp_write_breakdown* breakdown) {
-  atomic64_set(&breakdown->make_r2t_time, 0);
-  atomic64_set(&breakdown->in_nvmet_tcp_time, 0);
-  atomic64_set(&breakdown->in_blk_time, 0);
-  atomic64_set(&breakdown->end2end_time, 0);
+  atomic64_set(&breakdown->cmd_caps_q, 0);
+  atomic64_set(&breakdown->cmd_proc, 0);
+  atomic64_set(&breakdown->r2t_sub_q, 0);
+  atomic64_set(&breakdown->r2t_resp_proc, 0);
+  atomic64_set(&breakdown->wait_for_data, 0);
+  atomic64_set(&breakdown->write_cmd_q, 0);
+  atomic64_set(&breakdown->write_cmd_proc, 0);
+  atomic64_set(&breakdown->nvme_sub_exec, 0);
+  atomic64_set(&breakdown->comp_q, 0);
+  atomic64_set(&breakdown->resp_proc, 0);
+  atomic64_set(&breakdown->e2e, 0);
   atomic_set(&breakdown->cnt, 0);
 }
 
 static inline void copy_nvmet_tcp_write_breakdown(
     struct nvmet_tcp_write_breakdown* dst,
     struct atomic_nvmet_tcp_write_breakdown* src) {
-  dst->make_r2t_time = atomic64_read(&src->make_r2t_time);
-  dst->nvmet_tcp_processing = atomic64_read(&src->in_nvmet_tcp_time);
-  dst->nvme_submission_and_execution = atomic64_read(&src->in_blk_time);
-  dst->end2end_time = atomic64_read(&src->end2end_time);
+  dst->cmd_caps_q = atomic64_read(&src->cmd_caps_q);
+  dst->cmd_proc = atomic64_read(&src->cmd_proc);
+  dst->r2t_sub_q = atomic64_read(&src->r2t_sub_q);
+  dst->r2t_resp_proc = atomic64_read(&src->r2t_resp_proc);
+  dst->wait_for_data = atomic64_read(&src->wait_for_data);
+  dst->write_cmd_q = atomic64_read(&src->write_cmd_q);
+  dst->write_cmd_proc = atomic64_read(&src->write_cmd_proc);
+  dst->nvme_sub_exec = atomic64_read(&src->nvme_sub_exec);
+  dst->comp_q = atomic64_read(&src->comp_q);
+  dst->resp_proc = atomic64_read(&src->resp_proc);
+  dst->e2e = atomic64_read(&src->e2e);
   dst->cnt = atomic_read(&src->cnt);
 }
 
