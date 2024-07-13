@@ -4,6 +4,8 @@
 // #include <linux/blkdev.h>
 #include <linux/types.h>
 #include <linux/atomic.h>
+#include <linux/string.h>
+#include <linux/printk.h>
 
 #include "ntm_com.h"
 
@@ -126,6 +128,53 @@ enum nvme_tcp_trpt {
 
 #define EVENT_NUM 64
 
+static inline void nvme_tcp_trpt_name(enum nvme_tcp_trpt trpt, char *name) {
+  switch (trpt) {
+    case QUEUE_RQ:
+      strcpy(name, "QUEUE_RQ");
+      break;
+    case QUEUE_REQUEST:
+      strcpy(name, "QUEUE_REQUEST");
+      break;
+    case TRY_SEND:
+      strcpy(name, "TRY_SEND");
+      break;
+    case TRY_SEND_CMD_PDU:
+      strcpy(name, "TRY_SEND_CMD_PDU");
+      break;
+    case TRY_SEND_DATA_PDU:
+      strcpy(name, "TRY_SEND_DATA_PDU");
+      break;
+    case TRY_SEND_DATA:
+      strcpy(name, "TRY_SEND_DATA");
+      break;
+    case DONE_SEND_REQ:
+      strcpy(name, "DONE_SEND_REQ");
+      break;
+    case TRY_RECV:
+      strcpy(name, "TRY_RECV");
+      break;
+    case RECV_PDU:
+      strcpy(name, "RECV_PDU");
+      break;
+    case HANDLE_C2H_DATA:
+      strcpy(name, "HANDLE_C2H_DATA");
+      break;
+    case RECV_DATA:
+      strcpy(name, "RECV_DATA");
+      break;
+    case HANDLE_R2T:
+      strcpy(name, "HANDLE_R2T");
+      break;
+    case PROCESS_NVME_CQE:
+      strcpy(name, "PROCESS_NVME_CQE");
+      break;
+    default:
+      strcpy(name, "UNK");
+      break;
+  }
+}
+
 struct nvme_tcp_io_instance {
   bool is_write;
   int req_tag;
@@ -147,6 +196,46 @@ struct nvme_tcp_io_instance {
   int size;    // size of the whole request
   u64 before;  // time between bio issue and entering the nvme_tcp_layer
 };
+
+
+static inline void init_nvme_tcp_io_instance(struct nvme_tcp_io_instance *inst,
+                               bool _is_write, int _req_tag, int _waitlist,
+                               int _cnt, bool _contains_c2h, bool _contains_r2t,
+                               bool _is_spoiled, int _size) {
+  int i;
+  for (i = 0; i < EVENT_NUM; i++) {
+    inst->ts[i] = 0;
+    inst->ts2[i] = 0;
+    inst->trpt[i] = 0;
+    inst->sizs[i] = 0;
+  }
+  inst->is_write = _is_write;
+  inst->req_tag = _req_tag;
+  inst->waitlist = _waitlist;
+  inst->contains_c2h = _contains_c2h;
+  inst->contains_r2t = _contains_r2t;
+  inst->is_spoiled = _is_spoiled;
+  inst->cnt = _cnt;
+  inst->size = _size;
+}
+
+#define BIG_NUM 1720748973000000000
+
+static inline void print_io_instance(struct nvme_tcp_io_instance *inst) {
+  int i;
+  pr_info("req_tag: %d, cmdid: %d, waitlist: %d, e2e: %llu\n", inst->req_tag,
+          inst->cmdid, inst->waitlist, inst->ts[inst->cnt - 1] - inst->ts[1]);
+  for (i = 0; i < inst->cnt; i++) {
+    char name[32];
+    nvme_tcp_trpt_name(inst->trpt[i], name);
+    if (inst->trpt[i] == HANDLE_C2H_DATA) {
+      pr_info("event%d, %llu, %s, size: %llu, ts2: %llu\n", i,
+              inst->ts2[i] - BIG_NUM, "TCP_RECV", inst->sizs[i], inst->ts2[i]);
+    }
+    pr_info("event%d, %llu, %s, size: %llu, ts2: %llu\n", i,
+            inst->ts[i] - BIG_NUM, name, inst->sizs[i], inst->ts2[i]);
+  }
+}
 
 void nvme_tcp_stat_update(u64 now);
 

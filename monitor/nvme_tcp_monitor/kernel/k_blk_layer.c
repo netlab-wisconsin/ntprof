@@ -80,10 +80,12 @@ void copy_blk_stat(struct blk_stat *dst, struct atomic_blk_stat *src) {
 void on_block_rq_complete(void *ignore, struct request *rq, int err,
                           unsigned int nr_bytes) {
   if (ctrl && args->io_type + rq_data_dir(rq) != 1) {
+    struct bio *bio;
+
     if (rq->rq_disk == NULL) return;
     if (!is_same_dev_name(rq->rq_disk->disk_name, args->dev)) return;
 
-    struct bio *bio = rq->bio;
+    bio = rq->bio;
     while (bio) {
       if (to_sample()) {
         /** update inner_blk_stat to record all sampled bio */

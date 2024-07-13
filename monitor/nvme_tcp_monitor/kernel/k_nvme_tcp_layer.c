@@ -13,10 +13,11 @@
 #include "k_ntm.h"
 #include "util.h"
 
-#define BIG_NUM 1720748973000000000
+
 
 static atomic64_t sample_cnt;
 
+spinlock_t current_io_lock;
 struct nvme_tcp_io_instance *current_io;
 
 struct proc_dir_entry *entry_nvme_tcp_dir;
@@ -29,90 +30,6 @@ struct atomic_nvme_tcp_stat *a_nvme_tcp_stat;
 
 static bool to_sample(void) {
   return atomic64_inc_return(&sample_cnt) % args->rate == 0;
-}
-
-void nvme_tcp_trpt_name(enum nvme_tcp_trpt trpt, char *name) {
-  switch (trpt) {
-    case QUEUE_RQ:
-      strcpy(name, "QUEUE_RQ");
-      break;
-    case QUEUE_REQUEST:
-      strcpy(name, "QUEUE_REQUEST");
-      break;
-    case TRY_SEND:
-      strcpy(name, "TRY_SEND");
-      break;
-    case TRY_SEND_CMD_PDU:
-      strcpy(name, "TRY_SEND_CMD_PDU");
-      break;
-    case TRY_SEND_DATA_PDU:
-      strcpy(name, "TRY_SEND_DATA_PDU");
-      break;
-    case TRY_SEND_DATA:
-      strcpy(name, "TRY_SEND_DATA");
-      break;
-    case DONE_SEND_REQ:
-      strcpy(name, "DONE_SEND_REQ");
-      break;
-    case TRY_RECV:
-      strcpy(name, "TRY_RECV");
-      break;
-    case RECV_PDU:
-      strcpy(name, "RECV_PDU");
-      break;
-    case HANDLE_C2H_DATA:
-      strcpy(name, "HANDLE_C2H_DATA");
-      break;
-    case RECV_DATA:
-      strcpy(name, "RECV_DATA");
-      break;
-    case HANDLE_R2T:
-      strcpy(name, "HANDLE_R2T");
-      break;
-    case PROCESS_NVME_CQE:
-      strcpy(name, "PROCESS_NVME_CQE");
-      break;
-    default:
-      strcpy(name, "UNK");
-      break;
-  }
-}
-
-void init_nvme_tcp_io_instance(struct nvme_tcp_io_instance *inst,
-                               bool _is_write, int _req_tag, int _waitlist,
-                               int _cnt, bool _contains_c2h, bool _contains_r2t,
-                               bool _is_spoiled, int _size) {
-  int i;
-  for (i = 0; i < EVENT_NUM; i++) {
-    inst->ts[i] = 0;
-    inst->ts2[i] = 0;
-    inst->trpt[i] = 0;
-    inst->sizs[i] = 0;
-  }
-  inst->is_write = _is_write;
-  inst->req_tag = _req_tag;
-  inst->waitlist = _waitlist;
-  inst->contains_c2h = _contains_c2h;
-  inst->contains_r2t = _contains_r2t;
-  inst->is_spoiled = _is_spoiled;
-  inst->cnt = _cnt;
-  inst->size = _size;
-}
-
-void print_io_instance(struct nvme_tcp_io_instance *inst) {
-  int i;
-  pr_info("req_tag: %d, cmdid: %d, waitlist: %d, e2e: %llu\n", inst->req_tag,
-          inst->cmdid, inst->waitlist, inst->ts[inst->cnt - 1] - inst->ts[1]);
-  for (i = 0; i < inst->cnt; i++) {
-    char name[32];
-    nvme_tcp_trpt_name(inst->trpt[i], name);
-    if (inst->trpt[i] == HANDLE_C2H_DATA) {
-      pr_info("event%d, %llu, %s, size: %llu, ts2: %llu\n", i,
-              inst->ts2[i] - BIG_NUM, "TCP_RECV", inst->sizs[i], inst->ts2[i]);
-    }
-    pr_info("event%d, %llu, %s, size: %llu, ts2: %llu\n", i,
-            inst->ts[i] - BIG_NUM, name, inst->sizs[i], inst->ts2[i]);
-  }
 }
 
 void append_event(struct nvme_tcp_io_instance *inst, u64 ts,
@@ -137,7 +54,6 @@ void append_event(struct nvme_tcp_io_instance *inst, u64 ts,
 void on_nvme_tcp_queue_rq(void *ignore, struct request *req, bool *to_trace,
                           int len1, int len2, long long unsigned int time) {
   u32 qid;
-  u16 cnt;
   struct bio *b;
 
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) return;
@@ -155,20 +71,27 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, bool *to_trace,
   if (qid == 0) return;
 
   if (to_sample() && current_io == NULL) {
-    b = req->bio;
-    u64 lat = 0;
-    u32 size = 0;
-    while (b) {
-      if (!lat) lat = __bio_issue_time(time) - bio_issue_time(&b->bi_issue);
-      size += b->bi_iter.bi_size;
-      b = b->bi_next;
+    // lock
+    spin_lock(&current_io_lock);
+    if (current_io == NULL) {
+      u64 lat = 0;
+      u32 size = 0;
+
+      b = req->bio;
+      while (b) {
+        if (!lat) lat = __bio_issue_time(time) - bio_issue_time(&b->bi_issue);
+        size += b->bi_iter.bi_size;
+        b = b->bi_next;
+      }
+      current_io = kmalloc(sizeof(struct nvme_tcp_io_instance), GFP_KERNEL);
+      init_nvme_tcp_io_instance(current_io, (rq_data_dir(req) == WRITE),
+                                req->tag, len1 + len2, 0, false, false, false,
+                                size);
+      current_io->before = lat;
+      append_event(current_io, time, QUEUE_RQ, 0, 0);
+      *to_trace = true;
     }
-    current_io = kmalloc(sizeof(struct nvme_tcp_io_instance), GFP_KERNEL);
-    init_nvme_tcp_io_instance(current_io, (rq_data_dir(req) == WRITE), req->tag,
-                              len1 + len2, 0, false, false, false, size);
-    current_io->before = lat;
-    append_event(current_io, time, QUEUE_RQ, 0, 0);
-    *to_trace = true;
+    spin_unlock(&current_io_lock);
   }
 }
 
@@ -181,10 +104,12 @@ void on_nvme_tcp_queue_request(void *ignore, struct request *req, int cmdid,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
+  spin_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, QUEUE_REQUEST, 0, 0);
     current_io->cmdid = cmdid;
   }
+  spin_unlock(&current_io_lock);
 }
 
 void on_nvme_tcp_try_send(void *ignore, struct request *req,
@@ -192,9 +117,11 @@ void on_nvme_tcp_try_send(void *ignore, struct request *req,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
+  spin_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND, 0, 0);
   }
+  spin_unlock(&current_io_lock);
 }
 
 void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int len,
@@ -207,9 +134,11 @@ void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int len,
     qid2port[qid] = local_port;
     pr_info("set qid %d to port %d\n", qid, local_port);
   }
+  spin_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND_CMD_PDU, 0, 0);
   }
+  spin_unlock(&current_io_lock);
 }
 
 void on_nvme_tcp_try_send_data_pdu(void *ignore, struct request *req, int len,
@@ -217,9 +146,11 @@ void on_nvme_tcp_try_send_data_pdu(void *ignore, struct request *req, int len,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
+  spin_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND_DATA_PDU, 0, 0);
   }
+  spin_unlock(&current_io_lock);
 }
 
 void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int len,
@@ -227,9 +158,11 @@ void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int len,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
+  spin_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND_DATA, len, 0);
   }
+  spin_unlock(&current_io_lock);
 }
 
 void on_nvme_tcp_done_send_req(void *ignore, struct request *req,
@@ -237,9 +170,11 @@ void on_nvme_tcp_done_send_req(void *ignore, struct request *req,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
+  spin_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, DONE_SEND_REQ, 0, 0);
   }
+  spin_unlock(&current_io_lock);
 }
 
 void on_nvme_tcp_try_recv(void *ignore, int offset, size_t len, int recv_stat,
@@ -249,17 +184,17 @@ void on_nvme_tcp_try_recv(void *ignore, int offset, size_t len, int recv_stat,
   // append_event(current_io, time, TRY_RECV);
   // }
   // pr_info("on_nvme_tcp_try_recv\n");
-  if (!ctrl) {
-    return;
-  }
-  if (current_io && current_io->contains_c2h) {
-    /* TODO: to remove this test */
-    if (current_io->is_write) {
-      pr_err("write io contains c2h data\n");
-    }
-    // current_io->sizs[current_io->cnt] = len;
-    append_event(current_io, time, TRY_RECV, len, recv_time);
-  }
+  // if (!ctrl) {
+  //   return;
+  // }
+  // if (current_io && current_io->contains_c2h) {
+  //   /* TODO: to remove this test */
+  //   if (current_io->is_write) {
+  //     pr_err("write io contains c2h data\n");
+  //   }
+  //   // current_io->sizs[current_io->cnt] = len;
+  //   append_event(current_io, time, TRY_RECV, len, recv_time);
+  // }
 }
 
 // void on_nvme_tcp_recv_pdu(void *ignore, int consumed, unsigned char pdu_type,
@@ -273,10 +208,12 @@ void on_nvme_tcp_handle_c2h_data(void *ignore, struct request *rq,
   if (!ctrl || args->io_type + rq_data_dir(rq) == 1) {
     return;
   }
+  spin_lock(&current_io_lock);
   if (current_io && rq->tag == current_io->req_tag) {
     append_event(current_io, time, HANDLE_C2H_DATA, data_remain, recv_time);
     current_io->contains_c2h = true;
   }
+  spin_unlock(&current_io_lock);
 }
 
 void on_nvme_tcp_recv_data(void *ignore, struct request *rq, int cp_len,
@@ -285,9 +222,11 @@ void on_nvme_tcp_recv_data(void *ignore, struct request *rq, int cp_len,
   if (!ctrl || args->io_type + rq_data_dir(rq) == 1) {
     return;
   }
+  spin_lock(&current_io_lock);
   if (current_io && rq->tag == current_io->req_tag) {
     append_event(current_io, time, RECV_DATA, cp_len, recv_time);
   }
+  spin_unlock(&current_io_lock);
 }
 
 void on_nvme_tcp_handle_r2t(void *ignore, struct request *req,
@@ -295,24 +234,28 @@ void on_nvme_tcp_handle_r2t(void *ignore, struct request *req,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
+  spin_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     current_io->contains_r2t = true;
     append_event(current_io, time, HANDLE_R2T, 0, recv_time);
   }
+  spin_unlock(&current_io_lock);
 }
 
 bool is_valid_read(struct nvme_tcp_io_instance *io) {
+  int ret;
+  int i;
+
   if (io->cnt < 8) {
     return false;
   }
-  int ret = true;
+  ret = true;
   ret = ret && io->trpt[0] == QUEUE_RQ;
   ret = ret && io->trpt[1] == QUEUE_REQUEST;
   ret = ret && io->trpt[2] == TRY_SEND;
   ret = ret && io->trpt[3] == TRY_SEND_CMD_PDU;
   ret = ret && io->trpt[4] == DONE_SEND_REQ;
   ret = ret && io->trpt[5] == HANDLE_C2H_DATA;
-  int i;
   for (i = 6; i < io->cnt - 1; i++) {
     ret = ret && io->trpt[i] == RECV_DATA;
   }
@@ -322,7 +265,6 @@ bool is_valid_read(struct nvme_tcp_io_instance *io) {
 
 void update_atomic_read_breakdown(struct nvme_tcp_io_instance *io,
                                   struct atomic_nvme_tcp_read_breakdown *rb) {
-  int i;
   if (!is_valid_read(io)) {
     pr_err("event sequence is not correct\n");
     print_io_instance(io);
@@ -339,10 +281,13 @@ void update_atomic_read_breakdown(struct nvme_tcp_io_instance *io,
 
 bool is_valid_write(struct nvme_tcp_io_instance *io, bool contains_r2t) {
   if (contains_r2t) {
+    int ret;
+    int i;
+
     if (io->cnt < 11) {
       return false;
     }
-    int ret = true;
+    ret = true;
     ret = ret && io->trpt[0] == QUEUE_RQ;
     ret = ret && io->trpt[1] == QUEUE_REQUEST;
     ret = ret && io->trpt[2] == TRY_SEND;
@@ -352,7 +297,7 @@ bool is_valid_write(struct nvme_tcp_io_instance *io, bool contains_r2t) {
     ret = ret && io->trpt[6] == QUEUE_REQUEST;
     ret = ret && io->trpt[7] == TRY_SEND;
     ret = ret && io->trpt[8] == TRY_SEND_DATA_PDU;
-    int i;
+    
     for (i = 9; i < io->cnt - 2; i++) {
       ret = ret && io->trpt[i] == TRY_SEND_DATA;
     }
@@ -360,15 +305,18 @@ bool is_valid_write(struct nvme_tcp_io_instance *io, bool contains_r2t) {
     ret = ret && io->trpt[io->cnt - 1] == PROCESS_NVME_CQE;
     return ret;
   } else {
+    int ret;
+    int i;
+
     if (io->cnt < 6) {
       return false;
     }
-    int ret = true;
+    ret = true;
     ret = ret && io->trpt[0] == QUEUE_RQ;
     ret = ret && io->trpt[1] == QUEUE_REQUEST;
     ret = ret && io->trpt[2] == TRY_SEND;
     ret = ret && io->trpt[3] == TRY_SEND_CMD_PDU;
-    int i;
+    
     for (i = 4; i < io->cnt - 2; i++) {
       ret = ret && io->trpt[i] == TRY_SEND_DATA;
     }
@@ -402,7 +350,7 @@ void update_atomic_write_breakdown(struct nvme_tcp_io_instance *io,
     }
     atomic64_add(io->ts[3] - io->ts[2], &wb->sub_q1);
     atomic64_add(io->ts[io->cnt - 3] - io->ts[2], &wb->req_proc1);
-    atomic64_add(io->ts2[io->cnt - -1] - io->ts[io->cnt - 3], &wb->waiting1);
+    atomic64_add(io->ts2[io->cnt - 1] - io->ts[io->cnt - 3], &wb->waiting1);
     atomic64_add(io->ts[io->cnt - 1] - io->ts2[io->cnt - 1], &wb->comp_q);
   }
   atomic64_add(io->ts[io->cnt - 1] - io->ts[1], &wb->e2e);
@@ -415,6 +363,7 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
+  spin_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, PROCESS_NVME_CQE, 0, recv_time);
 
@@ -435,95 +384,42 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
     }
     current_io = NULL;
   }
+  spin_unlock(&current_io_lock);
 }
 
 static int nvmetcp_register_tracepoint(void) {
-  // pr_info("nvmetcp_register_tracepoint\n");
-  // int ret;
-  // ret = register_trace_nvme_tcp_queue_rq(on_nvme_tcp_queue_rq, NULL);
-  // if (ret) {
-  //   pr_err("Failed to register tracepoint\n");
-  //   return ret;
-  // }
-  // return 0;
   int ret;
-  pr_info("register nvme_tcp tracepoints");
-  pr_info("register nvme_tcp_queue_rq");
-  if ((ret = register_trace_nvme_tcp_queue_rq(on_nvme_tcp_queue_rq, NULL))) {
-    pr_err("Failed to register nvme_tcp_queue_rq\n");
+  if ((ret = register_trace_nvme_tcp_queue_rq(on_nvme_tcp_queue_rq, NULL)))
     goto failed;
-  }
-  pr_info("register nvme_tcp_queue_request");
   if ((ret = register_trace_nvme_tcp_queue_request(on_nvme_tcp_queue_request,
-                                                   NULL))) {
-    pr_err("Failed to register nvme_tcp_queue_request\n");
+                                                   NULL)))
     goto unresigter_queue_rq;
-  }
-
-  pr_info("register nvme_tcp_try_send");
-  if ((ret = register_trace_nvme_tcp_try_send(on_nvme_tcp_try_send, NULL))) {
-    pr_err("Failed to register nvme_tcp_try_send\n");
+  if ((ret = register_trace_nvme_tcp_try_send(on_nvme_tcp_try_send, NULL)))
     goto unregister_queue_request;
-  }
-  pr_info("register nvme_tcp_try_send_cmd_pdu");
   if ((ret = register_trace_nvme_tcp_try_send_cmd_pdu(
-           on_nvme_tcp_try_send_cmd_pdu, NULL))) {
-    pr_err("Failed to register nvme_tcp_try_send_cmd_pdu\n");
+           on_nvme_tcp_try_send_cmd_pdu, NULL)))
     goto unregister_try_send;
-  }
-
-  pr_info("register nvme_tcp_try_send_data_pdu");
   if ((ret = register_trace_nvme_tcp_try_send_data_pdu(
-           on_nvme_tcp_try_send_data_pdu, NULL))) {
-    pr_err("Failed to register nvme_tcp_try_send_data_pdu\n");
+           on_nvme_tcp_try_send_data_pdu, NULL)))
     goto unregister_try_send_cmd_pdu;
-  }
-  pr_info("register nvme_tcp_try_send_data");
   if ((ret = register_trace_nvme_tcp_try_send_data(on_nvme_tcp_try_send_data,
-                                                   NULL))) {
-    pr_err("Failed to register nvme_tcp_try_send_data\n");
+                                                   NULL)))
     goto unregister_try_send_data_pdu;
-  }
-  pr_info("register nvme_tcp_done_send_req");
   if ((ret = register_trace_nvme_tcp_done_send_req(on_nvme_tcp_done_send_req,
-                                                   NULL))) {
-    pr_err("Failed to register nvme_tcp_done_send_req\n");
+                                                   NULL)))
     goto unregister_try_send_data;
-  }
-  pr_info("register nvme_tcp_try_recv");
-  if ((ret = register_trace_nvme_tcp_try_recv(on_nvme_tcp_try_recv, NULL))) {
-    pr_err("Failed to register nvme_tcp_try_recv\n");
+  if ((ret = register_trace_nvme_tcp_try_recv(on_nvme_tcp_try_recv, NULL)))
     goto unregister_done_send_req;
-  }
-  // pr_info("register nvme_tcp_recv_pdu");
-  // if ((ret = register_trace_nvme_tcp_recv_pdu(on_nvme_tcp_recv_pdu, NULL))) {
-  //   pr_err("Failed to register nvme_tcp_recv_pdu\n");
-  //   goto unregister_try_recv;
-  // }
-  pr_info("register nvme_tcp_handle_c2h_data");
   if ((ret = register_trace_nvme_tcp_handle_c2h_data(
-           on_nvme_tcp_handle_c2h_data, NULL))) {
-    pr_err("Failed to register nvme_tcp_handle_c2h_data\n");
+           on_nvme_tcp_handle_c2h_data, NULL)))
     goto unregister_try_recv;
-  }
-  pr_info("register nvme_tcp_recv_data");
-  if ((ret = register_trace_nvme_tcp_recv_data(on_nvme_tcp_recv_data, NULL))) {
-    pr_err("Failed to register nvme_tcp_recv_data\n");
+  if ((ret = register_trace_nvme_tcp_recv_data(on_nvme_tcp_recv_data, NULL)))
     goto unregister_handle_c2h_data;
-  }
-  pr_info("register nvme_tcp_handle_r2t");
-  if ((ret =
-           register_trace_nvme_tcp_handle_r2t(on_nvme_tcp_handle_r2t, NULL))) {
-    pr_err("Failed to register nvme_tcp_handle_r2t\n");
+  if ((ret = register_trace_nvme_tcp_handle_r2t(on_nvme_tcp_handle_r2t, NULL)))
     goto unregister_recv_data;
-  }
-  pr_info("register nvme_tcp_process_nvme_cqe");
   if ((ret = register_trace_nvme_tcp_process_nvme_cqe(
-           on_nvme_tcp_process_nvme_cqe, NULL))) {
-    pr_err("Failed to register nvme_tcp_process_nvme_cqe\n");
+           on_nvme_tcp_process_nvme_cqe, NULL)))
     goto unregister_handle_r2t;
-  }
-
   return 0;
 
 unregister_handle_r2t:
@@ -532,8 +428,6 @@ unregister_recv_data:
   unregister_trace_nvme_tcp_recv_data(on_nvme_tcp_recv_data, NULL);
 unregister_handle_c2h_data:
   unregister_trace_nvme_tcp_handle_c2h_data(on_nvme_tcp_handle_c2h_data, NULL);
-// unregister_recv_pdu:
-//   unregister_trace_nvme_tcp_recv_pdu(on_nvme_tcp_recv_pdu, NULL);
 unregister_try_recv:
   unregister_trace_nvme_tcp_try_recv(on_nvme_tcp_try_recv, NULL);
 unregister_done_send_req:
@@ -567,7 +461,6 @@ static void nvmetcp_unregister_tracepoint(void) {
   unregister_trace_nvme_tcp_try_send_data(on_nvme_tcp_try_send_data, NULL);
   unregister_trace_nvme_tcp_done_send_req(on_nvme_tcp_done_send_req, NULL);
   unregister_trace_nvme_tcp_try_recv(on_nvme_tcp_try_recv, NULL);
-  // unregister_trace_nvme_tcp_recv_pdu(on_nvme_tcp_recv_pdu, NULL);
   unregister_trace_nvme_tcp_handle_c2h_data(on_nvme_tcp_handle_c2h_data, NULL);
   unregister_trace_nvme_tcp_recv_data(on_nvme_tcp_recv_data, NULL);
   unregister_trace_nvme_tcp_handle_r2t(on_nvme_tcp_handle_r2t, NULL);
@@ -602,7 +495,6 @@ static void remove_nvmetcp_proc_entries(void) {
 }
 
 int init_nvmetcp_variables(void) {
-  int i;
   current_io = NULL;
 
   atomic64_set(&sample_cnt, 0);
