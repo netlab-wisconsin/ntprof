@@ -967,7 +967,7 @@ static void nvmet_tcp_handle_req_failure(struct nvmet_tcp_queue *queue,
 	cmd->flags |= NVMET_TCP_F_INIT_FAILED;
 }
 
-static int nvmet_tcp_handle_h2c_data_pdu(struct nvmet_tcp_queue *queue)
+static int nvmet_tcp_handle_h2c_data_pdu(struct nvmet_tcp_queue *queue, long long recv_time)
 {
 	struct nvme_tcp_data_pdu *data = &queue->pdu.data;
 	struct nvmet_tcp_cmd *cmd;
@@ -1000,7 +1000,7 @@ static int nvmet_tcp_handle_h2c_data_pdu(struct nvmet_tcp_queue *queue)
 			nvmet_tcp_ddgst_len(queue) -
 			sizeof(*data);
 
- 	trace_nvmet_tcp_handle_h2c_data_pdu(cmd->req.cmd->common.command_id, queue->idx, exp_data_len, ktime_get_real_ns());
+ 	trace_nvmet_tcp_handle_h2c_data_pdu(cmd->req.cmd->common.command_id, queue->idx, exp_data_len, ktime_get_real_ns(), recv_time);
 
 
 	cmd->pdu_len = le32_to_cpu(data->data_length);
@@ -1038,7 +1038,7 @@ static int nvmet_tcp_done_recv_pdu(struct nvmet_tcp_queue *queue, long long recv
 	}
 
 	if (hdr->type == nvme_tcp_h2c_data) {
-		ret = nvmet_tcp_handle_h2c_data_pdu(queue);
+		ret = nvmet_tcp_handle_h2c_data_pdu(queue, recv_time);
 		if (unlikely(ret))
 			return ret;
 		return 0;
@@ -1057,9 +1057,11 @@ static int nvmet_tcp_done_recv_pdu(struct nvmet_tcp_queue *queue, long long recv
 	req = &queue->cmd->req;
 	memcpy(req->cmd, nvme_cmd, sizeof(*nvme_cmd));
 
+	// if the request is to record
 	if(queue->pdu.cmd.tag){
 		trace_nvmet_tcp_done_recv_pdu(queue->pdu.cmd.cmd.common.command_id, queue->idx, nvme_is_write(&queue->pdu.cmd.cmd), le32_to_cpu(req->cmd->common.dptr.sgl.length), ktime_get_real_ns(), recv_time);
 	} 
+	
 
 	if (unlikely(!nvmet_req_init(req, &queue->nvme_cq,
 			&queue->nvme_sq, &nvmet_tcp_ops))) {
