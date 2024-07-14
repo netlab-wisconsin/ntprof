@@ -228,10 +228,6 @@ static inline void print_io_instance(struct nvme_tcp_io_instance *inst) {
   for (i = 0; i < inst->cnt; i++) {
     char name[32];
     nvme_tcp_trpt_name(inst->trpt[i], name);
-    if (inst->trpt[i] == HANDLE_C2H_DATA) {
-      pr_info("event%d, %llu, %s, size: %llu, ts2: %llu\n", i,
-              inst->ts2[i] - BIG_NUM, "TCP_RECV", inst->sizs[i], inst->ts2[i]);
-    }
     pr_info("event%d, %llu, %s, size: %llu, ts2: %llu\n", i,
             inst->ts[i] - BIG_NUM, name, inst->sizs[i], inst->ts2[i]);
   }

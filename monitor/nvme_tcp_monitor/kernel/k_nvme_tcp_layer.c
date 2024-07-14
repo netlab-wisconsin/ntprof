@@ -3,18 +3,17 @@
 
 #include <linux/blk-mq.h>
 #include <linux/blkdev.h>
+#include <linux/irqflags.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
+#include <linux/mutex.h>
 #include <linux/nvme.h>
 #include <linux/proc_fs.h>
 #include <linux/tracepoint.h>
 #include <trace/events/nvme_tcp.h>
-#include <linux/mutex.h>
 
 #include "k_ntm.h"
 #include "util.h"
-
-
 
 static atomic64_t sample_cnt;
 
@@ -74,6 +73,9 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, bool *to_trace,
 
   if (to_sample()) {
     // lock
+    unsigned long flags;
+    local_irq_save(flags);
+    local_bh_disable();
     mutex_lock(&current_io_lock);
     if (current_io == NULL) {
       u64 lat = 0;
@@ -94,6 +96,8 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, bool *to_trace,
       *to_trace = true;
     }
     mutex_unlock(&current_io_lock);
+    local_bh_enable();
+    local_irq_restore(flags);
   }
 }
 
@@ -106,12 +110,17 @@ void on_nvme_tcp_queue_request(void *ignore, struct request *req, int cmdid,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
+  unsigned long flags;
+  local_irq_save(flags);
+  local_bh_disable();
   mutex_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, QUEUE_REQUEST, 0, 0);
     current_io->cmdid = cmdid;
   }
   mutex_unlock(&current_io_lock);
+  local_bh_enable();
+  local_irq_restore(flags);
 }
 
 void on_nvme_tcp_try_send(void *ignore, struct request *req,
@@ -119,11 +128,16 @@ void on_nvme_tcp_try_send(void *ignore, struct request *req,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
+  unsigned long flags;
+  local_irq_save(flags);
+  local_bh_disable();
   mutex_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND, 0, 0);
   }
   mutex_unlock(&current_io_lock);
+  local_bh_enable();
+  local_irq_restore(flags);
 }
 
 void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int len,
@@ -136,11 +150,16 @@ void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int len,
     qid2port[qid] = local_port;
     pr_info("set qid %d to port %d\n", qid, local_port);
   }
+  unsigned long flags;
+  local_irq_save(flags);
+  local_bh_disable();
   mutex_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND_CMD_PDU, 0, 0);
   }
   mutex_unlock(&current_io_lock);
+  local_bh_enable();
+  local_irq_restore(flags);
 }
 
 void on_nvme_tcp_try_send_data_pdu(void *ignore, struct request *req, int len,
@@ -148,11 +167,16 @@ void on_nvme_tcp_try_send_data_pdu(void *ignore, struct request *req, int len,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
+  unsigned long flags;
+  local_irq_save(flags);
+  local_bh_disable();
   mutex_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND_DATA_PDU, 0, 0);
   }
   mutex_unlock(&current_io_lock);
+  local_bh_enable();
+  local_irq_restore(flags);
 }
 
 void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int len,
@@ -160,11 +184,16 @@ void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int len,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
+  unsigned long flags;
+  local_irq_save(flags);
+  local_bh_disable();
   mutex_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND_DATA, len, 0);
   }
   mutex_unlock(&current_io_lock);
+  local_bh_enable();
+  local_irq_restore(flags);
 }
 
 void on_nvme_tcp_done_send_req(void *ignore, struct request *req,
@@ -172,11 +201,16 @@ void on_nvme_tcp_done_send_req(void *ignore, struct request *req,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
+  unsigned long flags;
+  local_irq_save(flags);
+  local_bh_disable();
   mutex_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, DONE_SEND_REQ, 0, 0);
   }
   mutex_unlock(&current_io_lock);
+  local_bh_enable();
+  local_irq_restore(flags);
 }
 
 void on_nvme_tcp_try_recv(void *ignore, int offset, size_t len, int recv_stat,
@@ -210,12 +244,17 @@ void on_nvme_tcp_handle_c2h_data(void *ignore, struct request *rq,
   if (!ctrl || args->io_type + rq_data_dir(rq) == 1) {
     return;
   }
+  unsigned long flags;
+  local_irq_save(flags);
+  local_bh_disable();
   mutex_lock(&current_io_lock);
   if (current_io && rq->tag == current_io->req_tag) {
     append_event(current_io, time, HANDLE_C2H_DATA, data_remain, recv_time);
     current_io->contains_c2h = true;
   }
   mutex_unlock(&current_io_lock);
+  local_bh_enable();
+  local_irq_restore(flags);
 }
 
 void on_nvme_tcp_recv_data(void *ignore, struct request *rq, int cp_len,
@@ -224,11 +263,16 @@ void on_nvme_tcp_recv_data(void *ignore, struct request *rq, int cp_len,
   if (!ctrl || args->io_type + rq_data_dir(rq) == 1) {
     return;
   }
+  unsigned long flags;
+  local_irq_save(flags);
+  local_bh_disable();
   mutex_lock(&current_io_lock);
   if (current_io && rq->tag == current_io->req_tag) {
     append_event(current_io, time, RECV_DATA, cp_len, recv_time);
   }
   mutex_unlock(&current_io_lock);
+  local_bh_enable();
+  local_irq_restore(flags);
 }
 
 void on_nvme_tcp_handle_r2t(void *ignore, struct request *req,
@@ -236,12 +280,17 @@ void on_nvme_tcp_handle_r2t(void *ignore, struct request *req,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
+  unsigned long flags;
+  local_irq_save(flags);
+  local_bh_disable();
   mutex_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     current_io->contains_r2t = true;
     append_event(current_io, time, HANDLE_R2T, 0, recv_time);
   }
   mutex_unlock(&current_io_lock);
+  local_bh_enable();
+  local_irq_restore(flags);
 }
 
 bool is_valid_read(struct nvme_tcp_io_instance *io) {
@@ -299,7 +348,7 @@ bool is_valid_write(struct nvme_tcp_io_instance *io, bool contains_r2t) {
     ret = ret && io->trpt[6] == QUEUE_REQUEST;
     ret = ret && io->trpt[7] == TRY_SEND;
     ret = ret && io->trpt[8] == TRY_SEND_DATA_PDU;
-    
+
     for (i = 9; i < io->cnt - 2; i++) {
       ret = ret && io->trpt[i] == TRY_SEND_DATA;
     }
@@ -318,7 +367,7 @@ bool is_valid_write(struct nvme_tcp_io_instance *io, bool contains_r2t) {
     ret = ret && io->trpt[1] == QUEUE_REQUEST;
     ret = ret && io->trpt[2] == TRY_SEND;
     ret = ret && io->trpt[3] == TRY_SEND_CMD_PDU;
-    
+
     for (i = 4; i < io->cnt - 2; i++) {
       ret = ret && io->trpt[i] == TRY_SEND_DATA;
     }
@@ -365,6 +414,9 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
+  unsigned long flags;
+  local_irq_save(flags);
+  local_bh_disable();
   mutex_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, PROCESS_NVME_CQE, 0, recv_time);
@@ -387,6 +439,8 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
     current_io = NULL;
   }
   mutex_unlock(&current_io_lock);
+  local_bh_enable();
+  local_irq_restore(flags);
 }
 
 static int nvmetcp_register_tracepoint(void) {
