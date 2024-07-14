@@ -9,6 +9,7 @@
 #include <linux/proc_fs.h>
 #include <linux/tracepoint.h>
 #include <trace/events/nvme_tcp.h>
+#include <linux/mutex.h>
 
 #include "k_ntm.h"
 #include "util.h"
@@ -17,7 +18,8 @@
 
 static atomic64_t sample_cnt;
 
-spinlock_t current_io_lock;
+struct mutex current_io_lock;
+// spinlock_t current_io_lock;
 struct nvme_tcp_io_instance *current_io;
 
 struct proc_dir_entry *entry_nvme_tcp_dir;
@@ -70,9 +72,9 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, bool *to_trace,
   /** ignore the request from the queue 0 (admin queue) */
   if (qid == 0) return;
 
-  if (to_sample() && current_io == NULL) {
+  if (to_sample()) {
     // lock
-    spin_lock(&current_io_lock);
+    mutex_lock(&current_io_lock);
     if (current_io == NULL) {
       u64 lat = 0;
       u32 size = 0;
@@ -91,7 +93,7 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, bool *to_trace,
       append_event(current_io, time, QUEUE_RQ, 0, 0);
       *to_trace = true;
     }
-    spin_unlock(&current_io_lock);
+    mutex_unlock(&current_io_lock);
   }
 }
 
@@ -104,12 +106,12 @@ void on_nvme_tcp_queue_request(void *ignore, struct request *req, int cmdid,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
-  spin_lock(&current_io_lock);
+  mutex_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, QUEUE_REQUEST, 0, 0);
     current_io->cmdid = cmdid;
   }
-  spin_unlock(&current_io_lock);
+  mutex_unlock(&current_io_lock);
 }
 
 void on_nvme_tcp_try_send(void *ignore, struct request *req,
@@ -117,11 +119,11 @@ void on_nvme_tcp_try_send(void *ignore, struct request *req,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
-  spin_lock(&current_io_lock);
+  mutex_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND, 0, 0);
   }
-  spin_unlock(&current_io_lock);
+  mutex_unlock(&current_io_lock);
 }
 
 void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int len,
@@ -134,11 +136,11 @@ void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int len,
     qid2port[qid] = local_port;
     pr_info("set qid %d to port %d\n", qid, local_port);
   }
-  spin_lock(&current_io_lock);
+  mutex_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND_CMD_PDU, 0, 0);
   }
-  spin_unlock(&current_io_lock);
+  mutex_unlock(&current_io_lock);
 }
 
 void on_nvme_tcp_try_send_data_pdu(void *ignore, struct request *req, int len,
@@ -146,11 +148,11 @@ void on_nvme_tcp_try_send_data_pdu(void *ignore, struct request *req, int len,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
-  spin_lock(&current_io_lock);
+  mutex_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND_DATA_PDU, 0, 0);
   }
-  spin_unlock(&current_io_lock);
+  mutex_unlock(&current_io_lock);
 }
 
 void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int len,
@@ -158,11 +160,11 @@ void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int len,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
-  spin_lock(&current_io_lock);
+  mutex_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, TRY_SEND_DATA, len, 0);
   }
-  spin_unlock(&current_io_lock);
+  mutex_unlock(&current_io_lock);
 }
 
 void on_nvme_tcp_done_send_req(void *ignore, struct request *req,
@@ -170,11 +172,11 @@ void on_nvme_tcp_done_send_req(void *ignore, struct request *req,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
-  spin_lock(&current_io_lock);
+  mutex_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, DONE_SEND_REQ, 0, 0);
   }
-  spin_unlock(&current_io_lock);
+  mutex_unlock(&current_io_lock);
 }
 
 void on_nvme_tcp_try_recv(void *ignore, int offset, size_t len, int recv_stat,
@@ -208,12 +210,12 @@ void on_nvme_tcp_handle_c2h_data(void *ignore, struct request *rq,
   if (!ctrl || args->io_type + rq_data_dir(rq) == 1) {
     return;
   }
-  spin_lock(&current_io_lock);
+  mutex_lock(&current_io_lock);
   if (current_io && rq->tag == current_io->req_tag) {
     append_event(current_io, time, HANDLE_C2H_DATA, data_remain, recv_time);
     current_io->contains_c2h = true;
   }
-  spin_unlock(&current_io_lock);
+  mutex_unlock(&current_io_lock);
 }
 
 void on_nvme_tcp_recv_data(void *ignore, struct request *rq, int cp_len,
@@ -222,11 +224,11 @@ void on_nvme_tcp_recv_data(void *ignore, struct request *rq, int cp_len,
   if (!ctrl || args->io_type + rq_data_dir(rq) == 1) {
     return;
   }
-  spin_lock(&current_io_lock);
+  mutex_lock(&current_io_lock);
   if (current_io && rq->tag == current_io->req_tag) {
     append_event(current_io, time, RECV_DATA, cp_len, recv_time);
   }
-  spin_unlock(&current_io_lock);
+  mutex_unlock(&current_io_lock);
 }
 
 void on_nvme_tcp_handle_r2t(void *ignore, struct request *req,
@@ -234,12 +236,12 @@ void on_nvme_tcp_handle_r2t(void *ignore, struct request *req,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
-  spin_lock(&current_io_lock);
+  mutex_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     current_io->contains_r2t = true;
     append_event(current_io, time, HANDLE_R2T, 0, recv_time);
   }
-  spin_unlock(&current_io_lock);
+  mutex_unlock(&current_io_lock);
 }
 
 bool is_valid_read(struct nvme_tcp_io_instance *io) {
@@ -363,7 +365,7 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
-  spin_lock(&current_io_lock);
+  mutex_lock(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag) {
     append_event(current_io, time, PROCESS_NVME_CQE, 0, recv_time);
 
@@ -384,7 +386,7 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req,
     }
     current_io = NULL;
   }
-  spin_unlock(&current_io_lock);
+  mutex_unlock(&current_io_lock);
 }
 
 static int nvmetcp_register_tracepoint(void) {
@@ -496,6 +498,7 @@ static void remove_nvmetcp_proc_entries(void) {
 
 int init_nvmetcp_variables(void) {
   current_io = NULL;
+  mutex_init(&current_io_lock);
 
   atomic64_set(&sample_cnt, 0);
 
