@@ -9,6 +9,7 @@
 #include <linux/types.h>
 #include <linux/vmalloc.h>
 #include <trace/events/nvmet_tcp.h>
+#include <linux/mutex.h>
 
 #include "k_nttm.h"
 #include "nttm_com.h"
@@ -18,7 +19,7 @@
 
 static atomic64_t sample_cnt;
 
-static spinlock_t current_io_lock;
+static struct mutex current_io_lock;
 static struct nvmet_io_instance* current_io = NULL;
 
 struct proc_dir_entry* entry_nvmet_tcp_dir;
@@ -59,7 +60,7 @@ void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
                       int size, unsigned long long time, long long recv_time) {
   if (ctrl && args->qid[qid] && args->io_type + is_write != 1) {
     if (to_sample()) {
-      spin_lock(&current_io_lock);
+      mutex_lock(&current_io_lock);
       if (!current_io) {
         current_io = kmalloc(sizeof(struct nvmet_io_instance), GFP_KERNEL);
 
@@ -68,7 +69,7 @@ void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
       } else {
         pr_info("current_io is not NULL\n");
       }
-      spin_unlock(&current_io_lock);
+      mutex_unlock(&current_io_lock);
     }
   }
 }
@@ -79,11 +80,11 @@ void on_exec_read_req(void* ignore, u16 cmd_id, int qid, bool is_write,
     pr_err("exec_read_req: is_write is true\n");
   }
   if (ctrl && args->qid[qid]) {
-    spin_lock(&current_io_lock);
+    mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, EXEC_READ_REQ, time, 0);
     }
-    spin_unlock(&current_io_lock);
+    mutex_unlock(&current_io_lock);
   }
 }
 
@@ -94,79 +95,79 @@ void on_exec_write_req(void* ignore, u16 cmd_id, int qid, bool is_write,
     pr_err("exec_write_req: is_write is false\n");
   }
   if (ctrl && args->qid[qid]) {
-    spin_lock(&current_io_lock);
+    mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, EXEC_WRITE_REQ, time, 0);
     }
-    spin_unlock(&current_io_lock);
+    mutex_unlock(&current_io_lock);
   }
 }
 
 void on_queue_response(void* ignore, u16 cmd_id, int qid, bool is_write,
                        unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    spin_lock(&current_io_lock);
+    mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, QUEUE_RESPONSE, time, 0);
     }
-    spin_unlock(&current_io_lock);
+    mutex_unlock(&current_io_lock);
   }
 }
 
 void on_setup_c2h_data_pdu(void* ignore, u16 cmd_id, int qid,
                            unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    spin_lock(&current_io_lock);
+    mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, SETUP_C2H_DATA_PDU, time, 0);
     }
-    spin_unlock(&current_io_lock);
+    mutex_unlock(&current_io_lock);
   }
 }
 
 void on_setup_r2t_pdu(void* ignore, u16 cmd_id, int qid,
                       unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    spin_lock(&current_io_lock);
+    mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       current_io->contain_r2t = true;
       append_event(current_io, SETUP_R2T_PDU, time, 0);
     }
-    spin_unlock(&current_io_lock);
+    mutex_unlock(&current_io_lock);
   }
 }
 
 void on_setup_response_pdu(void* ignore, u16 cmd_id, int qid,
                            unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    spin_lock(&current_io_lock);
+    mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, SETUP_RESPONSE_PDU, time, 0);
     }
-    spin_unlock(&current_io_lock);
+    mutex_unlock(&current_io_lock);
   }
 }
 
 void on_try_send_data_pdu(void* ignore, u16 cmd_id, int qid, int cp_len,
                           int left, unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    spin_lock(&current_io_lock);
+    mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, TRY_SEND_DATA_PDU, time, 0);
     }
-    spin_unlock(&current_io_lock);
+    mutex_unlock(&current_io_lock);
   }
 }
 
 void on_try_send_r2t(void* ignore, u16 cmd_id, int qid, int cp_len, int left,
                      unsigned long long time) {
-  spin_lock(&current_io_lock);
+  mutex_lock(&current_io_lock);
   if (ctrl && args->qid[qid]) {
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, TRY_SEND_R2T, time, 0);
     }
   }
-  spin_unlock(&current_io_lock);
+  mutex_unlock(&current_io_lock);
 }
 
 bool is_valid_read(struct nvmet_io_instance* io_instance) {
@@ -297,7 +298,7 @@ void update_atomic_write_breakdown(
 void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
                           int left, unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    spin_lock(&current_io_lock);
+    mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, TRY_SEND_RESPONSE, time, 0);
       /** insert the current io sample to the sample sliding window */
@@ -330,41 +331,41 @@ void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
         pr_info("current_io is spoiled\n");
       }
     }
-    spin_unlock(&current_io_lock);
+    mutex_unlock(&current_io_lock);
   }
 }
 
 void on_try_send_data(void* ignore, u16 cmd_id, int qid, int cp_len,
                       unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    spin_lock(&current_io_lock);
+    mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, TRY_SEND_DATA, time, 0);
     }
-    spin_unlock(&current_io_lock);
+    mutex_unlock(&current_io_lock);
   }
 }
 
 void on_try_recv_data(void* ignore, u16 cmd_id, int qid, int cp_len,
                       unsigned long long time, long long recv_time) {
   if (ctrl && args->qid[qid]) {
-    spin_lock(&current_io_lock);
+    mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, TRY_RECV_DATA, time, recv_time);
     }
-    spin_unlock(&current_io_lock);
+    mutex_unlock(&current_io_lock);
   }
 }
 
 void on_handle_h2c_data_pdu(void* ignore, u16 cmd_id, int qid, int datalen,
                             unsigned long long time, long long recv_time) {
   if (ctrl && args->qid[qid]) {
-    spin_lock(&current_io_lock);
+    mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       current_io->size = datalen;
       append_event(current_io, HANDLE_H2C_DATA_PDU, time, recv_time);
     }
-    spin_unlock(&current_io_lock);
+    mutex_unlock(&current_io_lock);
   }
 }
 
@@ -507,6 +508,7 @@ static void remove_nvmet_tcp_proc_entries(void) {
 }
 
 int init_nvmet_tcp_variables(void) {
+  mutex_init(&current_io_lock);
   atomic64_set(&sample_cnt, 0);
   atomic_nvmettcp_stat = kmalloc(sizeof(*atomic_nvmettcp_stat), GFP_KERNEL);
   init_atomic_nvmet_tcp_stat(atomic_nvmettcp_stat);
