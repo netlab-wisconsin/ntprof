@@ -131,8 +131,6 @@ static inline void print_io_instance(struct nvmet_io_instance* io_instance) {
   pr_info("command_id: %d, is_write: %d, size: %d, cnt: %d, is_spoiled: %d\n",
           io_instance->command_id, io_instance->is_write, io_instance->size,
           io_instance->cnt, io_instance->is_spoiled);
-  pr_info("event%d, %llu, %s, %lld\n", i, io_instance->recv_ts[i] - BIG_MNUM,
-          "TCP_RECV", io_instance->recv_ts[i]);
   for (i = 0; i < io_instance->cnt; i++) {
     nvmet_tcp_trpt_name(io_instance->trpt[i], name);
     pr_info("event%d, %llu, %s, %lld\n", i, io_instance->ts[i] - BIG_MNUM, name,

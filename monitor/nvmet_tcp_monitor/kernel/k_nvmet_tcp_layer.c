@@ -1,7 +1,10 @@
 #include "k_nvmet_tcp_layer.h"
 
+#include <linux/irqflags.h>
 #include <linux/mm.h>
+#include <linux/mutex.h>
 #include <linux/proc_fs.h>
+#include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/time.h>
@@ -9,17 +12,15 @@
 #include <linux/types.h>
 #include <linux/vmalloc.h>
 #include <trace/events/nvmet_tcp.h>
-#include <linux/mutex.h>
 
 #include "k_nttm.h"
 #include "nttm_com.h"
 #include "util.h"
 
-
-
 static atomic64_t sample_cnt;
 
 static struct mutex current_io_lock;
+// static spinlock_t current_io_lock;
 static struct nvmet_io_instance* current_io = NULL;
 
 struct proc_dir_entry* entry_nvmet_tcp_dir;
@@ -60,6 +61,9 @@ void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
                       int size, unsigned long long time, long long recv_time) {
   if (ctrl && args->qid[qid] && args->io_type + is_write != 1) {
     if (to_sample()) {
+      unsigned long flags;
+      local_irq_save(flags);
+      local_bh_disable();
       mutex_lock(&current_io_lock);
       if (!current_io) {
         current_io = kmalloc(sizeof(struct nvmet_io_instance), GFP_KERNEL);
@@ -70,6 +74,8 @@ void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
         pr_info("current_io is not NULL\n");
       }
       mutex_unlock(&current_io_lock);
+      local_bh_enable();
+      local_irq_restore(flags);
     }
   }
 }
@@ -80,11 +86,16 @@ void on_exec_read_req(void* ignore, u16 cmd_id, int qid, bool is_write,
     pr_err("exec_read_req: is_write is true\n");
   }
   if (ctrl && args->qid[qid]) {
+    unsigned long flags;
+    local_irq_save(flags);
+    local_bh_disable();
     mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, EXEC_READ_REQ, time, 0);
     }
     mutex_unlock(&current_io_lock);
+    local_bh_enable();
+    local_irq_restore(flags);
   }
 }
 
@@ -95,85 +106,120 @@ void on_exec_write_req(void* ignore, u16 cmd_id, int qid, bool is_write,
     pr_err("exec_write_req: is_write is false\n");
   }
   if (ctrl && args->qid[qid]) {
+    unsigned long flags;
+    local_irq_save(flags);
+    local_bh_disable();
     mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, EXEC_WRITE_REQ, time, 0);
     }
     mutex_unlock(&current_io_lock);
+    local_bh_enable();
+    local_irq_restore(flags);    
   }
 }
 
 void on_queue_response(void* ignore, u16 cmd_id, int qid, bool is_write,
                        unsigned long long time) {
   if (ctrl && args->qid[qid]) {
+    unsigned long flags;
+    local_irq_save(flags);
+    local_bh_disable();
     mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, QUEUE_RESPONSE, time, 0);
     }
     mutex_unlock(&current_io_lock);
+    local_bh_enable();
+    local_irq_restore(flags);    
   }
 }
 
 void on_setup_c2h_data_pdu(void* ignore, u16 cmd_id, int qid,
                            unsigned long long time) {
   if (ctrl && args->qid[qid]) {
+    unsigned long flags;
+    local_irq_save(flags);
+    local_bh_disable();
     mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, SETUP_C2H_DATA_PDU, time, 0);
     }
     mutex_unlock(&current_io_lock);
+    local_bh_enable();
+    local_irq_restore(flags);    
   }
 }
 
 void on_setup_r2t_pdu(void* ignore, u16 cmd_id, int qid,
                       unsigned long long time) {
   if (ctrl && args->qid[qid]) {
+    unsigned long flags;
+    local_irq_save(flags);
+    local_bh_disable();
     mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       current_io->contain_r2t = true;
       append_event(current_io, SETUP_R2T_PDU, time, 0);
     }
     mutex_unlock(&current_io_lock);
+    local_bh_enable();
+    local_irq_restore(flags);    
   }
 }
 
 void on_setup_response_pdu(void* ignore, u16 cmd_id, int qid,
                            unsigned long long time) {
   if (ctrl && args->qid[qid]) {
+    unsigned long flags;
+    local_irq_save(flags);
+    local_bh_disable();
     mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, SETUP_RESPONSE_PDU, time, 0);
     }
     mutex_unlock(&current_io_lock);
+    local_bh_enable();
+    local_irq_restore(flags);    
   }
 }
 
 void on_try_send_data_pdu(void* ignore, u16 cmd_id, int qid, int cp_len,
                           int left, unsigned long long time) {
   if (ctrl && args->qid[qid]) {
+    unsigned long flags;
+    local_irq_save(flags);
+    local_bh_disable();
     mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, TRY_SEND_DATA_PDU, time, 0);
     }
     mutex_unlock(&current_io_lock);
+    local_bh_enable();
+    local_irq_restore(flags);    
   }
 }
 
 void on_try_send_r2t(void* ignore, u16 cmd_id, int qid, int cp_len, int left,
                      unsigned long long time) {
-  mutex_lock(&current_io_lock);
   if (ctrl && args->qid[qid]) {
+    unsigned long flags;
+    local_irq_save(flags);
+    local_bh_disable();
+    mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, TRY_SEND_R2T, time, 0);
     }
+    mutex_unlock(&current_io_lock);
+    local_bh_enable();
+    local_irq_restore(flags);    
   }
-  mutex_unlock(&current_io_lock);
 }
 
 bool is_valid_read(struct nvmet_io_instance* io_instance) {
   bool ret;
   int i;
-  
+
   if (io_instance->cnt < 8) {
     return false;
   }
@@ -183,10 +229,9 @@ bool is_valid_read(struct nvmet_io_instance* io_instance) {
   ret = ret && io_instance->trpt[2] == QUEUE_RESPONSE;
   ret = ret && io_instance->trpt[3] == SETUP_C2H_DATA_PDU;
   ret = ret && io_instance->trpt[4] == TRY_SEND_DATA_PDU;
-  ret = ret && io_instance->trpt[5] == TRY_SEND_DATA;
-  
-  for (i = 6; i < io_instance->cnt - 2; i++) {
-    ret = ret && io_instance->trpt[i] == TRY_RECV_DATA;
+
+  for (i = 5; i < io_instance->cnt - 2; i++) {
+    ret = ret && io_instance->trpt[i] == TRY_SEND_DATA;
   }
   ret = ret && io_instance->trpt[io_instance->cnt - 2] == SETUP_RESPONSE_PDU;
   ret = ret && io_instance->trpt[io_instance->cnt - 1] == TRY_SEND_RESPONSE;
@@ -204,7 +249,7 @@ bool is_valid_write(struct nvmet_io_instance* io_instance, bool contain_rt2) {
     ret = ret && io_instance->trpt[2] == SETUP_R2T_PDU;
     ret = ret && io_instance->trpt[3] == TRY_SEND_R2T;
     ret = ret && io_instance->trpt[4] == HANDLE_H2C_DATA_PDU;
-    
+
     for (i = 5; i < io_instance->cnt - 4; i++) {
       ret = ret && io_instance->trpt[i] == TRY_RECV_DATA;
     }
@@ -298,6 +343,9 @@ void update_atomic_write_breakdown(
 void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
                           int left, unsigned long long time) {
   if (ctrl && args->qid[qid]) {
+    unsigned long flags;
+    local_irq_save(flags);
+    local_bh_disable();
     mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, TRY_SEND_RESPONSE, time, 0);
@@ -332,40 +380,57 @@ void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
       }
     }
     mutex_unlock(&current_io_lock);
+    local_bh_enable();
+    local_irq_restore(flags);    
   }
 }
 
 void on_try_send_data(void* ignore, u16 cmd_id, int qid, int cp_len,
                       unsigned long long time) {
   if (ctrl && args->qid[qid]) {
+    unsigned long flags;
+    local_irq_save(flags);
+    local_bh_disable();
     mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, TRY_SEND_DATA, time, 0);
     }
     mutex_unlock(&current_io_lock);
+    local_bh_enable();
+    local_irq_restore(flags);    
   }
 }
 
 void on_try_recv_data(void* ignore, u16 cmd_id, int qid, int cp_len,
                       unsigned long long time, long long recv_time) {
   if (ctrl && args->qid[qid]) {
+    unsigned long flags;
+    local_irq_save(flags);
+    local_bh_disable();
     mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       append_event(current_io, TRY_RECV_DATA, time, recv_time);
     }
     mutex_unlock(&current_io_lock);
+    local_bh_enable();
+    local_irq_restore(flags);    
   }
 }
 
 void on_handle_h2c_data_pdu(void* ignore, u16 cmd_id, int qid, int datalen,
                             unsigned long long time, long long recv_time) {
   if (ctrl && args->qid[qid]) {
+    unsigned long flags;
+    local_irq_save(flags);
+    local_bh_disable();
     mutex_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id) {
       current_io->size = datalen;
       append_event(current_io, HANDLE_H2C_DATA_PDU, time, recv_time);
     }
     mutex_unlock(&current_io_lock);
+    local_bh_enable();
+    local_irq_restore(flags);    
   }
 }
 
