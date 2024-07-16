@@ -18,6 +18,7 @@
 #include "util.h"
 
 static atomic64_t sample_cnt;
+static atomic64_t io_work_sample_cnt;
 
 // static struct mutex current_io_lock;
 static spinlock_t current_io_lock;
@@ -33,6 +34,10 @@ struct atomic_nvmet_tcp_stat* atomic_nvmettcp_stat;
 static bool to_sample(void) {
   // return atomic64_inc_return(&sample_cnt) % args->rate == 0;
   return true;
+}
+
+static bool to_sample_io_work(void) {
+  return atomic64_inc_return(&io_work_sample_cnt) % args->rate == 0;
 }
 
 void append_event(struct nvmet_io_instance* io_instance,
@@ -358,6 +363,19 @@ void on_handle_h2c_data_pdu(void* ignore, u16 cmd_id, int qid, int datalen,
   }
 }
 
+void on_io_work(void* ignore, int qid, long long recv, long long send) {
+  if (ctrl && args->qid[qid] && to_sample_io_work()) {
+    if (recv) {
+      atomic64_add(recv, &atomic_nvmettcp_stat->recv);
+      atomic64_inc(&atomic_nvmettcp_stat->recv_cnt);
+    }
+    if (send) {
+      atomic64_add(send, &atomic_nvmettcp_stat->send);
+      atomic64_inc(&atomic_nvmettcp_stat->send_cnt);
+    }
+  }
+}
+
 void nvmet_tcp_stat_update(u64 now) {
   copy_nvmet_tcp_stat(nvmettcp_stat, atomic_nvmettcp_stat);
 }
@@ -411,9 +429,13 @@ static int nvmet_tcp_register_tracepoints(void) {
   pr_info("register try_recv_data\n");
   ret = register_trace_nvmet_tcp_try_recv_data(on_try_recv_data, NULL);
   if (ret) goto unregister_handle_h2c_data_pdu;
+  pr_info("register io_work\n");
+  ret = register_trace_nvmet_tcp_io_work(on_io_work, NULL);
+  if (ret) goto unregister_try_recv_data;
 
   return 0;
-
+unregister_try_recv_data:
+  unregister_trace_nvmet_tcp_try_recv_data(on_try_recv_data, NULL);
 unregister_handle_h2c_data_pdu:
   unregister_trace_nvmet_tcp_handle_h2c_data_pdu(on_handle_h2c_data_pdu, NULL);
 unregister_try_send_data:
@@ -461,6 +483,7 @@ void nvmet_tcp_unregister_tracepoints(void) {
   unregister_trace_nvmet_tcp_try_send_data(on_try_send_data, NULL);
   unregister_trace_nvmet_tcp_handle_h2c_data_pdu(on_handle_h2c_data_pdu, NULL);
   unregister_trace_nvmet_tcp_try_recv_data(on_try_recv_data, NULL);
+  unregister_trace_nvmet_tcp_io_work(on_io_work, NULL);
 }
 
 static int mmap_nvmet_tcp_stat(struct file* file, struct vm_area_struct* vma) {

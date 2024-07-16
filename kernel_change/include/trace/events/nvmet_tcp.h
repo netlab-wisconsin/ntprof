@@ -194,6 +194,19 @@ TRACE_EVENT(nvmet_tcp_alloc_queue,
         __entry->qid, __entry->remote_port)
 );
 
+TRACE_EVENT(nvmet_tcp_io_work,
+    TP_PROTO(int qid, long long recv, long long send),
+    TP_ARGS(qid, recv, send),
+    TP_STRUCT__entry(
+        __field(int, qid)
+    ),
+    TP_fast_assign(
+        __entry->qid = qid;
+    ),
+    TP_printk("qid=%d",
+         __entry->qid)
+);
+
 
 #endif /* _TRACE_NVMET_TCP_H */
 

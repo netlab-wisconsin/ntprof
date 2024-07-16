@@ -35,6 +35,7 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_try_send_response);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_try_send_data);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_handle_h2c_data_pdu);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_try_recv_data);
+EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_io_work);
 
 
 #define NVMET_TCP_DEF_INLINE_DATA_SIZE	(4 * PAGE_SIZE)
@@ -1374,32 +1375,37 @@ static void nvmet_tcp_io_work(struct work_struct *w)
 	struct nvmet_tcp_queue *queue =
 		container_of(w, struct nvmet_tcp_queue, io_work);
 	bool pending;
-	int ret, ops = 0;
+	int ret, recv = 0, send = 0, ops = 0;
 
 	do {
 		pending = false;
 
-		ret = nvmet_tcp_try_recv(queue, NVMET_TCP_RECV_BUDGET, &ops);
+		ret = nvmet_tcp_try_recv(queue, NVMET_TCP_RECV_BUDGET, &recv);
 		if (ret > 0)
 			pending = true;
 		else if (ret < 0)
 			return;
 
-		ret = nvmet_tcp_try_send(queue, NVMET_TCP_SEND_BUDGET, &ops);
+		ret = nvmet_tcp_try_send(queue, NVMET_TCP_SEND_BUDGET, &send);
 		if (ret > 0)
 			pending = true;
 		else if (ret < 0)
 			return;
 
-	} while (pending && ops < NVMET_TCP_IO_WORK_BUDGET);
+	} while (pending && (recv+send) < NVMET_TCP_IO_WORK_BUDGET);
+
+	if(queue && (recv+send)) {
+		trace_nvmet_tcp_io_work(queue->idx, recv, send);
+	}
 
 	/*
 	 * Requeue the worker if idle deadline period is in progress or any
 	 * ops activity was recorded during the do-while loop above.
 	 */
-	if (nvmet_tcp_check_queue_deadline(queue, ops) || pending)
+	if (nvmet_tcp_check_queue_deadline(queue, recv+send) || pending)
 		queue_work_on(queue_cpu(queue), nvmet_tcp_wq, &queue->io_work);
 }
+
 
 static int nvmet_tcp_alloc_cmd(struct nvmet_tcp_queue *queue,
 		struct nvmet_tcp_cmd *c)

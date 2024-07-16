@@ -103,6 +103,20 @@ void print_write_breakdown(struct nvmet_tcp_write_breakdown *ns) {
   }
 }
 
+void print_recv_send(){
+  printf(HEADER2 "recv and send in io_work" RESET "\n");
+  if(nvmet_tcp_stat){
+    if(nvmet_tcp_stat->recv_cnt){
+      printf("recv_cnt: %lld, recv: %lld, avg %.2f\n", nvmet_tcp_stat->recv_cnt, nvmet_tcp_stat->recv, (float)nvmet_tcp_stat->recv / nvmet_tcp_stat->recv_cnt);
+    } 
+    if(nvmet_tcp_stat->send_cnt){
+      printf("send_cnt: %lld, send: %lld, avg %.2f\n", nvmet_tcp_stat->send_cnt, nvmet_tcp_stat->send, (float)nvmet_tcp_stat->send / nvmet_tcp_stat->send_cnt);
+    }
+  } else {
+    printf("nvmet_tcp_stat is NULL\n");
+  }
+}
+
 void print_nvmet_tcp_layer_stat() {
   if (nvmet_tcp_stat) {
     printf(HEADER1 "[NVMET_TCP LAYER]:\n" RESET);
@@ -113,6 +127,7 @@ void print_nvmet_tcp_layer_stat() {
       print_read_breakdown(&nvmet_tcp_stat->all_read[i]);
       print_write_breakdown(&nvmet_tcp_stat->all_write[i]);
     }
+    print_recv_send();
   } else {
     printf("nvmet_tcp_stat is NULL\n");
   }

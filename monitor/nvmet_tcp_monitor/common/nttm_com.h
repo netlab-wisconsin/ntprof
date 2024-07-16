@@ -146,6 +146,10 @@ struct nvmet_tcp_stat {
   /** these 2 attributes are summary for the whole trace */
   struct nvmet_tcp_read_breakdown all_read[SIZE_NUM];
   struct nvmet_tcp_write_breakdown all_write[SIZE_NUM];
+  long long recv_cnt;
+  long long recv;
+  long long send_cnt;
+  long long send;
 };
 
 static inline void init_nvmet_tcp_stat(struct nvmet_tcp_stat *stat) {
@@ -154,6 +158,10 @@ static inline void init_nvmet_tcp_stat(struct nvmet_tcp_stat *stat) {
     init_nvmet_tcp_read_breakdown(&stat->all_read[i]);
     init_nvmet_tcp_write_breakdown(&stat->all_write[i]);
   }
+  stat->recv_cnt = 0;
+  stat->recv = 0;
+  stat->send_cnt = 0;
+  stat->send = 0;
 }
 
 struct tcp_stat_one_queue {

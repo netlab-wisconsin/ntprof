@@ -223,6 +223,10 @@ static inline void copy_nvmet_tcp_write_breakdown(
 struct atomic_nvmet_tcp_stat {
   struct atomic_nvmet_tcp_read_breakdown read_breakdown[SIZE_NUM];
   struct atomic_nvmet_tcp_write_breakdown write_breakdown[SIZE_NUM];
+  atomic64_t recv_cnt;
+  atomic64_t recv;
+  atomic64_t send_cnt;
+  atomic64_t send;
 };
 
 static inline void init_atomic_nvmet_tcp_stat(
@@ -232,6 +236,10 @@ static inline void init_atomic_nvmet_tcp_stat(
     init_atomic_nvmet_tcp_read_breakdown(&stat->read_breakdown[i]);
     init_atomic_nvmet_tcp_write_breakdown(&stat->write_breakdown[i]);
   }
+  atomic64_set(&stat->recv_cnt, 0);
+  atomic64_set(&stat->recv, 0);
+  atomic64_set(&stat->send_cnt, 0);
+  atomic64_set(&stat->send, 0);
 }
 
 static inline void copy_nvmet_tcp_stat(
@@ -241,6 +249,10 @@ static inline void copy_nvmet_tcp_stat(
     copy_nvmet_tcp_read_breakdown(&dst->all_read[i], &src->read_breakdown[i]);
     copy_nvmet_tcp_write_breakdown(&dst->all_write[i], &src->write_breakdown[i]);
   }
+  dst->recv_cnt = atomic64_read(&src->recv_cnt);
+  dst->recv = atomic64_read(&src->recv);
+  dst->send_cnt = atomic64_read(&src->send_cnt);
+  dst->send = atomic64_read(&src->send);
 }
 
 
