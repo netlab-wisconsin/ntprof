@@ -106,6 +106,7 @@ struct nvmet_io_instance {
   u32 size;
   bool is_spoiled;
   bool contain_r2t;
+  int qid;
 };
 
 static inline void init_nvmet_tcp_io_instance(

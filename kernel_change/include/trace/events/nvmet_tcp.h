@@ -146,8 +146,8 @@ TRACE_EVENT(nvmet_tcp_try_send_data,
 );
 
 TRACE_EVENT( nvmet_tcp_handle_h2c_data_pdu,
-    TP_PROTO(u16 cmd_id, int qid, int datalen, unsigned long long time),
-    TP_ARGS(cmd_id, qid, datalen, time),
+    TP_PROTO(u16 cmd_id, int qid, int datalen, unsigned long long time, long long recv_time),
+    TP_ARGS(cmd_id, qid, datalen, time, recv_time),
     TP_STRUCT__entry(
         __field(u16, cmd_id)
         __field(int, qid)

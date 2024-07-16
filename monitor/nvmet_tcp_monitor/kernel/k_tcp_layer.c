@@ -219,7 +219,7 @@ void on_cwnd_tcp_mtu_probe(void *ignore, u32 old_cwnd, u32 new_cwnd,
   }
 }
 
-void on_pkt_tcp_event_new_data_sent(void *ignore, u32 packeg_in_flight,
+void on_pkt_tcp_event_new_data_sent(void *ignore, u32 packeg_in_flight, u32 skb_len, u32 pk_num,
                                     u32 cwnd, u32 local_port, u32 remote_port,
                                     u64 time) {
   if (remote_port_filter(local_port) && port2qid(remote_port) != -1 && to_sample() ){
