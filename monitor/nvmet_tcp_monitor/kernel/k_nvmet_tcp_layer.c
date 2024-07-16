@@ -61,10 +61,6 @@ void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
                       int size, unsigned long long time, long long recv_time) {
   if (ctrl && args->qid[qid] && args->io_type + is_write != 1) {
     if (to_sample()) {
-      unsigned long flags;
-      // local_irq_save(flags);
-      // local_bh_disable();
-      spin_lock_irqsave(&current_io_lock, flags);
       if (!current_io) {
         current_io = kmalloc(sizeof(struct nvmet_io_instance), GFP_KERNEL);
 
@@ -74,9 +70,6 @@ void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
       } else {
         pr_info("current_io is not NULL\n");
       }
-      spin_unlock_irqrestore(&current_io_lock, flags);
-      // local_bh_enable();
-      // local_irq_restore(flags);
     }
   }
 }
@@ -87,16 +80,10 @@ void on_exec_read_req(void* ignore, u16 cmd_id, int qid, bool is_write,
     pr_err("exec_read_req: is_write is true\n");
   }
   if (ctrl && args->qid[qid]) {
-    unsigned long flags;
-    // local_irq_save(flags);
-    // local_bh_disable();
-    spin_lock_irqsave(&current_io_lock, flags);
-    if (current_io && current_io->command_id == cmd_id && current_io->qid == qid) {
+    if (current_io && current_io->command_id == cmd_id &&
+        current_io->qid == qid) {
       append_event(current_io, EXEC_READ_REQ, time, 0);
     }
-    spin_unlock_irqrestore(&current_io_lock, flags);
-    // local_bh_enable();
-    // local_irq_restore(flags);
   }
 }
 
@@ -107,113 +94,73 @@ void on_exec_write_req(void* ignore, u16 cmd_id, int qid, bool is_write,
     pr_err("exec_write_req: is_write is false\n");
   }
   if (ctrl && args->qid[qid]) {
-    unsigned long flags;
-    // local_irq_save(flags);
-    // local_bh_disable();
-    spin_lock_irqsave(&current_io_lock, flags);
-    if (current_io && current_io->command_id == cmd_id && current_io->qid == qid) {
+    if (current_io && current_io->command_id == cmd_id &&
+        current_io->qid == qid) {
       append_event(current_io, EXEC_WRITE_REQ, time, 0);
     }
-    spin_unlock_irqrestore(&current_io_lock, flags);
-    // local_bh_enable();
-    // local_irq_restore(flags);    
   }
 }
 
 void on_queue_response(void* ignore, u16 cmd_id, int qid, bool is_write,
                        unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    unsigned long flags;
-    // local_irq_save(flags);
-    // local_bh_disable();
     spin_lock(&current_io_lock);
-    if (current_io && current_io->command_id == cmd_id && current_io->qid == qid) {
+    if (current_io && current_io->command_id == cmd_id &&
+        current_io->qid == qid) {
       append_event(current_io, QUEUE_RESPONSE, time, 0);
     }
     spin_unlock(&current_io_lock);
-    // local_bh_enable();
-    // local_irq_restore(flags);    
   }
 }
 
 void on_setup_c2h_data_pdu(void* ignore, u16 cmd_id, int qid,
                            unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    unsigned long flags;
-    // local_irq_save(flags);
-    // local_bh_disable();
-    spin_lock_irqsave(&current_io_lock, flags);
-    if (current_io && current_io->command_id == cmd_id && current_io->qid == qid) {
+    if (current_io && current_io->command_id == cmd_id &&
+        current_io->qid == qid) {
       append_event(current_io, SETUP_C2H_DATA_PDU, time, 0);
     }
-    spin_unlock_irqrestore(&current_io_lock, flags);
-    // local_bh_enable();
-    // local_irq_restore(flags);    
   }
 }
 
 void on_setup_r2t_pdu(void* ignore, u16 cmd_id, int qid,
                       unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    unsigned long flags;
-    // local_irq_save(flags);
-    // local_bh_disable();
-    spin_lock_irqsave(&current_io_lock, flags);
-    if (current_io && current_io->command_id == cmd_id && current_io->qid == qid) {
+    if (current_io && current_io->command_id == cmd_id &&
+        current_io->qid == qid) {
       current_io->contain_r2t = true;
       append_event(current_io, SETUP_R2T_PDU, time, 0);
     }
-    spin_unlock_irqrestore(&current_io_lock, flags);
-    // local_bh_enable();
-    // local_irq_restore(flags);    
   }
 }
 
 void on_setup_response_pdu(void* ignore, u16 cmd_id, int qid,
                            unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    unsigned long flags;
-    // local_irq_save(flags);
-    // local_bh_disable();
-    spin_lock_irqsave(&current_io_lock, flags);
-    if (current_io && current_io->command_id == cmd_id && current_io->qid == qid) {
+    if (current_io && current_io->command_id == cmd_id &&
+        current_io->qid == qid) {
       append_event(current_io, SETUP_RESPONSE_PDU, time, 0);
     }
-    spin_unlock_irqrestore(&current_io_lock, flags);
-    // local_bh_enable();
-    // local_irq_restore(flags);    
   }
 }
 
 void on_try_send_data_pdu(void* ignore, u16 cmd_id, int qid, int cp_len,
                           int left, unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    unsigned long flags;
-    // local_irq_save(flags);
-    // local_bh_disable();
-    spin_lock_irqsave(&current_io_lock, flags);
-    if (current_io && current_io->command_id == cmd_id && current_io->qid == qid) {
+    if (current_io && current_io->command_id == cmd_id &&
+        current_io->qid == qid) {
       append_event(current_io, TRY_SEND_DATA_PDU, time, 0);
     }
-    spin_unlock_irqrestore(&current_io_lock, flags);
-    // local_bh_enable();
-    // local_irq_restore(flags);    
   }
 }
 
 void on_try_send_r2t(void* ignore, u16 cmd_id, int qid, int cp_len, int left,
                      unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    unsigned long flags;
-    // local_irq_save(flags);
-    // local_bh_disable();
-    spin_lock_irqsave(&current_io_lock, flags);
-    if (current_io && current_io->command_id == cmd_id && current_io->qid == qid) {
+    if (current_io && current_io->command_id == cmd_id &&
+        current_io->qid == qid) {
       append_event(current_io, TRY_SEND_R2T, time, 0);
     }
-    spin_unlock_irqrestore(&current_io_lock, flags);
-    // local_bh_enable();
-    // local_irq_restore(flags);    
   }
 }
 
@@ -344,11 +291,8 @@ void update_atomic_write_breakdown(
 void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
                           int left, unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    unsigned long flags;
-    // local_irq_save(flags);
-    // local_bh_disable();
-    spin_lock_irqsave(&current_io_lock, flags);
-    if (current_io && current_io->command_id == cmd_id && current_io->qid == qid) {
+    if (current_io && current_io->command_id == cmd_id &&
+        current_io->qid == qid) {
       append_event(current_io, TRY_SEND_RESPONSE, time, 0);
       /** insert the current io sample to the sample sliding window */
       if (args->detail) print_io_instance(current_io);
@@ -380,58 +324,37 @@ void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
         pr_info("current_io is spoiled\n");
       }
     }
-    spin_unlock_irqrestore(&current_io_lock, flags);
-    // local_bh_enable();
-    // local_irq_restore(flags);    
   }
 }
 
 void on_try_send_data(void* ignore, u16 cmd_id, int qid, int cp_len,
                       unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    unsigned long flags;
-    // local_irq_save(flags);
-    // local_bh_disable();
-    spin_lock_irqsave(&current_io_lock, flags);
-    if (current_io && current_io->command_id == cmd_id && current_io->qid == qid) {
+    if (current_io && current_io->command_id == cmd_id &&
+        current_io->qid == qid) {
       append_event(current_io, TRY_SEND_DATA, time, 0);
     }
-    spin_unlock_irqrestore(&current_io_lock, flags);
-    // local_bh_enable();
-    // local_irq_restore(flags);    
   }
 }
 
 void on_try_recv_data(void* ignore, u16 cmd_id, int qid, int cp_len,
                       unsigned long long time, long long recv_time) {
   if (ctrl && args->qid[qid]) {
-    unsigned long flags;
-    // local_irq_save(flags);
-    // local_bh_disable();
-    spin_lock_irqsave(&current_io_lock, flags);
-    if (current_io && current_io->command_id == cmd_id && current_io->qid == qid) {
+    if (current_io && current_io->command_id == cmd_id &&
+        current_io->qid == qid) {
       append_event(current_io, TRY_RECV_DATA, time, recv_time);
     }
-    spin_unlock_irqrestore(&current_io_lock, flags);
-    // local_bh_enable();
-    // local_irq_restore(flags);    
   }
 }
 
 void on_handle_h2c_data_pdu(void* ignore, u16 cmd_id, int qid, int datalen,
                             unsigned long long time, long long recv_time) {
   if (ctrl && args->qid[qid]) {
-    unsigned long flags;
-    // local_irq_save(flags);
-    // local_bh_disable();
-    spin_lock_irqsave(&current_io_lock, flags);
-    if (current_io && current_io->command_id == cmd_id && current_io->qid == qid) {
+    if (current_io && current_io->command_id == cmd_id &&
+        current_io->qid == qid) {
       current_io->size = datalen;
       append_event(current_io, HANDLE_H2C_DATA_PDU, time, recv_time);
     }
-    spin_unlock_irqrestore(&current_io_lock, flags);
-    // local_bh_enable();
-    // local_irq_restore(flags);    
   }
 }
 
