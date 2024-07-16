@@ -8,8 +8,8 @@
 #include <linux/nvme.h>
 
 TRACE_EVENT(nvme_tcp_queue_rq,
-    TP_PROTO(struct request *req, bool *to_trace, int req_len, int send_len, unsigned long long time),
-    TP_ARGS(req, to_trace, req_len, send_len, time),
+    TP_PROTO(struct request *req, int qid, bool *to_trace, int req_len, int send_len, unsigned long long time),
+    TP_ARGS(req, qid, to_trace, req_len, send_len, time),
     TP_STRUCT__entry(
         __array(char, disk, DISK_NAME_LEN)
         __field(int, ctrl_id)
@@ -51,8 +51,8 @@ TRACE_EVENT(nvme_tcp_queue_rq,
  * tag = 1 if the request is the initial request, 0 if it is a subsequent data pdu
 */
 TRACE_EVENT(nvme_tcp_queue_request,
-    TP_PROTO(struct request *req, int cmdid, bool tag,  unsigned long long time),
-    TP_ARGS(req, cmdid, tag, time),
+    TP_PROTO(struct request *req, int qid, int cmdid, bool tag,  unsigned long long time),
+    TP_ARGS(req, qid, cmdid, tag, time),
     TP_STRUCT__entry(
         __array(char, disk, DISK_NAME_LEN)
         __field(int, ctrl_id)
@@ -85,8 +85,8 @@ TRACE_EVENT(nvme_tcp_queue_request,
 
 
 TRACE_EVENT(nvme_tcp_try_send_cmd_pdu,
-    TP_PROTO(struct request *rq, int len,int qid, int local_port, unsigned long long time),
-    TP_ARGS(rq, len, qid, local_port, time),
+    TP_PROTO(struct request *rq, int qid, int len,int qid, int local_port, unsigned long long time),
+    TP_ARGS(rq, qid, len, qid, local_port, time),
     TP_STRUCT__entry(
         __array(char, disk, DISK_NAME_LEN)
         __field(int, ctrl_id)
@@ -116,8 +116,8 @@ TRACE_EVENT(nvme_tcp_try_send_cmd_pdu,
 
 
 TRACE_EVENT(nvme_tcp_try_send_data_pdu,
-    TP_PROTO(struct request *rq, int len, unsigned long long time),
-    TP_ARGS(rq, len, time),
+    TP_PROTO(struct request *rq, int qid, int len, unsigned long long time),
+    TP_ARGS(rq, qid, len, time),
     TP_STRUCT__entry(
         __array(char, disk, DISK_NAME_LEN)
         __field(int, ctrl_id)
@@ -146,13 +146,13 @@ TRACE_EVENT(nvme_tcp_try_send_data_pdu,
 );
 
 DEFINE_EVENT(nvme_tcp_try_send_data_pdu, nvme_tcp_try_send_data,
-    TP_PROTO(struct request *rq, int len, unsigned long long time),
-    TP_ARGS(rq, len, time)
+    TP_PROTO(struct request *rq, int qid, int len, unsigned long long time),
+    TP_ARGS(rq, qid, len, time)
 );
 
 TRACE_EVENT(nvme_tcp_done_send_req,
-    TP_PROTO(struct request *rq, unsigned long long time),
-    TP_ARGS(rq, time),
+    TP_PROTO(struct request *rq, int qid, unsigned long long time),
+    TP_ARGS(rq, qid, time),
     TP_STRUCT__entry(
         __array(char, disk, DISK_NAME_LEN)
         __field(int, ctrl_id)
@@ -217,8 +217,8 @@ TRACE_EVENT(nvme_tcp_try_recv,
 // );
 
 TRACE_EVENT(nvme_tcp_handle_c2h_data, 
-    TP_PROTO(struct request* rq, int data_remain, int qid, unsigned long long time, long long skb_time),
-    TP_ARGS(rq, data_remain, qid, time, skb_time),
+    TP_PROTO(struct request* rq, int qid, int data_remain, unsigned long long time, long long skb_time),
+    TP_ARGS(rq, qid, data_remain, time, skb_time),
     TP_STRUCT__entry(
         __array(char, disk, DISK_NAME_LEN)
         __field(int, ctrl_id)
@@ -243,8 +243,8 @@ TRACE_EVENT(nvme_tcp_handle_c2h_data,
 );
 
 TRACE_EVENT(nvme_tcp_recv_data,
-    TP_PROTO(struct request* rq, int cp_len, int qid, unsigned long long time, long long skb_time),
-    TP_ARGS(rq, cp_len, qid, time, skb_time),
+    TP_PROTO(struct request* rq, int qid, int cp_len, unsigned long long time, long long skb_time),
+    TP_ARGS(rq, qid, cp_len, time, skb_time),
     TP_STRUCT__entry(
         __array(char, disk, DISK_NAME_LEN)
         __field(int, ctrl_id)
@@ -271,8 +271,8 @@ TRACE_EVENT(nvme_tcp_recv_data,
 
 
 TRACE_EVENT(nvme_tcp_process_nvme_cqe,
-    TP_PROTO(struct request *req, unsigned long long time, long long skb_time),
-    TP_ARGS(req, time, skb_time),
+    TP_PROTO(struct request *req, int qid, unsigned long long time, long long skb_time),
+    TP_ARGS(req, qid, time, skb_time),
     TP_STRUCT__entry(
         __array(char, disk, DISK_NAME_LEN)
         __field(int, ctrl_id)
@@ -303,13 +303,13 @@ TRACE_EVENT(nvme_tcp_process_nvme_cqe,
 
 
 DEFINE_EVENT(nvme_tcp_process_nvme_cqe, nvme_tcp_handle_r2t,
-    TP_PROTO(struct request *req, unsigned long long time, long long skb_time),
-    TP_ARGS(req, time, skb_time)
+    TP_PROTO(struct request *req, int qid, unsigned long long time, long long skb_time),
+    TP_ARGS(req, qid, time, skb_time)
 );
 
 DEFINE_EVENT(nvme_tcp_done_send_req, nvme_tcp_try_send,
-    TP_PROTO(struct request *req, unsigned long long time),
-    TP_ARGS(req, time)
+    TP_PROTO(struct request *req, int qid, unsigned long long time),
+    TP_ARGS(req, qid, time)
 );
 
 #endif /* _TRACE_NVME_TCP_H */

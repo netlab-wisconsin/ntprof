@@ -195,6 +195,7 @@ struct nvme_tcp_io_instance {
   bool is_spoiled;
   int size;    // size of the whole request
   u64 before;  // time between bio issue and entering the nvme_tcp_layer
+  int qid;
 };
 
 
