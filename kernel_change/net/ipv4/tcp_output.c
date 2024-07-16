@@ -83,7 +83,7 @@ static void tcp_event_new_data_sent(struct sock *sk, struct sk_buff *skb)
 
 	tp->packets_out += tcp_skb_pcount(skb);
 	// if(LOCAL_PORT == 4420){
-		trace_pkt_tcp_event_new_data_sent(tcp_packets_in_flight(tp), tcp_snd_cwnd(tp), LOCAL_PORT, REMOTE_PORT, ktime_get_ns());
+		trace_pkt_tcp_event_new_data_sent(tcp_packets_in_flight(tp), skb->data_len, tcp_skb_pcount(skb), tcp_snd_cwnd(tp), LOCAL_PORT, REMOTE_PORT, ktime_get_ns());
 	// }
 	if (!prior_packets || icsk->icsk_pending == ICSK_TIME_LOSS_PROBE)
 		tcp_rearm_rto(sk);
@@ -3782,7 +3782,7 @@ static void tcp_connect_queue_skb(struct sock *sk, struct sk_buff *skb)
 	WRITE_ONCE(tp->write_seq, tcb->end_seq);
 	tp->packets_out += tcp_skb_pcount(skb);
 	// if(LOCAL_PORT == 4420){
-		trace_pkt_tcp_connect_queue_skb(tcp_packets_in_flight(tp), tcp_snd_cwnd(tp), LOCAL_PORT, REMOTE_PORT, ktime_get_ns());
+		// trace_pkt_tcp_connect_queue_skb(tcp_packets_in_flight(tp), tcp_snd_cwnd(tp), LOCAL_PORT, REMOTE_PORT, ktime_get_ns());
 	// }
 }
 

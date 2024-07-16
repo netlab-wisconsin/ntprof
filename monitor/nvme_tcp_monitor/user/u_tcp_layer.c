@@ -18,8 +18,9 @@ void print_tcp_stat(struct tcp_stat *stat) {
   for (int i = 0; i < MAX_QID; i++) {
     if (stat->sks[i].cwnd == 0) continue;
     /** print qid, port, cwnd, pkt-in-flight in one line */
-    printf("\tqid: %d, cwnd: %d, pkt-in-flight: %d, last event: %s\n", i,
-           stat->sks[i].cwnd, stat->sks[i].pkt_in_flight, stat->sks[i].last_event);
+    printf("\tqid: %d, cwnd: %d, pkt-in-flight: %d, last event: %s, avg_skb_len: %.2f\n", i,
+           stat->sks[i].cwnd, stat->sks[i].pkt_in_flight, stat->sks[i].last_event, (float)stat->sks[i].skb_size / stat->sks[i].skb_num);
+    
   }
 }
 

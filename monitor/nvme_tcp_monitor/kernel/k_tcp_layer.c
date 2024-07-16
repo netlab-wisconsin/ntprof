@@ -23,16 +23,6 @@ static bool to_sample(void) {
   return atomic64_inc_return(&sample_cnt) % args->nrate == 0;
 }
 
-void init_atomic_tcp_stat(struct atomic_tcp_stat *stat) {
-  int i;
-  for (i = 0; i < MAX_QID; i++) {
-    atomic_set(&stat->sks[i].pkt_in_flight, 0);
-    atomic_set(&stat->sks[i].cwnd, 0);
-    spin_lock_init(&stat->sks[i].lock);
-    stat->sks[i].last_event[0] = '\0';
-  }
-}
-
 /** this is a filter */
 bool remote_port_filter(int port) { return port == 4420; }
 
@@ -229,7 +219,7 @@ void on_cwnd_tcp_mtu_probe(void *ignore, u32 old_cwnd, u32 new_cwnd,
   }
 }
 
-void on_pkt_tcp_event_new_data_sent(void *ignore, u32 packeg_in_flight,
+void on_pkt_tcp_event_new_data_sent(void *ignore, u32 packeg_in_flight, u32 skb_len, u32 pk_num,
                                     u32 cwnd, u32 local_port, u32 remote_port,
                                     u64 time) {
 
@@ -239,6 +229,8 @@ void on_pkt_tcp_event_new_data_sent(void *ignore, u32 packeg_in_flight,
     struct atomic_tcp_stat_of_one_queue *p = &raw_tcp_stat->sks[port2qid(local_port)];
     atomic_set(&p->pkt_in_flight, packeg_in_flight);
     atomic_set(&p->cwnd, cwnd);
+    atomic64_inc(&p->skb_num);
+    atomic64_add(skb_len, &p->skb_size);
   }
 }
 
@@ -289,6 +281,8 @@ void copy_tcp_stat(struct tcp_stat *dst, struct atomic_tcp_stat *src) {
     dst->sks[i].cwnd = atomic_read(&src->sks[i].cwnd);
     spin_lock(&src->sks[i].lock);
     strcpy(dst->sks[i].last_event, src->sks[i].last_event);
+    dst->sks[i].skb_num = atomic64_read(&src->sks[i].skb_num);
+    dst->sks[i].skb_size = atomic64_read(&src->sks[i].skb_size);
     spin_unlock(&src->sks[i].lock);
   }
   smp_mb();

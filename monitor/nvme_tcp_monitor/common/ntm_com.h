@@ -194,6 +194,8 @@ struct tcp_stat_one_queue {
   int pkt_in_flight;
   int cwnd;
   char last_event[64];
+  long long skb_num;
+  long long skb_size;
 };
 
 struct tcp_stat {

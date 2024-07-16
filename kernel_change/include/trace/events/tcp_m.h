@@ -107,10 +107,31 @@ DECLARE_EVENT_CLASS(tcp_packet_change,
         __entry->packeg_in_flight, __entry->cwnd, __entry->local_port, __entry->remote_port)
 )
 
-DEFINE_EVENT(tcp_packet_change, pkt_tcp_event_new_data_sent,
-    TP_PROTO(u32 packeg_in_flight, u32 cwnd, u32 local_port, u32 remote_port, u64 time),
-    TP_ARGS(packeg_in_flight, cwnd, local_port, remote_port, time)
+
+TRACE_EVENT(pkt_tcp_event_new_data_sent,
+    TP_PROTO(u32 packeg_in_flight, u32 skb_len, u32 pk_num, u32 cwnd, u32 local_port, u32 remote_port, u64 time),
+    TP_ARGS(packeg_in_flight, skb_len, pk_num, cwnd, local_port, remote_port, time),
+    TP_STRUCT__entry(
+        __field(u32, packeg_in_flight)
+        __field(u32, cwnd)
+        __field(u32, local_port)
+        __field(u32, remote_port)
+    ),
+    TP_fast_assign(
+        __entry->packeg_in_flight = packeg_in_flight;
+        __entry->cwnd = cwnd;
+        __entry->local_port = local_port;
+        __entry->remote_port = remote_port;
+    ),
+    TP_printk("packeg_in_flight=%u, cwnd=%u, local_port=%u, remote_port=%u",
+        __entry->packeg_in_flight, __entry->cwnd, __entry->local_port, __entry->remote_port)
+
 );
+
+// DEFINE_EVENT(tcp_packet_change, pkt_tcp_event_new_data_sent,
+//     TP_PROTO(u32 packeg_in_flight, u32 cwnd, u32 local_port, u32 remote_port, u64 time),
+//     TP_ARGS(packeg_in_flight, cwnd, local_port, remote_port, time)
+// );
 
 DEFINE_EVENT(tcp_packet_change, pkt_tcp_connect_queue_skb,
     TP_PROTO(u32 packeg_in_flight, u32 cwnd, u32 local_port, u32 remote_port, u64 time),
@@ -131,29 +152,6 @@ DEFINE_EVENT(tcp_packet_change, pkt_tcp_send_syn_data,
     TP_PROTO(u32 packeg_in_flight, u32 cwnd, u32 local_port, u32 remote_port, u64 time),
     TP_ARGS(packeg_in_flight, cwnd, local_port, remote_port, time)
 );
-
-// TRACE_EVENT( nvmet_tcp_handle_h2c_data_pdu,
-//     TP_PROTO(u16 cmd_id, int qid, int datalen, unsigned long long time),
-//     TP_ARGS(cmd_id, qid, datalen, time),
-//     TP_STRUCT__entry(
-//         __field(u16, cmd_id)
-//         __field(int, qid)
-//         __field(int, datalen)
-//     ),
-//     TP_fast_assign(
-//         __entry->cmd_id = cmd_id;
-//         __entry->qid = qid;
-//         __entry->datalen = datalen;
-//     ),
-//     TP_printk("cmd_id=%u, qid=%d, datalen=%d",
-//         __entry->cmd_id, __entry->qid, __entry->datalen)
-// );
-
-// DEFINE_EVENT(nvmet_tcp_handle_h2c_data_pdu, nvmet_tcp_try_recv_data,
-//     TP_PROTO(u16 cmd_id, int qid, int datalen, unsigned long long time),
-//     TP_ARGS(cmd_id, qid, datalen, time)
-// );
-
 
 #endif /* _TRACE_TCP_M_H */
 
