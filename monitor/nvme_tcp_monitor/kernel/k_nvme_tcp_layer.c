@@ -71,6 +71,7 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid,
 
   /** ignore the request from the queue 0 (admin queue) */
   if (qid == 0) return;
+  // pr_info("%d, %d, %llu, %s;\n", req->tag, 0, ktime_get_real_ns(), "NAN");
 
   if (to_sample()) {
     spin_lock_bh(&current_io_lock);
@@ -375,6 +376,8 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req, int qid,
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
+  if(qid == 0) return;
+  // pr_info("%d, %d, %llu, %llu;\n", req->tag, 1, time, recv_time);
 
   spin_lock_bh(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag && qid == current_io->qid) {

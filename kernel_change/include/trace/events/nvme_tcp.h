@@ -85,8 +85,8 @@ TRACE_EVENT(nvme_tcp_queue_request,
 
 
 TRACE_EVENT(nvme_tcp_try_send_cmd_pdu,
-    TP_PROTO(struct request *rq, int qid, int len,int qid, int local_port, unsigned long long time),
-    TP_ARGS(rq, qid, len, qid, local_port, time),
+    TP_PROTO(struct request *rq, int qid, int len, int local_port, unsigned long long time),
+    TP_ARGS(rq, qid, len, local_port, time),
     TP_STRUCT__entry(
         __array(char, disk, DISK_NAME_LEN)
         __field(int, ctrl_id)
