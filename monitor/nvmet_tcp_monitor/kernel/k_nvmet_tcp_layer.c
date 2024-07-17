@@ -21,7 +21,7 @@ static atomic64_t sample_cnt;
 static atomic64_t io_work_sample_cnt;
 
 // static struct mutex current_io_lock;
-static spinlock_t current_io_lock;
+// static spinlock_t current_io_lock;
 static struct nvmet_io_instance* current_io = NULL;
 
 struct proc_dir_entry* entry_nvmet_tcp_dir;
@@ -109,12 +109,10 @@ void on_exec_write_req(void* ignore, u16 cmd_id, int qid, bool is_write,
 void on_queue_response(void* ignore, u16 cmd_id, int qid, bool is_write,
                        unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    spin_lock(&current_io_lock);
     if (current_io && current_io->command_id == cmd_id &&
         current_io->qid == qid) {
       append_event(current_io, QUEUE_RESPONSE, time, 0);
     }
-    spin_unlock(&current_io_lock);
   }
 }
 
@@ -520,7 +518,7 @@ static void remove_nvmet_tcp_proc_entries(void) {
 }
 
 int init_nvmet_tcp_variables(void) {
-  spin_lock_init(&current_io_lock);
+  // spin_lock_init(&current_io_lock);
   // mutex_init(&current_io_lock);
   atomic64_set(&sample_cnt, 0);
   atomic_nvmettcp_stat = kmalloc(sizeof(*atomic_nvmettcp_stat), GFP_KERNEL);
