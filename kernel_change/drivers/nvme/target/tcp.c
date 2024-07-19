@@ -36,6 +36,7 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_try_send_data);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_handle_h2c_data_pdu);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_try_recv_data);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_io_work);
+EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_recv_msg_types);
 
 
 #define NVMET_TCP_DEF_INLINE_DATA_SIZE	(4 * PAGE_SIZE)
@@ -166,6 +167,8 @@ struct nvmet_tcp_queue {
 	struct nvmet_tcp_cmd	connect;
 
 	struct page_frag_cache	pf_cache;
+
+	struct resp_set resp_set;
 
 	void (*data_ready)(struct sock *);
 	void (*state_change)(struct sock *);
@@ -1059,11 +1062,11 @@ static int nvmet_tcp_done_recv_pdu(struct nvmet_tcp_queue *queue, long long recv
 	memcpy(req->cmd, nvme_cmd, sizeof(*nvme_cmd));
 
 	// if the request is to record
+	u64 t1 = ktime_get_real_ns();
 	if(queue->pdu.cmd.tag){
-		trace_nvmet_tcp_done_recv_pdu(queue->pdu.cmd.cmd.common.command_id, queue->idx, nvme_is_write(&queue->pdu.cmd.cmd), le32_to_cpu(req->cmd->common.dptr.sgl.length), ktime_get_real_ns(), recv_time);
+		trace_nvmet_tcp_done_recv_pdu(queue->pdu.cmd.cmd.common.command_id, queue->idx, nvme_is_write(&queue->pdu.cmd.cmd), le32_to_cpu(req->cmd->common.dptr.sgl.length), t1, recv_time);
 	} 
 	
-
 	if (unlikely(!nvmet_req_init(req, &queue->nvme_cq,
 			&queue->nvme_sq, &nvmet_tcp_ops))) {
 		pr_err("failed cmd %p id %d opcode %d, data_len: %d\n",
@@ -1074,6 +1077,7 @@ static int nvmet_tcp_done_recv_pdu(struct nvmet_tcp_queue *queue, long long recv
 		nvmet_tcp_handle_req_failure(queue, queue->cmd, req);
 		return 0;
 	}
+
 
 	ret = nvmet_tcp_map_data(queue->cmd);
 	if (unlikely(ret)) {
@@ -1096,7 +1100,9 @@ static int nvmet_tcp_done_recv_pdu(struct nvmet_tcp_queue *queue, long long recv
 		nvmet_tcp_queue_response(&queue->cmd->req);
 		goto out;
 	}
-	trace_nvmet_tcp_exec_read_req(req->cmd->common.command_id, queue->idx, nvme_is_write(req->cmd), ktime_get_real_ns());
+
+	u64 t2 = ktime_get_real_ns();
+	trace_nvmet_tcp_exec_read_req(req->cmd->common.command_id, queue->idx, nvme_is_write(req->cmd), t2);
 	queue->cmd->req.execute(&queue->cmd->req);
 out:
 	nvmet_prepare_receive_pdu(queue);
@@ -1184,6 +1190,13 @@ recv:
 
 		int remote_port = ntohs((tcp_sk(queue->sock->sk))->inet_conn.icsk_inet.inet_dport);
 		trace_nvmet_tcp_try_recv_pdu(hdr->type,hdr->hlen, queue->left, queue->idx, remote_port, ktime_get_real_ns());
+		if(recv_time == queue->resp_set.skb_ts){
+			add_resp(hdr->type, &queue->resp_set);
+		}else {
+			trace_nvmet_tcp_recv_msg_types(queue->resp_set.cnt, queue->idx, recv_time);
+			init_resp_set(&queue->resp_set);
+			queue->resp_set.skb_ts = recv_time;
+		}
 		
 		goto recv;
 	}
@@ -1695,6 +1708,8 @@ static int nvmet_tcp_alloc_queue(struct nvmet_tcp_port *port,
 	INIT_LIST_HEAD(&queue->free_list);
 	init_llist_head(&queue->resp_list);
 	INIT_LIST_HEAD(&queue->resp_send_list);
+
+	init_resp_set(&queue->resp_set);
 
 	queue->idx = ida_simple_get(&nvmet_tcp_queue_ida, 0, 0, GFP_KERNEL);
 	if (queue->idx < 0) {

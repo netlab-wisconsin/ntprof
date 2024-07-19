@@ -167,6 +167,12 @@ void on_try_send_r2t(void* ignore, u16 cmd_id, int qid, int cp_len, int left,
   }
 }
 
+void on_nvmet_tcp_recv_msg_types(void* ignore, int *cnt, int qid, u64 ts){
+  if (ctrl && args->qid[qid]) {
+    pr_info("qid: %d, nvme_tcp_cmd: %d, nvme_tcp_h2c_data: %d, ts: %llu", qid, cnt[nvme_tcp_cmd], cnt[nvme_tcp_h2c_data], ts);
+  }
+}
+
 bool is_valid_read(struct nvmet_io_instance* io_instance) {
   bool ret;
   int i;
@@ -430,8 +436,12 @@ static int nvmet_tcp_register_tracepoints(void) {
   pr_info("register io_work\n");
   ret = register_trace_nvmet_tcp_io_work(on_io_work, NULL);
   if (ret) goto unregister_try_recv_data;
+  ret = register_trace_nvmet_tcp_recv_msg_types(on_nvmet_tcp_recv_msg_types, NULL);
+  if (ret) goto unregister_io_work;
 
   return 0;
+unregister_io_work:
+  unregister_trace_nvmet_tcp_io_work(on_io_work, NULL);
 unregister_try_recv_data:
   unregister_trace_nvmet_tcp_try_recv_data(on_try_recv_data, NULL);
 unregister_handle_h2c_data_pdu:
@@ -482,6 +492,7 @@ void nvmet_tcp_unregister_tracepoints(void) {
   unregister_trace_nvmet_tcp_handle_h2c_data_pdu(on_handle_h2c_data_pdu, NULL);
   unregister_trace_nvmet_tcp_try_recv_data(on_try_recv_data, NULL);
   unregister_trace_nvmet_tcp_io_work(on_io_work, NULL);
+  unregister_trace_nvmet_tcp_recv_msg_types(on_nvmet_tcp_recv_msg_types, NULL);
 }
 
 static int mmap_nvmet_tcp_stat(struct file* file, struct vm_area_struct* vma) {

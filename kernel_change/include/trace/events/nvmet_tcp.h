@@ -207,6 +207,19 @@ TRACE_EVENT(nvmet_tcp_io_work,
          __entry->qid)
 );
 
+TRACE_EVENT(nvmet_tcp_recv_msg_types,
+    TP_PROTO(int *cnt, int qid, unsigned long long time),
+    TP_ARGS(cnt, qid, time),
+    TP_STRUCT__entry(
+        __field(int, qid)
+    ),
+    TP_fast_assign(
+        __entry->qid = qid;
+    ),
+    TP_printk("qid=%d",
+        __entry->qid)
+);
+
 
 #endif /* _TRACE_NVMET_TCP_H */
 
