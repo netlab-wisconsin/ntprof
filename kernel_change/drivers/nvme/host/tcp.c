@@ -35,6 +35,7 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(nvme_tcp_process_nvme_cqe);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvme_tcp_try_send_data);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvme_tcp_handle_r2t);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvme_tcp_try_send);
+EXPORT_TRACEPOINT_SYMBOL_GPL(recv_msg_types);
 
 
 
@@ -165,6 +166,7 @@ struct nvme_tcp_queue {
 	__le32			recv_ddgst;
 
 	struct page_frag_cache	pf_cache;
+	struct resp_set		resp_set;
 
 	void (*state_change)(struct sock *);
 	void (*data_ready)(struct sock *);
@@ -782,6 +784,15 @@ static int nvme_tcp_recv_pdu(struct nvme_tcp_queue *queue, struct sk_buff *skb,
 		ret = nvme_tcp_check_ddgst(queue, queue->pdu);
 		if (unlikely(ret))
 			return ret;
+	}
+
+	if(time == queue->resp_set.skb_ts) {
+		add_resp(hdr->type, &queue->resp_set);
+	} else {
+		trace_recv_msg_types(queue->resp_set.cnt, nvme_tcp_queue_id(queue), queue->resp_set.skb_ts);
+		init_resp_set(&queue->resp_set);
+		add_resp(hdr->type, &queue->resp_set);
+		queue->resp_set.skb_ts = time;
 	}
 
 	switch (hdr->type) {
@@ -1544,6 +1555,8 @@ static int nvme_tcp_alloc_queue(struct nvme_ctrl *nctrl,
 	mutex_init(&queue->send_mutex);
 	INIT_WORK(&queue->io_work, nvme_tcp_io_work);
 	queue->queue_size = queue_size;
+
+	init_resp_set(&queue->resp_set);
 
 	if (qid > 0)
 		queue->cmnd_capsule_len = nctrl->ioccsz * 16;

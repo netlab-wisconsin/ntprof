@@ -312,6 +312,18 @@ DEFINE_EVENT(nvme_tcp_done_send_req, nvme_tcp_try_send,
     TP_ARGS(req, qid, time)
 );
 
+TRACE_EVENT(recv_msg_types, 
+    TP_PROTO(int* type, int qid, unsigned long long time),
+    TP_ARGS(type, qid, time),
+    TP_STRUCT__entry(
+        __field(int, qid)
+    ),
+    TP_fast_assign(
+        __entry->qid = qid;
+    ),
+    TP_printk("qid=%d", __entry->qid)
+);
+
 #endif /* _TRACE_NVME_TCP_H */
 
 #undef TRACE_INCLUDE_PATH

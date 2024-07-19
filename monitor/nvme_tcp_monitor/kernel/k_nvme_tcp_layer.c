@@ -403,6 +403,11 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req, int qid,
   spin_unlock_bh(&current_io_lock);
 }
 
+void on_recv_msg_types(void *ignore, int *cnt, int qid, u64 ts){
+  int i;
+  pr_info("qid: %d, nvme_tcp_rsp: %d, nvme_tcp_rsp: %d, nvme_tcp_r2t: %d, ts: %llu", qid, cnt[5], cnt[7], cnt[9], ts);
+}
+
 static int nvmetcp_register_tracepoint(void) {
   int ret;
   if ((ret = register_trace_nvme_tcp_queue_rq(on_nvme_tcp_queue_rq, NULL)))
@@ -436,8 +441,13 @@ static int nvmetcp_register_tracepoint(void) {
   if ((ret = register_trace_nvme_tcp_process_nvme_cqe(
            on_nvme_tcp_process_nvme_cqe, NULL)))
     goto unregister_handle_r2t;
+  if((ret = register_trace_recv_msg_types(on_recv_msg_types, NULL)))
+    goto unregister_process_nvme_cqe;
   return 0;
 
+unregister_process_nvme_cqe:
+  unregister_trace_nvme_tcp_process_nvme_cqe(on_nvme_tcp_process_nvme_cqe,
+                                             NULL);
 unregister_handle_r2t:
   unregister_trace_nvme_tcp_handle_r2t(on_nvme_tcp_handle_r2t, NULL);
 unregister_recv_data:
@@ -482,6 +492,7 @@ static void nvmetcp_unregister_tracepoint(void) {
   unregister_trace_nvme_tcp_handle_r2t(on_nvme_tcp_handle_r2t, NULL);
   unregister_trace_nvme_tcp_process_nvme_cqe(on_nvme_tcp_process_nvme_cqe,
                                              NULL);
+  unregister_trace_recv_msg_types(on_recv_msg_types, NULL);
 }
 
 static int mmap_nvme_tcp_stat(struct file *filp, struct vm_area_struct *vma) {
