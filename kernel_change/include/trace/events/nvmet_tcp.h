@@ -123,9 +123,19 @@ DEFINE_EVENT(nvmet_tcp_try_send_data_pdu, nvmet_tcp_try_send_r2t,
     TP_ARGS(cmd_id, qid, cp_len, left, time)
 );
 
-DEFINE_EVENT(nvmet_tcp_try_send_data_pdu, nvmet_tcp_try_send_response,
-    TP_PROTO(u16 cmd_id, int qid, int cp_len, int left, unsigned long long time),
-    TP_ARGS(cmd_id, qid, cp_len, left, time)
+TRACE_EVENT(nvmet_tcp_try_send_response,
+    TP_PROTO(u16 cmd_id, int qid, int cp_len, int left, int iswrite, unsigned long long time),
+    TP_ARGS(cmd_id, qid, cp_len, left, iswrite, time),
+    TP_STRUCT__entry(
+        __field(u16, cmd_id)
+        __field(int, qid)
+    ),
+    TP_fast_assign(
+        __entry->cmd_id = cmd_id;
+        __entry->qid = qid;
+    ),
+    TP_printk("cmd_id=%u, qid=%d",
+        __entry->cmd_id, __entry->qid)
 );
 
 TRACE_EVENT(nvmet_tcp_try_send_data,
