@@ -17,6 +17,10 @@
 #include "nttm_com.h"
 #include "util.h"
 
+#define timethred 7000
+#define to_trace \
+  (current_io && current_io->command_id == cmd_id && current_io->qid == qid)
+
 static atomic64_t sample_cnt;
 static atomic64_t io_work_sample_cnt;
 
@@ -65,6 +69,7 @@ void on_try_recv_pdu(void* ignore, u8 pdu_type, u8 hdr_len, int queue_left,
 void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
                       int size, unsigned long long time, long long recv_time) {
   if (ctrl && args->qid[qid] && args->io_type + is_write != 1) {
+    // pr_info("%d, 0, %llu;", cmd_id, recv_time);
     if (to_sample()) {
       if (!current_io) {
         current_io = kmalloc(sizeof(struct nvmet_io_instance), GFP_KERNEL);
@@ -85,8 +90,7 @@ void on_exec_read_req(void* ignore, u16 cmd_id, int qid, bool is_write,
     pr_err("exec_read_req: is_write is true\n");
   }
   if (ctrl && args->qid[qid]) {
-    if (current_io && current_io->command_id == cmd_id &&
-        current_io->qid == qid) {
+    if (to_trace) {
       append_event(current_io, EXEC_READ_REQ, time, 0);
     }
   }
@@ -99,8 +103,7 @@ void on_exec_write_req(void* ignore, u16 cmd_id, int qid, bool is_write,
     pr_err("exec_write_req: is_write is false\n");
   }
   if (ctrl && args->qid[qid]) {
-    if (current_io && current_io->command_id == cmd_id &&
-        current_io->qid == qid) {
+    if (to_trace) {
       append_event(current_io, EXEC_WRITE_REQ, time, 0);
     }
   }
@@ -109,8 +112,7 @@ void on_exec_write_req(void* ignore, u16 cmd_id, int qid, bool is_write,
 void on_queue_response(void* ignore, u16 cmd_id, int qid, bool is_write,
                        unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    if (current_io && current_io->command_id == cmd_id &&
-        current_io->qid == qid) {
+    if (to_trace) {
       append_event(current_io, QUEUE_RESPONSE, time, 0);
     }
   }
@@ -119,8 +121,7 @@ void on_queue_response(void* ignore, u16 cmd_id, int qid, bool is_write,
 void on_setup_c2h_data_pdu(void* ignore, u16 cmd_id, int qid,
                            unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    if (current_io && current_io->command_id == cmd_id &&
-        current_io->qid == qid) {
+    if (to_trace) {
       append_event(current_io, SETUP_C2H_DATA_PDU, time, 0);
     }
   }
@@ -129,8 +130,7 @@ void on_setup_c2h_data_pdu(void* ignore, u16 cmd_id, int qid,
 void on_setup_r2t_pdu(void* ignore, u16 cmd_id, int qid,
                       unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    if (current_io && current_io->command_id == cmd_id &&
-        current_io->qid == qid) {
+    if (to_trace) {
       current_io->contain_r2t = true;
       append_event(current_io, SETUP_R2T_PDU, time, 0);
     }
@@ -140,8 +140,7 @@ void on_setup_r2t_pdu(void* ignore, u16 cmd_id, int qid,
 void on_setup_response_pdu(void* ignore, u16 cmd_id, int qid,
                            unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    if (current_io && current_io->command_id == cmd_id &&
-        current_io->qid == qid) {
+    if (to_trace) {
       append_event(current_io, SETUP_RESPONSE_PDU, time, 0);
     }
   }
@@ -150,8 +149,7 @@ void on_setup_response_pdu(void* ignore, u16 cmd_id, int qid,
 void on_try_send_data_pdu(void* ignore, u16 cmd_id, int qid, int cp_len,
                           int left, unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    if (current_io && current_io->command_id == cmd_id &&
-        current_io->qid == qid) {
+    if (to_trace) {
       append_event(current_io, TRY_SEND_DATA_PDU, time, 0);
     }
   }
@@ -160,17 +158,30 @@ void on_try_send_data_pdu(void* ignore, u16 cmd_id, int qid, int cp_len,
 void on_try_send_r2t(void* ignore, u16 cmd_id, int qid, int cp_len, int left,
                      unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    if (current_io && current_io->command_id == cmd_id &&
-        current_io->qid == qid) {
+    if (to_trace) {
       append_event(current_io, TRY_SEND_R2T, time, 0);
     }
   }
 }
 
-void on_nvmet_tcp_recv_msg_types(void* ignore, int *cnt, int qid, u64 ts){
-  if (ctrl && args->qid[qid]) {
-    pr_info("qid: %d, nvme_tcp_cmd: %d, nvme_tcp_h2c_data: %d, ts: %llu", qid, cnt[nvme_tcp_cmd], cnt[nvme_tcp_h2c_data], ts);
-  }
+u64 last_time;
+int cmd_num;
+void on_nvmet_tcp_recv_msg_types(void* ignore, int* cnt, int qid, u64 ts) {
+  // if (ctrl && args->qid[qid]) {
+  //   if (cnt[nvme_tcp_cmd]) {
+  //     if (ts - last_time < args->latency_group_thred) {
+  //       cmd_num += cnt[nvme_tcp_cmd];
+  //     } else {
+  //       if (cmd_num > MAX_BATCH_SIZE) {
+  //         pr_err("cmd number in a batch is too large: %d\n", cmd_num);
+  //       } else {
+  //         if (cmd_num) nvmettcp_stat->batch_size_hist[cmd_num]++;
+  //       }
+  //       cmd_num = cnt[nvme_tcp_cmd];
+  //     }
+  //   }
+  //   last_time = ts;
+  // }
 }
 
 bool is_valid_read(struct nvmet_io_instance* io_instance) {
@@ -298,10 +309,11 @@ void update_atomic_write_breakdown(
 }
 
 void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
-                          int left, unsigned long long time) {
+                          int left, int is_write, unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    if (current_io && current_io->command_id == cmd_id &&
-        current_io->qid == qid) {
+    if (is_write + args->io_type == 1) return;
+    // pr_info("%d, 1, %llu;", cmd_id, time);
+    if (to_trace) {
       append_event(current_io, TRY_SEND_RESPONSE, time, 0);
       /** insert the current io sample to the sample sliding window */
       if (args->detail) print_io_instance(current_io);
@@ -339,8 +351,7 @@ void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
 void on_try_send_data(void* ignore, u16 cmd_id, int qid, int cp_len,
                       unsigned long long time) {
   if (ctrl && args->qid[qid]) {
-    if (current_io && current_io->command_id == cmd_id &&
-        current_io->qid == qid) {
+    if (to_trace) {
       append_event(current_io, TRY_SEND_DATA, time, 0);
     }
   }
@@ -349,8 +360,7 @@ void on_try_send_data(void* ignore, u16 cmd_id, int qid, int cp_len,
 void on_try_recv_data(void* ignore, u16 cmd_id, int qid, int cp_len,
                       unsigned long long time, long long recv_time) {
   if (ctrl && args->qid[qid]) {
-    if (current_io && current_io->command_id == cmd_id &&
-        current_io->qid == qid) {
+    if (to_trace) {
       append_event(current_io, TRY_RECV_DATA, time, recv_time);
     }
   }
@@ -359,8 +369,7 @@ void on_try_recv_data(void* ignore, u16 cmd_id, int qid, int cp_len,
 void on_handle_h2c_data_pdu(void* ignore, u16 cmd_id, int qid, int datalen,
                             unsigned long long time, long long recv_time) {
   if (ctrl && args->qid[qid]) {
-    if (current_io && current_io->command_id == cmd_id &&
-        current_io->qid == qid) {
+    if (to_trace) {
       current_io->size = datalen;
       append_event(current_io, HANDLE_H2C_DATA_PDU, time, recv_time);
     }
@@ -436,7 +445,8 @@ static int nvmet_tcp_register_tracepoints(void) {
   pr_info("register io_work\n");
   ret = register_trace_nvmet_tcp_io_work(on_io_work, NULL);
   if (ret) goto unregister_try_recv_data;
-  ret = register_trace_nvmet_tcp_recv_msg_types(on_nvmet_tcp_recv_msg_types, NULL);
+  ret = register_trace_nvmet_tcp_recv_msg_types(on_nvmet_tcp_recv_msg_types,
+                                                NULL);
   if (ret) goto unregister_io_work;
 
   return 0;
@@ -531,6 +541,8 @@ static void remove_nvmet_tcp_proc_entries(void) {
 int init_nvmet_tcp_variables(void) {
   // spin_lock_init(&current_io_lock);
   // mutex_init(&current_io_lock);
+  last_time = 0;
+  cmd_num = 0;
   atomic64_set(&sample_cnt, 0);
   atomic_nvmettcp_stat = kmalloc(sizeof(*atomic_nvmettcp_stat), GFP_KERNEL);
   init_atomic_nvmet_tcp_stat(atomic_nvmettcp_stat);

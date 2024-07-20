@@ -117,6 +117,20 @@ void print_recv_send(){
   }
 }
 
+void print_batch_info() {
+  if (nvmet_tcp_stat) {
+    printf(HEADER2 "[BATCH INFO]:\n" RESET);
+    int i;
+    for (i = 0; i < MAX_BATCH_SIZE; i++) {
+      printf("%d,", nvmet_tcp_stat->batch_size_hist[i]);
+    }
+    printf("\n");
+  } else {
+    printf("nvmet_tcp_stat is NULL\n");
+  }
+
+}
+
 void print_nvmet_tcp_layer_stat() {
   if (nvmet_tcp_stat) {
     printf(HEADER1 "[NVMET_TCP LAYER]:\n" RESET);
@@ -128,6 +142,7 @@ void print_nvmet_tcp_layer_stat() {
       print_write_breakdown(&nvmet_tcp_stat->all_write[i]);
     }
     print_recv_send();
+    print_batch_info();
   } else {
     printf("nvmet_tcp_stat is NULL\n");
   }
