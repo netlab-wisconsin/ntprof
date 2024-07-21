@@ -370,6 +370,9 @@ void update_atomic_write_breakdown(struct nvme_tcp_io_instance *io,
   atomic64_inc(&wb->cnt);
 }
 
+long long last_time;
+int last_cnt;
+
 void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req, int qid,
                                   unsigned long long time,
                                   long long recv_time) {
@@ -379,6 +382,24 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req, int qid,
   if (qid == 0) return;
   // pr_info("%d, %d, %llu;\n", req->tag, 2, recv_time);  // recv time
   // pr_info("%d, %d, %llu;\n", req->tag, 1, time);
+  shared_nvme_tcp_stat->all_time_stat.total_io++;
+  if (recv_time - last_time < args->latency_group_thred) {
+    // pr_info("current thred is %d, inc cnt\n", args->latency_group_thred);
+    last_cnt += 1;
+  } else {
+    if (last_cnt) {
+      if (last_cnt >= MAX_BATCH_SIZE) {
+        shared_nvme_tcp_stat->all_time_stat.recv_hist[MAX_BATCH_SIZE - 1] += 1;
+        shared_nvme_tcp_stat->all_time_stat.recv_hist[last_cnt - (MAX_BATCH_SIZE - 1)] += 1;
+      } else {
+        shared_nvme_tcp_stat->all_time_stat.recv_hist[last_cnt] += 1;
+      }
+    }
+    args->latency_group_thred = args->proc_time;
+    // pr_info("update thred to %d\n", args->latency_group_thred);
+    last_cnt = 1;
+  }
+  last_time = recv_time;
 
   spin_lock_bh(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag && qid == current_io->qid) {
@@ -528,6 +549,9 @@ int init_nvmetcp_variables(void) {
   current_io = NULL;
   spin_lock_init(&current_io_lock);
   // mutex_init(&current_io_lock);
+
+  last_time = 0;
+  last_cnt = 0;
 
   atomic64_set(&sample_cnt, 0);
 

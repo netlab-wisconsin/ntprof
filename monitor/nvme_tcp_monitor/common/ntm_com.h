@@ -7,7 +7,7 @@
 
 enum size_type { _4K, _8K, _16K, _32K, _64K, _128K, _OTHERS };
 
-/** a function, given int size, return enum */ 
+/** a function, given int size, return enum */
 static inline enum size_type size_to_enum(int size) {
   if (size == 4096) return _4K;
   if (size == 8192) return _8K;
@@ -28,16 +28,24 @@ static inline int size_idx(int size) {
   return 6;
 }
 
-static inline char* size_name(int idx) {
+static inline char *size_name(int idx) {
   switch (idx) {
-    case 0: return "4K";
-    case 1: return "8K";
-    case 2: return "16K";
-    case 3: return "32K";
-    case 4: return "64K";
-    case 5: return "128K";
-    case 6: return "OTHERS";
-    default: return "UNKNOWN";
+    case 0:
+      return "4K";
+    case 1:
+      return "8K";
+    case 2:
+      return "16K";
+    case 3:
+      return "32K";
+    case 4:
+      return "64K";
+    case 5:
+      return "128K";
+    case 6:
+      return "OTHERS";
+    default:
+      return "UNKNOWN";
   }
 }
 
@@ -70,7 +78,6 @@ struct blk_stat {
   unsigned long long write_io_lat[SIZE_NUM];
 };
 
-
 /**
  * Initialize the blk_stat structure
  * set all the fields to 0
@@ -95,24 +102,25 @@ static inline void init_blk_stat(struct blk_stat *stat) {
  * Increase the count of a specific size category
  * @param arr the array to store the count of different size categories
  * @param size the size of the io
-*/
+ */
 static inline void inc_cnt_arr(unsigned long long *arr, int size) {
   arr[size_to_enum(size)]++;
 }
 
-static inline void add_lat_arr(unsigned long long *arr, int size, unsigned long long lat) {
+static inline void add_lat_arr(unsigned long long *arr, int size,
+                               unsigned long long lat) {
   arr[size_to_enum(size)] += lat;
 }
 
 /** this struct is shared between kernel space and the user space */
-struct shared_blk_layer_stat{
+struct shared_blk_layer_stat {
   struct blk_stat all_time_stat;
 };
 
-static inline void init_shared_blk_layer_stat(struct shared_blk_layer_stat *stat) {
+static inline void init_shared_blk_layer_stat(
+    struct shared_blk_layer_stat *stat) {
   init_blk_stat(&stat->all_time_stat);
 }
-
 
 /** -------------- NVME-TCP LAYER -------------- */
 
@@ -126,7 +134,8 @@ struct nvmetcp_read_breakdown {
   long long e2e;
 };
 
-static inline void init_nvmetcp_read_breakdown(struct nvmetcp_read_breakdown *rb) {
+static inline void init_nvmetcp_read_breakdown(
+    struct nvmetcp_read_breakdown *rb) {
   rb->cnt = 0;
   rb->sub_q = 0;
   rb->req_proc = 0;
@@ -149,7 +158,8 @@ struct nvmetcp_write_breakdown {
   long long e2e;
 };
 
-static inline void init_nvmetcp_write_breakdown(struct nvmetcp_write_breakdown *wb) {
+static inline void init_nvmetcp_write_breakdown(
+    struct nvmetcp_write_breakdown *wb) {
   wb->cnt = 0;
   wb->sub_q1 = 0;
   wb->req_proc1 = 0;
@@ -162,11 +172,15 @@ static inline void init_nvmetcp_write_breakdown(struct nvmetcp_write_breakdown *
   wb->e2e = 0;
 }
 
+#define MAX_BATCH_SIZE 64
 struct nvme_tcp_stat {
   struct nvmetcp_read_breakdown read[SIZE_NUM];
   struct nvmetcp_write_breakdown write[SIZE_NUM];
   unsigned long long read_before[SIZE_NUM];
   unsigned long long write_before[SIZE_NUM];
+
+  int recv_hist[MAX_BATCH_SIZE];
+  long total_io;
 };
 
 static inline void init_nvme_tcp_stat(struct nvme_tcp_stat *stat) {
@@ -177,16 +191,20 @@ static inline void init_nvme_tcp_stat(struct nvme_tcp_stat *stat) {
     stat->read_before[i] = 0;
     stat->write_before[i] = 0;
   }
+  for (i = 0; i < MAX_BATCH_SIZE; i++) {
+    stat->recv_hist[i] = 0;
+  }
+  stat->total_io = 0;
 }
 
 struct shared_nvme_tcp_layer_stat {
   struct nvme_tcp_stat all_time_stat;
 };
 
-static inline void init_shared_nvme_tcp_layer_stat(struct shared_nvme_tcp_layer_stat *stat) {
+static inline void init_shared_nvme_tcp_layer_stat(
+    struct shared_nvme_tcp_layer_stat *stat) {
   init_nvme_tcp_stat(&stat->all_time_stat);
 }
-
 
 /** -------------- TCP LAYER -------------- */
 
@@ -211,4 +229,4 @@ static inline void init_tcp_stat(struct tcp_stat *stat) {
   }
 }
 
-#endif // NTM_COM_H
+#endif  // NTM_COM_H
