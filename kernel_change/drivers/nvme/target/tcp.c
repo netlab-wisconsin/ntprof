@@ -703,7 +703,7 @@ static int nvmet_try_send_response(struct nvmet_tcp_cmd *cmd,
 	cmd->offset += ret;
 	left -= ret;
 
-	trace_nvmet_tcp_try_send_response(cmd->req.cqe->command_id, cmd->queue->idx, ret, left, ktime_get_real_ns());
+	trace_nvmet_tcp_try_send_response(cmd->req.cqe->command_id, cmd->queue->idx, ret, left,nvme_is_write(cmd->req.cmd), ktime_get_real_ns());
 
 	if (left)
 		return -EAGAIN;
@@ -1196,6 +1196,8 @@ recv:
 			trace_nvmet_tcp_recv_msg_types(queue->resp_set.cnt, queue->idx, recv_time);
 			init_resp_set(&queue->resp_set);
 			queue->resp_set.skb_ts = recv_time;
+			queue->resp_set.cnt[hdr->type]=1;
+			// add_resp(hdr->type, &queue->resp_set);
 		}
 		
 		goto recv;
