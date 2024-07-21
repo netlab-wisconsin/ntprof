@@ -120,6 +120,7 @@ void print_recv_send(){
 void print_batch_info() {
   if (nvmet_tcp_stat) {
     printf(HEADER2 "[BATCH INFO]:\n" RESET);
+    printf("total: %ld\n", nvmet_tcp_stat->total_io);
     int i;
     for (i = 0; i < MAX_BATCH_SIZE; i++) {
       printf("%d,", nvmet_tcp_stat->batch_size_hist[i]);

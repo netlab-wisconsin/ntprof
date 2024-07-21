@@ -17,7 +17,6 @@
 #include "nttm_com.h"
 #include "util.h"
 
-#define timethred 7000
 #define to_trace \
   (current_io && current_io->command_id == cmd_id && current_io->qid == qid)
 
@@ -167,21 +166,24 @@ void on_try_send_r2t(void* ignore, u16 cmd_id, int qid, int cp_len, int left,
 u64 last_time;
 int cmd_num;
 void on_nvmet_tcp_recv_msg_types(void* ignore, int* cnt, int qid, u64 ts) {
-  // if (ctrl && args->qid[qid]) {
-  //   if (cnt[nvme_tcp_cmd]) {
-  //     if (ts - last_time < args->latency_group_thred) {
-  //       cmd_num += cnt[nvme_tcp_cmd];
-  //     } else {
-  //       if (cmd_num > MAX_BATCH_SIZE) {
-  //         pr_err("cmd number in a batch is too large: %d\n", cmd_num);
-  //       } else {
-  //         if (cmd_num) nvmettcp_stat->batch_size_hist[cmd_num]++;
-  //       }
-  //       cmd_num = cnt[nvme_tcp_cmd];
-  //     }
-  //   }
-  //   last_time = ts;
-  // }
+  if (ctrl && args->qid[qid]) {
+    if (cnt[nvme_tcp_cmd]) {
+      nvmettcp_stat->total_io += cnt[nvme_tcp_cmd];
+      if (ts - last_time < args->latency_group_thred) {
+        cmd_num += cnt[nvme_tcp_cmd];
+      } else {
+        if (cmd_num >= MAX_BATCH_SIZE) {
+          pr_err("cmd number in a batch is too large: %d\n", cmd_num);
+          nvmettcp_stat->batch_size_hist[MAX_BATCH_SIZE - 1]++;
+          nvmettcp_stat->batch_size_hist[cmd_num - (MAX_BATCH_SIZE - 1)]++;
+        } else {
+          if (cmd_num) nvmettcp_stat->batch_size_hist[cmd_num]++;
+        }
+        cmd_num = cnt[nvme_tcp_cmd];
+      }
+    }
+    last_time = ts;
+  }
 }
 
 bool is_valid_read(struct nvmet_io_instance* io_instance) {

@@ -153,6 +153,7 @@ struct nvmet_tcp_stat {
   long long send;
 
   int batch_size_hist[MAX_BATCH_SIZE];
+  long total_io;
 };
 
 static inline void init_nvmet_tcp_stat(struct nvmet_tcp_stat *stat) {
@@ -168,6 +169,7 @@ static inline void init_nvmet_tcp_stat(struct nvmet_tcp_stat *stat) {
   for (i = 0; i < MAX_BATCH_SIZE; i++) {
     stat->batch_size_hist[i] = 0;
   }
+  stat->total_io = 0;
 }
 
 struct tcp_stat_one_queue {
