@@ -35,7 +35,7 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(nvme_tcp_process_nvme_cqe);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvme_tcp_try_send_data);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvme_tcp_handle_r2t);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvme_tcp_try_send);
-EXPORT_TRACEPOINT_SYMBOL_GPL(recv_msg_types);
+// EXPORT_TRACEPOINT_SYMBOL_GPL(recv_msg_types);
 
 
 

@@ -32,8 +32,8 @@ typedef struct {
 
   /** to print detailed tracing info or not */
   short detail;
-  int latency_group_thred;
-  int proc_time;
+  // int latency_group_thred;
+  // int proc_time;
 } Arguments;
 
 #endif  // _CONFIG_H_

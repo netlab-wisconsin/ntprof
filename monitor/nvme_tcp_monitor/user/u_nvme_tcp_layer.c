@@ -52,18 +52,18 @@ void print_write(struct nvmetcp_write_breakdown *ns,
   }
 }
 
-void print_batch_info(struct nvme_tcp_stat *nvme_tcp_stat) {
-  if (nvme_tcp_stat) {
-    printf(HEADER2 "[BATCH INFO]:\n" RESET);
-    printf("total: %d\n", nvme_tcp_stat->total_io);
-    int i;
-    for (i = 0; i < MAX_BATCH_SIZE; i++)
-      printf("%ld,", nvme_tcp_stat->recv_hist[i]);
-    printf("\n");
-  } else {
-    printf("nvme_tcp_stat is NULL\n");
-  }
-}
+// void print_batch_info(struct nvme_tcp_stat *nvme_tcp_stat) {
+//   if (nvme_tcp_stat) {
+//     printf(HEADER2 "[BATCH INFO]:\n" RESET);
+//     printf("total: %d\n", nvme_tcp_stat->total_io);
+//     int i;
+//     for (i = 0; i < MAX_BATCH_SIZE; i++)
+//       printf("%ld,", nvme_tcp_stat->recv_hist[i]);
+//     printf("\n");
+//   } else {
+//     printf("nvme_tcp_stat is NULL\n");
+//   }
+// }
 
 void print_shared_nvme_tcp_layer_stat(struct shared_nvme_tcp_layer_stat *ns) {
   printf(HEADER2 "all time stat" RESET "\n");
@@ -73,7 +73,7 @@ void print_shared_nvme_tcp_layer_stat(struct shared_nvme_tcp_layer_stat *ns) {
     print_read(&ns->all_time_stat.read[i], ns->all_time_stat.read_before[i]);
     print_write(&ns->all_time_stat.write[i], ns->all_time_stat.write_before[i]);
   }
-  print_batch_info(&ns->all_time_stat);
+  // print_batch_info(&ns->all_time_stat);
 }
 
 void nvme_tcp_layer_monitor_display() {

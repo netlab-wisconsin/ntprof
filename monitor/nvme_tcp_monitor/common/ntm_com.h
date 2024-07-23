@@ -178,9 +178,6 @@ struct nvme_tcp_stat {
   struct nvmetcp_write_breakdown write[SIZE_NUM];
   unsigned long long read_before[SIZE_NUM];
   unsigned long long write_before[SIZE_NUM];
-
-  int recv_hist[MAX_BATCH_SIZE];
-  long total_io;
 };
 
 static inline void init_nvme_tcp_stat(struct nvme_tcp_stat *stat) {
@@ -191,10 +188,6 @@ static inline void init_nvme_tcp_stat(struct nvme_tcp_stat *stat) {
     stat->read_before[i] = 0;
     stat->write_before[i] = 0;
   }
-  for (i = 0; i < MAX_BATCH_SIZE; i++) {
-    stat->recv_hist[i] = 0;
-  }
-  stat->total_io = 0;
 }
 
 struct shared_nvme_tcp_layer_stat {
