@@ -166,7 +166,7 @@ struct nvme_tcp_queue {
 	__le32			recv_ddgst;
 
 	struct page_frag_cache	pf_cache;
-	struct resp_set		resp_set;
+	// struct resp_set		resp_set;
 
 	void (*state_change)(struct sock *);
 	void (*data_ready)(struct sock *);
@@ -786,14 +786,14 @@ static int nvme_tcp_recv_pdu(struct nvme_tcp_queue *queue, struct sk_buff *skb,
 			return ret;
 	}
 
-	if(time == queue->resp_set.skb_ts) {
-		add_resp(hdr->type, &queue->resp_set);
-	} else {
-		trace_recv_msg_types(queue->resp_set.cnt, nvme_tcp_queue_id(queue), queue->resp_set.skb_ts);
-		init_resp_set(&queue->resp_set);
-		add_resp(hdr->type, &queue->resp_set);
-		queue->resp_set.skb_ts = time;
-	}
+	// if(time == queue->resp_set.skb_ts) {
+	// 	add_resp(hdr->type, &queue->resp_set);
+	// } else {
+	// 	trace_recv_msg_types(queue->resp_set.cnt, nvme_tcp_queue_id(queue), queue->resp_set.skb_ts);
+	// 	init_resp_set(&queue->resp_set);
+	// 	add_resp(hdr->type, &queue->resp_set);
+	// 	queue->resp_set.skb_ts = time;
+	// }
 
 	switch (hdr->type) {
 	case nvme_tcp_c2h_data:
@@ -1556,7 +1556,7 @@ static int nvme_tcp_alloc_queue(struct nvme_ctrl *nctrl,
 	INIT_WORK(&queue->io_work, nvme_tcp_io_work);
 	queue->queue_size = queue_size;
 
-	init_resp_set(&queue->resp_set);
+	// init_resp_set(&queue->resp_set);
 
 	if (qid > 0)
 		queue->cmnd_capsule_len = nctrl->ioccsz * 16;

@@ -10,8 +10,8 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#include "u_nvmet_tcp_layer.h"
 #include "u_blk_layer.h"
+#include "u_nvmet_tcp_layer.h"
 #include "u_tcp_layer.h"
 
 static volatile int keep_running = 1;
@@ -82,7 +82,9 @@ void print_usage() {
   printf(
       "  -nrate=<nrate>      Network packet sample rate (default: 0.00001)\n");
   printf("  -detail=<print>     Print detail or not (default: false)");
-  printf(" -batch_thred     Time threshold(ns) for considering as a batch.(default: 1000)\n");
+  printf(
+      " -batch_thred     Time threshold(ns) for considering as a "
+      "batch.(default: 1000)\n");
 }
 
 void parse_qid(const char *qid_str, Arguments *args) {
@@ -164,8 +166,6 @@ void parse_arguments(int argc, char *argv[], Arguments *args) {
         print_usage();
         exit(EXIT_FAILURE);
       }
-    } else if (strncmp(argv[i], "-batch_thred=", 13) == 0) {
-      args->latency_group_thred = atoi(argv[i] + 13);
     } else {
       printf("Invalid argument: %s\n", argv[i]);
       print_usage();

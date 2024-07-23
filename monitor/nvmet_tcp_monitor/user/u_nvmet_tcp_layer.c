@@ -32,26 +32,21 @@ void print_read_breakdown(struct nvmet_tcp_read_breakdown *ns) {
   printf("\t read breakdown: \t");
   if (ns->cnt) {
     printf("cnt: %lu, ", ns->cnt);
-  //     unsigned long long cmd_capsule_queueing;
-  // unsigned long long cmd_processing;
-  // unsigned long long submission_and_execution;
-  // unsigned long long comp_queueing;
-  // unsigned long long resp_processing;
-  // unsigned long long end2end_time;
-  // unsigned long cnt;
+    //     unsigned long long cmd_capsule_queueing;
+    // unsigned long long cmd_processing;
+    // unsigned long long submission_and_execution;
+    // unsigned long long comp_queueing;
+    // unsigned long long resp_processing;
+    // unsigned long long end2end_time;
+    // unsigned long cnt;
 
-    printf("cmd_caps_q(us): %.2f, ",
-           (float)ns->cmd_caps_q / 1000 / ns->cnt);
-    printf("cmd_proc(us): %.2f, ",
-            (float)ns->cmd_proc / 1000 / ns->cnt);
+    printf("cmd_caps_q(us): %.2f, ", (float)ns->cmd_caps_q / 1000 / ns->cnt);
+    printf("cmd_proc(us): %.2f, ", (float)ns->cmd_proc / 1000 / ns->cnt);
     printf("sub_and_exec(us): %.2f, ",
-            (float)ns->sub_and_exec / 1000 / ns->cnt);
-    printf("comp_q(us): %.2f, ",
-            (float)ns->comp_q / 1000 / ns->cnt);
-    printf("resp_proc(us): %.2f, ",
-            (float)ns->resp_proc / 1000 / ns->cnt);
-    printf("end2end(us): %.2f\n",
-            (float)ns->end2end / 1000 / ns->cnt);
+           (float)ns->sub_and_exec / 1000 / ns->cnt);
+    printf("comp_q(us): %.2f, ", (float)ns->comp_q / 1000 / ns->cnt);
+    printf("resp_proc(us): %.2f, ", (float)ns->resp_proc / 1000 / ns->cnt);
+    printf("end2end(us): %.2f\n", (float)ns->end2end / 1000 / ns->cnt);
   } else {
     printf("cnt: %lu\n", ns->cnt);
   }
@@ -60,76 +55,56 @@ void print_read_breakdown(struct nvmet_tcp_read_breakdown *ns) {
 void print_write_breakdown(struct nvmet_tcp_write_breakdown *ns) {
   printf("\t write breakdown: \t");
   if (ns->cnt) {
-
-  // breakdown->cmd_caps_q = 0;
-  // breakdown->cmd_proc = 0;
-  // breakdown->r2t_sub_q = 0;
-  // breakdown->r2t_resp_proc = 0;
-  // breakdown->wait_for_data = 0;
-  // breakdown->write_cmd_q = 0;
-  // breakdown->write_cmd_proc = 0;
-  // breakdown->nvme_sub_exec = 0;
-  // breakdown->comp_q = 0;
-  // breakdown->resp_proc = 0;
-  // breakdown->cnt = 0;
-
+    // breakdown->cmd_caps_q = 0;
+    // breakdown->cmd_proc = 0;
+    // breakdown->r2t_sub_q = 0;
+    // breakdown->r2t_resp_proc = 0;
+    // breakdown->wait_for_data = 0;
+    // breakdown->write_cmd_q = 0;
+    // breakdown->write_cmd_proc = 0;
+    // breakdown->nvme_sub_exec = 0;
+    // breakdown->comp_q = 0;
+    // breakdown->resp_proc = 0;
+    // breakdown->cnt = 0;
 
     printf("cnt: %lu\t", ns->cnt);
-    printf("cmd_caps_q(us): %.2f, ",
-           (float)ns->cmd_caps_q / 1000 / ns->cnt);
-    printf("cmd_proc(us): %.2f, ",
-            (float)ns->cmd_proc / 1000 / ns->cnt);
-    printf("r2t_sub_q(us): %.2f, ",
-            (float)ns->r2t_sub_q / 1000 / ns->cnt);
+    printf("cmd_caps_q(us): %.2f, ", (float)ns->cmd_caps_q / 1000 / ns->cnt);
+    printf("cmd_proc(us): %.2f, ", (float)ns->cmd_proc / 1000 / ns->cnt);
+    printf("r2t_sub_q(us): %.2f, ", (float)ns->r2t_sub_q / 1000 / ns->cnt);
     printf("r2t_resp_proc(us): %.2f, ",
-            (float)ns->r2t_resp_proc / 1000 / ns->cnt);
+           (float)ns->r2t_resp_proc / 1000 / ns->cnt);
     printf("wait_for_data(us): %.2f, ",
-            (float)ns->wait_for_data / 1000 / ns->cnt);
-    printf("write_cmd_q(us): %.2f, ",
-            (float)ns->write_cmd_q / 1000 / ns->cnt);
+           (float)ns->wait_for_data / 1000 / ns->cnt);
+    printf("write_cmd_q(us): %.2f, ", (float)ns->write_cmd_q / 1000 / ns->cnt);
     printf("write_cmd_proc(us): %.2f, ",
-            (float)ns->write_cmd_proc / 1000 / ns->cnt);
+           (float)ns->write_cmd_proc / 1000 / ns->cnt);
     printf("nvme_sub_exec(us): %.2f, ",
-            (float)ns->nvme_sub_exec / 1000 / ns->cnt);
-    printf("comp_q(us): %.2f, ",
-            (float)ns->comp_q / 1000 / ns->cnt);
-    printf("resp_proc(us): %.2f, ",
-            (float)ns->resp_proc / 1000 / ns->cnt);
-    printf("e2e(us): %.2f\n",
-            (float)ns->e2e / 1000 / ns->cnt);
+           (float)ns->nvme_sub_exec / 1000 / ns->cnt);
+    printf("comp_q(us): %.2f, ", (float)ns->comp_q / 1000 / ns->cnt);
+    printf("resp_proc(us): %.2f, ", (float)ns->resp_proc / 1000 / ns->cnt);
+    printf("e2e(us): %.2f\n", (float)ns->e2e / 1000 / ns->cnt);
     printf("\n");
   } else {
     printf("cnt: %lu\n", ns->cnt);
   }
 }
 
-void print_recv_send(){
+void print_recv_send() {
   printf(HEADER2 "recv and send in io_work" RESET "\n");
-  if(nvmet_tcp_stat){
-    if(nvmet_tcp_stat->recv_cnt){
-      printf("recv_cnt: %lld, recv: %lld, avg %.2f\n", nvmet_tcp_stat->recv_cnt, nvmet_tcp_stat->recv, (float)nvmet_tcp_stat->recv / nvmet_tcp_stat->recv_cnt);
-    } 
-    if(nvmet_tcp_stat->send_cnt){
-      printf("send_cnt: %lld, send: %lld, avg %.2f\n", nvmet_tcp_stat->send_cnt, nvmet_tcp_stat->send, (float)nvmet_tcp_stat->send / nvmet_tcp_stat->send_cnt);
-    }
-  } else {
-    printf("nvmet_tcp_stat is NULL\n");
-  }
-}
-
-void print_batch_info() {
   if (nvmet_tcp_stat) {
-    printf(HEADER2 "[BATCH INFO]:\n" RESET);
-    printf("total: %ld\n", nvmet_tcp_stat->total_io);
-    int i;
-    for (i = 0; i < MAX_BATCH_SIZE; i++) {
-      printf("%d,", nvmet_tcp_stat->batch_size_hist[i]);
+    if (nvmet_tcp_stat->recv_cnt) {
+      printf("recv_cnt: %lld, recv: %lld, avg %.2f\n", nvmet_tcp_stat->recv_cnt,
+             nvmet_tcp_stat->recv,
+             (float)nvmet_tcp_stat->recv / nvmet_tcp_stat->recv_cnt);
     }
-    printf("\n");
+    if (nvmet_tcp_stat->send_cnt) {
+      printf("send_cnt: %lld, send: %lld, avg %.2f\n", nvmet_tcp_stat->send_cnt,
+             nvmet_tcp_stat->send,
+             (float)nvmet_tcp_stat->send / nvmet_tcp_stat->send_cnt);
+    }
   } else {
     printf("nvmet_tcp_stat is NULL\n");
   }
-
 }
 
 void print_nvmet_tcp_layer_stat() {
@@ -143,7 +118,6 @@ void print_nvmet_tcp_layer_stat() {
       print_write_breakdown(&nvmet_tcp_stat->all_write[i]);
     }
     print_recv_send();
-    print_batch_info();
   } else {
     printf("nvmet_tcp_stat is NULL\n");
   }

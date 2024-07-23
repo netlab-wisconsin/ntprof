@@ -163,29 +163,6 @@ void on_try_send_r2t(void* ignore, u16 cmd_id, int qid, int cp_len, int left,
   }
 }
 
-u64 last_time;
-int cmd_num;
-void on_nvmet_tcp_recv_msg_types(void* ignore, int* cnt, int qid, u64 ts) {
-  if (ctrl && args->qid[qid]) {
-    if (cnt[nvme_tcp_cmd]) {
-      nvmettcp_stat->total_io += cnt[nvme_tcp_cmd];
-      if (ts - last_time < args->latency_group_thred) {
-        cmd_num += cnt[nvme_tcp_cmd];
-      } else {
-        if (cmd_num >= MAX_BATCH_SIZE) {
-          pr_err("cmd number in a batch is too large: %d\n", cmd_num);
-          nvmettcp_stat->batch_size_hist[MAX_BATCH_SIZE - 1]++;
-          nvmettcp_stat->batch_size_hist[cmd_num - (MAX_BATCH_SIZE - 1)]++;
-        } else {
-          if (cmd_num) nvmettcp_stat->batch_size_hist[cmd_num]++;
-        }
-        cmd_num = cnt[nvme_tcp_cmd];
-      }
-    }
-    last_time = ts;
-  }
-}
-
 bool is_valid_read(struct nvmet_io_instance* io_instance) {
   bool ret;
   int i;
@@ -447,13 +424,8 @@ static int nvmet_tcp_register_tracepoints(void) {
   pr_info("register io_work\n");
   ret = register_trace_nvmet_tcp_io_work(on_io_work, NULL);
   if (ret) goto unregister_try_recv_data;
-  ret = register_trace_nvmet_tcp_recv_msg_types(on_nvmet_tcp_recv_msg_types,
-                                                NULL);
-  if (ret) goto unregister_io_work;
-
   return 0;
-unregister_io_work:
-  unregister_trace_nvmet_tcp_io_work(on_io_work, NULL);
+
 unregister_try_recv_data:
   unregister_trace_nvmet_tcp_try_recv_data(on_try_recv_data, NULL);
 unregister_handle_h2c_data_pdu:
@@ -504,7 +476,6 @@ void nvmet_tcp_unregister_tracepoints(void) {
   unregister_trace_nvmet_tcp_handle_h2c_data_pdu(on_handle_h2c_data_pdu, NULL);
   unregister_trace_nvmet_tcp_try_recv_data(on_try_recv_data, NULL);
   unregister_trace_nvmet_tcp_io_work(on_io_work, NULL);
-  unregister_trace_nvmet_tcp_recv_msg_types(on_nvmet_tcp_recv_msg_types, NULL);
 }
 
 static int mmap_nvmet_tcp_stat(struct file* file, struct vm_area_struct* vma) {
@@ -543,8 +514,6 @@ static void remove_nvmet_tcp_proc_entries(void) {
 int init_nvmet_tcp_variables(void) {
   // spin_lock_init(&current_io_lock);
   // mutex_init(&current_io_lock);
-  last_time = 0;
-  cmd_num = 0;
   atomic64_set(&sample_cnt, 0);
   atomic_nvmettcp_stat = kmalloc(sizeof(*atomic_nvmettcp_stat), GFP_KERNEL);
   init_atomic_nvmet_tcp_stat(atomic_nvmettcp_stat);

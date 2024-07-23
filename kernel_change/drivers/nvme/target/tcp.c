@@ -36,7 +36,7 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_try_send_data);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_handle_h2c_data_pdu);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_try_recv_data);
 EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_io_work);
-EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_recv_msg_types);
+// EXPORT_TRACEPOINT_SYMBOL_GPL(nvmet_tcp_recv_msg_types);
 
 
 #define NVMET_TCP_DEF_INLINE_DATA_SIZE	(4 * PAGE_SIZE)
@@ -168,7 +168,7 @@ struct nvmet_tcp_queue {
 
 	struct page_frag_cache	pf_cache;
 
-	struct resp_set resp_set;
+	// struct resp_set resp_set;
 
 	void (*data_ready)(struct sock *);
 	void (*state_change)(struct sock *);
@@ -1190,15 +1190,15 @@ recv:
 
 		int remote_port = ntohs((tcp_sk(queue->sock->sk))->inet_conn.icsk_inet.inet_dport);
 		trace_nvmet_tcp_try_recv_pdu(hdr->type,hdr->hlen, queue->left, queue->idx, remote_port, ktime_get_real_ns());
-		if(recv_time == queue->resp_set.skb_ts){
-			add_resp(hdr->type, &queue->resp_set);
-		}else {
-			trace_nvmet_tcp_recv_msg_types(queue->resp_set.cnt, queue->idx, recv_time);
-			init_resp_set(&queue->resp_set);
-			queue->resp_set.skb_ts = recv_time;
-			queue->resp_set.cnt[hdr->type]=1;
-			// add_resp(hdr->type, &queue->resp_set);
-		}
+		// if(recv_time == queue->resp_set.skb_ts){
+		// 	add_resp(hdr->type, &queue->resp_set);
+		// }else {
+		// 	trace_nvmet_tcp_recv_msg_types(queue->resp_set.cnt, queue->idx, recv_time);
+		// 	init_resp_set(&queue->resp_set);
+		// 	queue->resp_set.skb_ts = recv_time;
+		// 	queue->resp_set.cnt[hdr->type]=1;
+		// 	// add_resp(hdr->type, &queue->resp_set);
+		// }
 		
 		goto recv;
 	}
@@ -1711,7 +1711,7 @@ static int nvmet_tcp_alloc_queue(struct nvmet_tcp_port *port,
 	init_llist_head(&queue->resp_list);
 	INIT_LIST_HEAD(&queue->resp_send_list);
 
-	init_resp_set(&queue->resp_set);
+	// init_resp_set(&queue->resp_set);
 
 	queue->idx = ida_simple_get(&nvmet_tcp_queue_ida, 0, 0, GFP_KERNEL);
 	if (queue->idx < 0) {
