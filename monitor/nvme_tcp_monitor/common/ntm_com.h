@@ -190,8 +190,26 @@ static inline void init_nvme_tcp_stat(struct nvme_tcp_stat *stat) {
   }
 }
 
+struct nvme_tcp_throughput{
+  long long first_ts;
+  long long last_ts;
+  long read_cnt[SIZE_NUM];
+  long write_cnt[SIZE_NUM];
+};
+
+static inline void init_nvme_tcp_throughput(struct nvme_tcp_throughput *tp) {
+  tp->first_ts = 0;
+  tp->last_ts = 0;
+  int i;
+  for (i = 0; i < SIZE_NUM; i++) {
+    tp->read_cnt[i] = 0;
+    tp->write_cnt[i] = 0;
+  }
+}
+
 struct shared_nvme_tcp_layer_stat {
   struct nvme_tcp_stat all_time_stat;
+  struct nvme_tcp_throughput tp[MAX_QID];
 };
 
 static inline void init_shared_nvme_tcp_layer_stat(

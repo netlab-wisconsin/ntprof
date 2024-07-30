@@ -9,6 +9,10 @@
 #include "ntm_com.h"
 #include "output.h"
 
+#define NSEC_PER_SEC 1000000000L
+#define PAGE_SIZE 4096  
+#define PAGE_ALIGN(addr) (((addr) + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1))
+
 static struct shared_nvme_tcp_layer_stat *shared;
 
 static char *stat_path = "/proc/ntm/nvme_tcp/stat";
@@ -52,18 +56,23 @@ void print_write(struct nvmetcp_write_breakdown *ns,
   }
 }
 
-// void print_batch_info(struct nvme_tcp_stat *nvme_tcp_stat) {
-//   if (nvme_tcp_stat) {
-//     printf(HEADER2 "[BATCH INFO]:\n" RESET);
-//     printf("total: %d\n", nvme_tcp_stat->total_io);
-//     int i;
-//     for (i = 0; i < MAX_BATCH_SIZE; i++)
-//       printf("%ld,", nvme_tcp_stat->recv_hist[i]);
-//     printf("\n");
-//   } else {
-//     printf("nvme_tcp_stat is NULL\n");
-//   }
-// }
+void print_throughput_info(struct shared_nvme_tcp_layer_stat *s){
+  printf("throughput: \n");
+  int i;
+  for(int i = 0; i < MAX_QID; i++){
+    long long start = s->tp[i].first_ts;
+    long long end = s->tp[i].last_ts;
+    printf("qid=%d, duration:%d, ", i, (end - start)/ NSEC_PER_SEC);
+    int j;
+    for(j = 0; j < SIZE_NUM; j++){
+      printf("r[%s]:%lld, ", size_name(j), (s->tp[i].read_cnt[j]));
+    }
+    for(j = 0; j < SIZE_NUM; j++){
+      printf("w[%s]:%lld, ", size_name(j), (s->tp[i].write_cnt[j]));
+    }
+    printf("\n");
+  }
+}
 
 void print_shared_nvme_tcp_layer_stat(struct shared_nvme_tcp_layer_stat *ns) {
   printf(HEADER2 "all time stat" RESET "\n");
@@ -78,7 +87,8 @@ void print_shared_nvme_tcp_layer_stat(struct shared_nvme_tcp_layer_stat *ns) {
 
 void nvme_tcp_layer_monitor_display() {
   printf(HEADER1 "[NVME TCP LAYER]" RESET "\n");
-  print_shared_nvme_tcp_layer_stat(shared);
+  // print_shared_nvme_tcp_layer_stat(shared);
+  print_throughput_info(shared);
 }
 
 void map_ntm_nvmetcp_data() {
@@ -90,7 +100,9 @@ void map_ntm_nvmetcp_data() {
     printf("Failed to open %s\n", stat_path);
     exit(EXIT_FAILURE);
   }
-  shared = mmap(NULL, sizeof(struct shared_nvme_tcp_layer_stat), PROT_READ,
+
+  size_t size = PAGE_ALIGN(sizeof(struct shared_nvme_tcp_layer_stat));
+  shared = mmap(NULL, size, PROT_READ,
                 MAP_SHARED, fd, 0);
 
   if (shared == MAP_FAILED) {
@@ -102,7 +114,8 @@ void map_ntm_nvmetcp_data() {
 }
 
 void unmap_ntm_nvmetcp_data() {
-  if (shared) munmap(shared, sizeof(struct shared_nvme_tcp_layer_stat));
+  size_t size = (sizeof(struct shared_nvme_tcp_layer_stat) + getpagesize() - 1) & ~(getpagesize() - 1);
+  if (shared) munmap(shared, size);
 }
 
 void init_nvme_tcp_layer_monitor() { map_ntm_nvmetcp_data(); }

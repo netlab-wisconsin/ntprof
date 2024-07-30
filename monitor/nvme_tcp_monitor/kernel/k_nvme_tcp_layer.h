@@ -110,6 +110,33 @@ static inline void init_atomic_nvme_tcp_stat(struct atomic_nvme_tcp_stat *stat) 
   }
 }
 
+struct atomic_nvmetcp_throughput{
+  atomic64_t first_ts;
+  atomic64_t last_ts;
+  atomic64_t read_cnt[SIZE_NUM];
+  atomic64_t write_cnt[SIZE_NUM];
+};
+
+static void inline init_atomic_nvmetcp_throughput(struct atomic_nvmetcp_throughput *tp){
+  atomic64_set(&tp->first_ts, 0);
+  atomic64_set(&tp->last_ts, 0);
+  int i;
+  for(i = 0; i < SIZE_NUM; i++){
+    atomic64_set(&tp->read_cnt[i], 0);
+    atomic64_set(&tp->write_cnt[i], 0);
+  }
+}
+
+static void inline copy_nvmetcp_throughput(struct atomic_nvmetcp_throughput *src, struct nvme_tcp_throughput *dst){
+  dst->first_ts = atomic64_read(&src->first_ts);
+  dst->last_ts = atomic64_read(&src->last_ts);
+  int i;
+  for(i = 0; i < SIZE_NUM; i++){
+    dst->read_cnt[i] = atomic64_read(&src->read_cnt[i]);
+    dst->write_cnt[i] = atomic64_read(&src->write_cnt[i]);
+  }
+}
+
 enum nvme_tcp_trpt {
   QUEUE_RQ,
   QUEUE_REQUEST,

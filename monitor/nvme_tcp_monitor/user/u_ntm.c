@@ -274,9 +274,9 @@ int main(int argc, char **argv) {
   while (keep_running) {
     printf("\033[H\033[J");
     print_args(args);
-    blk_layer_monitor_display();
+    // blk_layer_monitor_display();
     nvme_tcp_layer_monitor_display();
-    tcp_layer_monitor_display();
+    // tcp_layer_monitor_display();
     sleep(1);
   }
 
