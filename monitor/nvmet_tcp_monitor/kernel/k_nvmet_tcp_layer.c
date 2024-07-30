@@ -68,7 +68,7 @@ void on_try_recv_pdu(void* ignore, u8 pdu_type, u8 hdr_len, int queue_left,
 void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
                       int size, unsigned long long time, long long recv_time) {
   if (ctrl && args->qid[qid] && args->io_type + is_write != 1) {
-    // pr_info("%d, 0, %llu;", cmd_id, recv_time);
+    // pr_info("%d, 0, %llu, %d;", cmd_id, recv_time, is_write);
     if (to_sample()) {
       if (!current_io) {
         current_io = kmalloc(sizeof(struct nvmet_io_instance), GFP_KERNEL);
@@ -89,6 +89,7 @@ void on_exec_read_req(void* ignore, u16 cmd_id, int qid, bool is_write,
     pr_err("exec_read_req: is_write is true\n");
   }
   if (ctrl && args->qid[qid]) {
+    // pr_info("%d, 2, %llu, %d;", cmd_id, time, is_write);
     if (to_trace) {
       append_event(current_io, EXEC_READ_REQ, time, 0);
     }
@@ -102,6 +103,7 @@ void on_exec_write_req(void* ignore, u16 cmd_id, int qid, bool is_write,
     pr_err("exec_write_req: is_write is false\n");
   }
   if (ctrl && args->qid[qid]) {
+    // pr_info("%d, 2, %llu, %d;", cmd_id, time, is_write);
     if (to_trace) {
       append_event(current_io, EXEC_WRITE_REQ, time, 0);
     }
@@ -111,6 +113,7 @@ void on_exec_write_req(void* ignore, u16 cmd_id, int qid, bool is_write,
 void on_queue_response(void* ignore, u16 cmd_id, int qid, bool is_write,
                        unsigned long long time) {
   if (ctrl && args->qid[qid]) {
+    // pr_info("%d, 3, %llu, %d;", cmd_id, time, is_write);
     if (to_trace) {
       append_event(current_io, QUEUE_RESPONSE, time, 0);
     }
@@ -291,7 +294,7 @@ void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
                           int left, int is_write, unsigned long long time) {
   if (ctrl && args->qid[qid]) {
     if (is_write + args->io_type == 1) return;
-    // pr_info("%d, 1, %llu;", cmd_id, time);
+    // pr_info("%d, 1, %llu, %d;", cmd_id, time, is_write);
     if (to_trace) {
       append_event(current_io, TRY_SEND_RESPONSE, time, 0);
       /** insert the current io sample to the sample sliding window */
