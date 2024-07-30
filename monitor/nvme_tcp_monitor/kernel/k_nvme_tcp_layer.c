@@ -71,7 +71,7 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid,
 
   /** ignore the request from the queue 0 (admin queue) */
   if (qid == 0) return;
-  // pr_info("%d, %d, %llu;\n", req->tag, 0, ktime_get_real_ns());
+  // pr_info("%d, %d, %llu, %d;\n", req->tag, 0, ktime_get_real_ns(), rq_data_dir(req));
 
   if (to_sample()) {
     spin_lock_bh(&current_io_lock);
@@ -96,6 +96,7 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid,
     }
     spin_unlock_bh(&current_io_lock);
   }
+  // *to_trace = true;
 }
 
 void nvme_tcp_stat_update(u64 now) {
@@ -361,7 +362,7 @@ void update_atomic_write_breakdown(struct nvme_tcp_io_instance *io,
       print_io_instance(io);
       return;
     }
-    atomic64_add(io->ts[3] - io->ts[2], &wb->sub_q1);
+    atomic64_add(io->ts[2] - io->ts[1], &wb->sub_q1);
     atomic64_add(io->ts[io->cnt - 3] - io->ts[2], &wb->req_proc1);
     atomic64_add(io->ts2[io->cnt - 1] - io->ts[io->cnt - 3], &wb->waiting1);
     atomic64_add(io->ts[io->cnt - 1] - io->ts2[io->cnt - 1], &wb->comp_q);
@@ -379,7 +380,7 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req, int qid,
   }
   if (qid == 0) return;
   // pr_info("%d, %d, %llu;\n", req->tag, 2, recv_time);  // recv time
-  // pr_info("%d, %d, %llu;\n", req->tag, 1, time);
+  // pr_info("%d, %d, %llu, %d;\n", req->tag, 1, time, rq_data_dir(req)); 
   spin_lock_bh(&current_io_lock);
   if (current_io && req->tag == current_io->req_tag && qid == current_io->qid) {
     append_event(current_io, time, PROCESS_NVME_CQE, 0, recv_time);

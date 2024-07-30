@@ -70,13 +70,11 @@ void print_usage() {
   printf("  -dev=<device>       Device name (default: all devices)\n");
   printf("  -rate=<rate>        IO sample rate (default: 0.001)\n");
   printf("  -type=<type>        Request type (read or write, default: both)\n");
-  printf(
-      "  -win=<window>       Sliding window width in seconds (default: 10)\n");
   printf("  -size=<size>        IO size in bytes (default: all sizes)\n");
   printf("  -qid=<queue_id>     Queue ID (default: all queues)\n");
-  printf(
-      "  -nrate=<nrate>      Network packet sample rate (default: 0.00001)\n");
-  printf("  -detail=<print>     Print detail or not (default: false)");
+  // printf(
+  //     "  -nrate=<nrate>      Network packet sample rate (default: 0.00001)\n");
+  // printf("  -detail=<print>     Print detail or not (default: false)");
   // printf(" -batch_thred     Time threshold(ns) for considering as a batch.(default: 1000)\n");
   // printf(" -proc_time     core processing time on initiator for a request.(default: 1000)\n");
 }
