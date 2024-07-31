@@ -7,6 +7,7 @@
 
 #include "nttm_com.h"
 #include "output.h"
+#define NSEC_PER_SEC 1000000000L
 
 struct nvmet_tcp_stat *nvmet_tcp_stat;
 
@@ -107,17 +108,56 @@ void print_recv_send() {
   }
 }
 
+/*
+  for(int i = 0; i < MAX_QID; i++){
+    long long start = s->tp[i].first_ts;
+    long long end = s->tp[i].last_ts;
+    printf("qid=%d, duration:%d, ", i, (end - start)/ NSEC_PER_SEC);
+    int j;
+    for(j = 0; j < SIZE_NUM; j++){
+      printf("r[%s]:%lld, ", size_name(j), (s->tp[i].read_cnt[j]));
+    }
+    for(j = 0; j < SIZE_NUM; j++){
+      printf("w[%s]:%lld, ", size_name(j), (s->tp[i].write_cnt[j]));
+    }
+    printf("\n");
+  }*/
+void print_throughput(struct nvmet_tcp_stat* shared_nvmet_tcp_stat) {
+  printf(HEADER2 "throughput" RESET "\n");
+  if (shared_nvmet_tcp_stat) {
+    int i;
+    for (i = 0; i < MAX_QID; i++) {
+      long long start = shared_nvmet_tcp_stat->throughput[i].first_ts;
+      long long end = shared_nvmet_tcp_stat->throughput[i].last_ts;
+      printf("qid=%d, duration:%d, ", i, (end - start) / NSEC_PER_SEC);
+      int j;
+      for (j = 0; j < SIZE_NUM; j++) {
+        printf("r[%s]:%lld, ", size_name(j),
+               (shared_nvmet_tcp_stat->throughput[i].read_cnt[j]));
+      }
+      for (j = 0; j < SIZE_NUM; j++) {
+        printf("w[%s]:%lld, ", size_name(j),
+               (shared_nvmet_tcp_stat->throughput[i].write_cnt[j]));
+      }
+      printf("\n");
+    }
+  } else {
+    printf("nvmet_tcp_stat is NULL\n");
+  }
+}
+
 void print_nvmet_tcp_layer_stat() {
   if (nvmet_tcp_stat) {
-    printf(HEADER1 "[NVMET_TCP LAYER]:\n" RESET);
-    printf(HEADER2 "all time lat(us)" RESET "\n");
-    int i;
-    for (i = 0; i < SIZE_NUM; i++) {
-      printf(HEADER3 "size=%s, \n" RESET, size_name(i));
-      print_read_breakdown(&nvmet_tcp_stat->all_read[i]);
-      print_write_breakdown(&nvmet_tcp_stat->all_write[i]);
-    }
-    print_recv_send();
+    // printf(HEADER1 "[NVMET_TCP LAYER]:\n" RESET);
+    // printf(HEADER2 "all time lat(us)" RESET "\n");
+    // int i;
+    // for (i = 0; i < SIZE_NUM; i++) {
+    //   printf(HEADER3 "size=%s, \n" RESET, size_name(i));
+    //   print_read_breakdown(&nvmet_tcp_stat->all_read[i]);
+    //   print_write_breakdown(&nvmet_tcp_stat->all_write[i]);
+    // }
+    // print_recv_send();
+    print_throughput(nvmet_tcp_stat);
   } else {
     printf("nvmet_tcp_stat is NULL\n");
   }

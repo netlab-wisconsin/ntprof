@@ -598,7 +598,9 @@ static void nvmet_tcp_execute_request(struct nvmet_tcp_cmd *cmd)
 	if (unlikely(cmd->flags & NVMET_TCP_F_INIT_FAILED))
 		nvmet_tcp_queue_response(&cmd->req);
 	else {
-		trace_nvmet_tcp_exec_write_req(cmd->req.cmd->common.command_id, cmd->queue->idx, nvme_is_write(cmd->req.cmd), ktime_get_real_ns());
+		int size = nvme_is_write(cmd->req.cmd) ?
+			cmd->req.transfer_len : 0;
+		trace_nvmet_tcp_exec_write_req(cmd->req.cmd->common.command_id, cmd->queue->idx, nvme_is_write(cmd->req.cmd), size, ktime_get_real_ns());
 		cmd->req.execute(&cmd->req);
 	}
 		
@@ -1102,7 +1104,8 @@ static int nvmet_tcp_done_recv_pdu(struct nvmet_tcp_queue *queue, long long recv
 	}
 
 	u64 t2 = ktime_get_real_ns();
-	trace_nvmet_tcp_exec_read_req(req->cmd->common.command_id, queue->idx, nvme_is_write(req->cmd), t2);
+	int size = le32_to_cpu(req->cmd->common.dptr.sgl.length);
+	trace_nvmet_tcp_exec_read_req(req->cmd->common.command_id, queue->idx, nvme_is_write(req->cmd), size, t2);
 	queue->cmd->req.execute(&queue->cmd->req);
 out:
 	nvmet_prepare_receive_pdu(queue);

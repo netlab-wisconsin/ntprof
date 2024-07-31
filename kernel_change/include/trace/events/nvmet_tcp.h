@@ -47,8 +47,8 @@ TRACE_EVENT(nvmet_tcp_done_recv_pdu,
 );
 
 TRACE_EVENT(nvmet_tcp_exec_read_req,
-    TP_PROTO(u16 cmd_id, int qid, bool is_write, unsigned long long time),
-    TP_ARGS(cmd_id, qid, is_write, time),
+    TP_PROTO(u16 cmd_id, int qid, bool is_write, int size, unsigned long long time),
+    TP_ARGS(cmd_id, qid, is_write, size, time),
     TP_STRUCT__entry(
         __field(u16, cmd_id)
         __field(int, qid)
@@ -64,13 +64,25 @@ TRACE_EVENT(nvmet_tcp_exec_read_req,
 );
 
 DEFINE_EVENT(nvmet_tcp_exec_read_req, nvmet_tcp_exec_write_req,
-    TP_PROTO(u16 cmd_id, int qid, bool is_write, unsigned long long time),
-    TP_ARGS(cmd_id, qid, is_write, time)
+    TP_PROTO(u16 cmd_id, int qid, bool is_write, int size, unsigned long long time),
+    TP_ARGS(cmd_id, qid, is_write, size, time)
 );
 
-DEFINE_EVENT(nvmet_tcp_exec_read_req, nvmet_tcp_queue_response,
+TRACE_EVENT(nvmet_tcp_queue_response,
     TP_PROTO(u16 cmd_id, int qid, bool is_write, unsigned long long time),
-    TP_ARGS(cmd_id, qid, is_write, time)
+    TP_ARGS(cmd_id, qid, is_write, time),
+    TP_STRUCT__entry(
+        __field(u16, cmd_id)
+        __field(int, qid)
+        __field(bool, is_write)
+    ),
+    TP_fast_assign(
+        __entry->cmd_id = cmd_id;
+        __entry->qid = qid;
+        __entry->is_write = is_write;
+    ),
+    TP_printk("cmd_id=%u, qid=%d, is_write=%d",
+        __entry->cmd_id, __entry->qid, __entry->is_write)
 );
 
 TRACE_EVENT(nvmet_tcp_setup_c2h_data_pdu,

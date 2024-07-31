@@ -125,7 +125,7 @@ void parse_arguments(int argc, char *argv[], Arguments *args) {
   args->qstr[0] = '\0';
   args->nrate = 100000;
   args->detail = 0;
-  args->latency_group_thred = 1000;
+  // args->latency_group_thred = 1000;
 
   for (int i = 2; i < argc; i++) {
     if (strncmp(argv[i], "-dev=", 5) == 0) {

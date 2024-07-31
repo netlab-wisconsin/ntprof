@@ -142,6 +142,13 @@ static inline void init_nvmet_tcp_write_breakdown(
   breakdown->cnt = 0;
 }
 
+struct nvmet_tcp_throughput_one_queue{
+  long long first_ts;
+  long long last_ts;
+  long long read_cnt[MAX_QID];
+  long long write_cnt[MAX_QID];
+};
+
 #define MAX_BATCH_SIZE 64
 struct nvmet_tcp_stat {
   /** these 2 attributes are summary for the whole trace */
@@ -151,7 +158,19 @@ struct nvmet_tcp_stat {
   long long recv;
   long long send_cnt;
   long long send;
+
+  struct nvmet_tcp_throughput_one_queue throughput[MAX_QID];
 };
+
+static inline void init_nvmet_tcp_throughput_one_queue(struct nvmet_tcp_throughput_one_queue *throughput){
+  throughput->first_ts = 0;
+  throughput->last_ts = 0;
+  int i;
+  for(i = 0; i < MAX_QID; i++){
+    throughput->read_cnt[i] = 0;
+    throughput->write_cnt[i] = 0;
+  }
+}
 
 static inline void init_nvmet_tcp_stat(struct nvmet_tcp_stat *stat) {
   int i;
@@ -163,6 +182,10 @@ static inline void init_nvmet_tcp_stat(struct nvmet_tcp_stat *stat) {
   stat->recv = 0;
   stat->send_cnt = 0;
   stat->send = 0;
+
+  for(i = 0; i < MAX_QID; i++){
+    init_nvmet_tcp_throughput_one_queue(&stat->throughput[i]);
+  }
 }
 
 struct tcp_stat_one_queue {

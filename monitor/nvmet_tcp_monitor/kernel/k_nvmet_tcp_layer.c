@@ -12,6 +12,7 @@
 #include <linux/types.h>
 #include <linux/vmalloc.h>
 #include <trace/events/nvmet_tcp.h>
+#include <linux/io.h>
 
 #include "k_nttm.h"
 #include "nttm_com.h"
@@ -84,9 +85,18 @@ void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
 }
 
 void on_exec_read_req(void* ignore, u16 cmd_id, int qid, bool is_write,
-                      unsigned long long time) {
+                      int size, unsigned long long time) {
   if (is_write) {
     pr_err("exec_read_req: is_write is true\n");
+  }
+  if (ctrl) {
+    if (time - nvmettcp_stat->throughput[qid].last_ts > 10 * NSEC_PER_SEC) {
+      nvmettcp_stat->throughput[qid].first_ts = time;
+      nvmettcp_stat->throughput[qid].last_ts = time;
+    } else {
+      nvmettcp_stat->throughput[qid].last_ts = time;
+    }
+    nvmettcp_stat->throughput[qid].read_cnt[size_to_enum(size)]++;
   }
   if (ctrl && args->qid[qid]) {
     // pr_info("%d, 2, %llu, %d;", cmd_id, time, is_write);
@@ -97,10 +107,19 @@ void on_exec_read_req(void* ignore, u16 cmd_id, int qid, bool is_write,
 }
 
 void on_exec_write_req(void* ignore, u16 cmd_id, int qid, bool is_write,
-                       unsigned long long time) {
+                       int size, unsigned long long time) {
   if (qid == 0) return;
   if (!is_write) {
     pr_err("exec_write_req: is_write is false\n");
+  }
+  if (ctrl) {
+    if (time - nvmettcp_stat->throughput[qid].last_ts > 10 * NSEC_PER_SEC) {
+      nvmettcp_stat->throughput[qid].first_ts = time;
+      nvmettcp_stat->throughput[qid].last_ts = time;
+    } else {
+      nvmettcp_stat->throughput[qid].last_ts = time;
+    }
+    nvmettcp_stat->throughput[qid].write_cnt[size_to_enum(size)]++;
   }
   if (ctrl && args->qid[qid]) {
     // pr_info("%d, 2, %llu, %d;", cmd_id, time, is_write);
@@ -482,7 +501,8 @@ void nvmet_tcp_unregister_tracepoints(void) {
 }
 
 static int mmap_nvmet_tcp_stat(struct file* file, struct vm_area_struct* vma) {
-  if (remap_pfn_range(vma, vma->vm_start, vmalloc_to_pfn(nvmettcp_stat),
+  unsigned long pfn = virt_to_phys((void *)nvmettcp_stat)>>PAGE_SHIFT;
+  if (remap_pfn_range(vma, vma->vm_start, pfn,
                       vma->vm_end - vma->vm_start, vma->vm_page_prot)) {
     return -EAGAIN;
   }
@@ -521,7 +541,7 @@ int init_nvmet_tcp_variables(void) {
   atomic_nvmettcp_stat = kmalloc(sizeof(*atomic_nvmettcp_stat), GFP_KERNEL);
   init_atomic_nvmet_tcp_stat(atomic_nvmettcp_stat);
 
-  nvmettcp_stat = vmalloc(sizeof(*nvmettcp_stat));
+  nvmettcp_stat = kmalloc(sizeof(*nvmettcp_stat), GFP_KERNEL);
   if (!nvmettcp_stat) {
     pr_err("failed to allocate nvmet_tcp_stat\n");
     return -ENOMEM;
@@ -533,7 +553,7 @@ int init_nvmet_tcp_variables(void) {
 
 void free_nvmet_tcp_variables(void) {
   if (atomic_nvmettcp_stat) kfree(atomic_nvmettcp_stat);
-  if (nvmettcp_stat) vfree(nvmettcp_stat);
+  if (nvmettcp_stat) kfree(nvmettcp_stat);
 }
 
 int init_nvmet_tcp_layer(void) {
