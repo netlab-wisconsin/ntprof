@@ -62,13 +62,18 @@ void print_throughput_info(struct shared_nvme_tcp_layer_stat *s){
   for(int i = 0; i < MAX_QID; i++){
     long long start = s->tp[i].first_ts;
     long long end = s->tp[i].last_ts;
-    printf("qid=%d, duration:%d, ", i, (end - start)/ NSEC_PER_SEC);
+    int duration = (end - start)/ NSEC_PER_SEC;
+    printf("qid=%d, duration:%d, ", i, duration);
     int j;
     for(j = 0; j < SIZE_NUM; j++){
-      printf("r[%s]:%lld, ", size_name(j), (s->tp[i].read_cnt[j]));
+      // printf("r[%s]:%.2f, ", size_name(j), ((double)(s->tp[i].read_cnt[j]))/duration);
+      if(s->tp[i].read_cnt[j] != 0)
+        printf("r[%s]:%.2f, ", size_name(j), ((double)(s->tp[i].read_cnt[j]))/duration);
     }
     for(j = 0; j < SIZE_NUM; j++){
-      printf("w[%s]:%lld, ", size_name(j), (s->tp[i].write_cnt[j]));
+      // printf("w[%s]:%.2f, ", size_name(j), ((double)(s->tp[i].write_cnt[j]))/duration);
+      if(s->tp[i].write_cnt[j] != 0)
+        printf("w[%s]:%.2f, ", size_name(j), ((double)(s->tp[i].write_cnt[j]))/duration);
     }
     printf("\n");
   }
@@ -87,8 +92,8 @@ void print_shared_nvme_tcp_layer_stat(struct shared_nvme_tcp_layer_stat *ns) {
 
 void nvme_tcp_layer_monitor_display() {
   printf(HEADER1 "[NVME TCP LAYER]" RESET "\n");
-  // print_shared_nvme_tcp_layer_stat(shared);
-  print_throughput_info(shared);
+  print_shared_nvme_tcp_layer_stat(shared);
+  // print_throughput_info(shared);
 }
 
 void map_ntm_nvmetcp_data() {
