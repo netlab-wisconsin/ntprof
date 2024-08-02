@@ -90,7 +90,8 @@ void on_exec_read_req(void* ignore, u16 cmd_id, int qid, bool is_write,
     pr_err("exec_read_req: is_write is true\n");
   }
   if (ctrl) {
-    if (time - nvmettcp_stat->throughput[qid].last_ts > 10 * NSEC_PER_SEC) {
+    s64 gap = time - nvmettcp_stat->throughput[qid].last_ts;
+    if (gap > 10 * NSEC_PER_SEC || -gap > 10 * NSEC_PER_SEC) {
       nvmettcp_stat->throughput[qid].first_ts = time;
       nvmettcp_stat->throughput[qid].last_ts = time;
     } else {

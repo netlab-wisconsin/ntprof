@@ -129,15 +129,18 @@ void print_throughput(struct nvmet_tcp_stat* shared_nvmet_tcp_stat) {
     for (i = 0; i < MAX_QID; i++) {
       long long start = shared_nvmet_tcp_stat->throughput[i].first_ts;
       long long end = shared_nvmet_tcp_stat->throughput[i].last_ts;
-      printf("qid=%d, duration:%d, ", i, (end - start) / NSEC_PER_SEC);
+      int duration = (end - start) / NSEC_PER_SEC;
+      printf("qid=%d, duration:%d, ", i, duration);
       int j;
       for (j = 0; j < SIZE_NUM; j++) {
-        printf("r[%s]:%lld, ", size_name(j),
-               (shared_nvmet_tcp_stat->throughput[i].read_cnt[j]));
+        if(shared_nvmet_tcp_stat->throughput[i].read_cnt[j])
+        printf("r[%s]:%.2f, ", size_name(j),
+               ((double)shared_nvmet_tcp_stat->throughput[i].read_cnt[j])/duration);
       }
       for (j = 0; j < SIZE_NUM; j++) {
-        printf("w[%s]:%lld, ", size_name(j),
-               (shared_nvmet_tcp_stat->throughput[i].write_cnt[j]));
+        if(shared_nvmet_tcp_stat->throughput[i].write_cnt[j])
+        printf("w[%s]:%.2f, ", size_name(j),
+               ((double)shared_nvmet_tcp_stat->throughput[i].write_cnt[j])/duration);
       }
       printf("\n");
     }
