@@ -76,10 +76,11 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid,
    * 1. if the time gap is greater than 10 second, update the first ts to current timestamp, and the last timestamp to 0
    * 2. increase read/write cnt accordingly
    */
-  if(time - atomic64_read(&a_throughput[qid]->last_ts) >  10*NSEC_PER_SEC) {
+  s64 gap = time - atomic64_read(&a_throughput[qid]->last_ts);
+  if( gap >  10*NSEC_PER_SEC || -gap > 10*NSEC_PER_SEC){ 
+    pr_info("update first timestamp, since the time gap is too large %lld, bool: %d\n", time - atomic64_read(&a_throughput[qid]->last_ts), time - atomic64_read(&a_throughput[qid]->last_ts) >  10*NSEC_PER_SEC);
     atomic64_set(&a_throughput[qid]->first_ts, time);
     atomic64_set(&a_throughput[qid]->last_ts, time);
-    pr_info("update first timestamp, since the time gap is too large %lld, bool: %d\n", time - atomic64_read(&a_throughput[qid]->last_ts), time - atomic64_read(&a_throughput[qid]->last_ts) >  10*NSEC_PER_SEC);
   } else {
     atomic64_set(&a_throughput[qid]->last_ts, time);
   }
