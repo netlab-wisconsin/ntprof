@@ -10,7 +10,7 @@
 #include "output.h"
 
 #define NSEC_PER_SEC 1000000000L
-#define PAGE_SIZE 4096  
+#define PAGE_SIZE 4096
 #define PAGE_ALIGN(addr) (((addr) + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1))
 
 static struct shared_nvme_tcp_layer_stat *shared;
@@ -29,6 +29,7 @@ void print_read(struct nvmetcp_read_breakdown *ns,
     printf("comp_q(us): %.2f, ", (float)ns->comp_q / 1000 / ns->cnt);
     printf("resp_proc(us): %.2f, ", (float)ns->resp_proc / 1000 / ns->cnt);
     printf("e2e(us): %.2f, ", (float)ns->e2e / 1000 / ns->cnt);
+    printf("trans(us): %.2f, ", (float)ns->trans / ns->cnt);
     printf("\n");
   } else {
     printf("cnt: %d\n", ns->cnt);
@@ -50,30 +51,36 @@ void print_write(struct nvmetcp_write_breakdown *ns,
     printf("waiting2(us): %.2f, ", (float)ns->waiting2 / 1000 / ns->cnt);
     printf("comp_q(us): %.2f, ", (float)ns->comp_q / 1000 / ns->cnt);
     printf("e2e(us): %.2f, ", (float)ns->e2e / 1000 / ns->cnt);
+    printf("trans1: %.2f, ", (float)ns->trans1 / ns->cnt);
+    printf("trans2: %.2f, ", (float)ns->trans2 / ns->cnt2);
     printf("\n");
   } else {
     printf("cnt: %d\n", ns->cnt);
   }
 }
 
-void print_throughput_info(struct shared_nvme_tcp_layer_stat *s){
+void print_throughput_info(struct shared_nvme_tcp_layer_stat *s) {
   printf("throughput: \n");
   int i;
-  for(int i = 0; i < MAX_QID; i++){
+  for (int i = 0; i < MAX_QID; i++) {
     long long start = s->tp[i].first_ts;
     long long end = s->tp[i].last_ts;
-    int duration = (end - start)/ NSEC_PER_SEC;
+    int duration = (end - start) / NSEC_PER_SEC;
     printf("qid=%d, duration:%d, ", i, duration);
     int j;
-    for(j = 0; j < SIZE_NUM; j++){
-      // printf("r[%s]:%.2f, ", size_name(j), ((double)(s->tp[i].read_cnt[j]))/duration);
-      if(s->tp[i].read_cnt[j] != 0)
-        printf("r[%s]:%.2f, ", size_name(j), ((double)(s->tp[i].read_cnt[j]))/duration);
+    for (j = 0; j < SIZE_NUM; j++) {
+      // printf("r[%s]:%.2f, ", size_name(j),
+      // ((double)(s->tp[i].read_cnt[j]))/duration);
+      if (s->tp[i].read_cnt[j] != 0)
+        printf("r[%s]:%.2f, ", size_name(j),
+               ((double)(s->tp[i].read_cnt[j])) / duration);
     }
-    for(j = 0; j < SIZE_NUM; j++){
-      // printf("w[%s]:%.2f, ", size_name(j), ((double)(s->tp[i].write_cnt[j]))/duration);
-      if(s->tp[i].write_cnt[j] != 0)
-        printf("w[%s]:%.2f, ", size_name(j), ((double)(s->tp[i].write_cnt[j]))/duration);
+    for (j = 0; j < SIZE_NUM; j++) {
+      // printf("w[%s]:%.2f, ", size_name(j),
+      // ((double)(s->tp[i].write_cnt[j]))/duration);
+      if (s->tp[i].write_cnt[j] != 0)
+        printf("w[%s]:%.2f, ", size_name(j),
+               ((double)(s->tp[i].write_cnt[j])) / duration);
     }
     printf("\n");
   }
@@ -107,8 +114,7 @@ void map_ntm_nvmetcp_data() {
   }
 
   size_t size = PAGE_ALIGN(sizeof(struct shared_nvme_tcp_layer_stat));
-  shared = mmap(NULL, size, PROT_READ,
-                MAP_SHARED, fd, 0);
+  shared = mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
 
   if (shared == MAP_FAILED) {
     printf("Failed to mmap %s\n", stat_path);
@@ -119,7 +125,9 @@ void map_ntm_nvmetcp_data() {
 }
 
 void unmap_ntm_nvmetcp_data() {
-  size_t size = (sizeof(struct shared_nvme_tcp_layer_stat) + getpagesize() - 1) & ~(getpagesize() - 1);
+  size_t size =
+      (sizeof(struct shared_nvme_tcp_layer_stat) + getpagesize() - 1) &
+      ~(getpagesize() - 1);
   if (shared) munmap(shared, size);
 }
 

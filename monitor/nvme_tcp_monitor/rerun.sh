@@ -6,5 +6,5 @@ sudo insmod k_ntm.ko
 cd ../user
 make clean
 make
-sudo ./u_ntm track -dev=nvme4n1 -rate=1000 -nrate=100 -detail=true -type=both
+sudo ./u_ntm track -dev=nvme4n1 -rate=1000 -nrate=100 -detail=true -type=both -mtu=9000 -rtt=15
 

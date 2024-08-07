@@ -13,6 +13,8 @@ extern int ctrl;
  */
 extern struct proc_dir_entry *parent_dir;
 
+extern int cwnds[MAX_QID];
+
 // /**
 //  * Given a device name, return the request queue of the device.
 //  * @param dev_name the device name, e.g., nvme0n1

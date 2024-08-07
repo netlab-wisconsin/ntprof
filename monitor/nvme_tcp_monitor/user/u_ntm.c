@@ -284,7 +284,7 @@ int main(int argc, char **argv) {
     print_args(args);
     // blk_layer_monitor_display();
     nvme_tcp_layer_monitor_display();
-    // tcp_layer_monitor_display();
+    tcp_layer_monitor_display();
     sleep(1);
   }
 

@@ -229,6 +229,18 @@ void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int qid,
   pr_info_lock(false, smp_processor_id(), qid, "try_send_data");
 }
 
+unsigned int estimate_latency(int size, int cnwd, int mtu, int rtt) {
+  /** calculate the following value
+   *
+   * number of packets = ceiling (size / mtu)
+   * round trip number  = ceiling (number of packets / cwnd)
+   * tramsmission time = round trip number * rtt
+   */
+  int num_packets = (size + mtu - 1) / mtu;
+  int round_trip_num = (num_packets + cnwd - 1) / cnwd;
+  return round_trip_num * rtt;
+}
+
 void on_nvme_tcp_done_send_req(void *ignore, struct request *req, int qid,
                                long long unsigned int time) {
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
@@ -239,6 +251,22 @@ void on_nvme_tcp_done_send_req(void *ignore, struct request *req, int qid,
   pr_info_lock(true, smp_processor_id(), qid, "done_send_req");
   if (current_io && req->tag == current_io->req_tag && qid == current_io->qid) {
     append_event(current_io, time, DONE_SEND_REQ, 0, 0);
+    if (rq_data_dir(req)) {
+      // if it is write request, check if it is
+      if (current_io->contains_r2t) {
+        // update timestamp in the second slot
+        current_io->estimated_transmission_time[1] = estimate_latency(
+            current_io->send_size[1], cwnds[qid], args->mtu, args->rtt);
+      } else {
+        // update the timestamp in the first slot
+        current_io->estimated_transmission_time[0] = estimate_latency(
+            current_io->send_size[0], cwnds[qid], args->mtu, args->rtt);
+      }
+    } else {
+      // if it is read request, update the timestamp in the first slot
+      current_io->estimated_transmission_time[0] = estimate_latency(
+          current_io->send_size[0], cwnds[qid], args->mtu, args->rtt);
+    }
   }
   spin_unlock_bh(&current_io_lock);
   pr_info_lock(false, smp_processor_id(), qid, "done_send_req");
@@ -353,6 +381,7 @@ void update_atomic_read_breakdown(struct nvme_tcp_io_instance *io,
   atomic64_add(io->ts[5] - io->ts2[5], &rb->comp_q);
   atomic64_add(io->ts[io->cnt - 1] - io->ts[5], &rb->resp_proc);
   atomic64_add(io->ts[io->cnt - 1] - io->ts[1], &rb->e2e);
+  atomic64_add(io->estimated_transmission_time[0], &rb->trans);
 }
 
 bool is_valid_write(struct nvme_tcp_io_instance *io, bool contains_r2t) {
@@ -418,6 +447,10 @@ void update_atomic_write_breakdown(struct nvme_tcp_io_instance *io,
     atomic64_add(io->ts[io->cnt - 3] - io->ts[7], &wb->req_proc2);
     atomic64_add(io->ts2[io->cnt - 1] - io->ts[io->cnt - 3], &wb->waiting2);
     atomic64_add(io->ts[io->cnt - 1] - io->ts2[io->cnt - 1], &wb->comp_q);
+
+    atomic64_add(io->estimated_transmission_time[0], &wb->trans1);
+    atomic64_add(io->estimated_transmission_time[1], &wb->trans2);
+    atomic64_inc(&wb->cnt2);
   } else {
     if (!is_valid_write(io, false)) {
       pr_err("event sequence is not correct\n");
@@ -428,6 +461,7 @@ void update_atomic_write_breakdown(struct nvme_tcp_io_instance *io,
     atomic64_add(io->ts[io->cnt - 3] - io->ts[2], &wb->req_proc1);
     atomic64_add(io->ts2[io->cnt - 1] - io->ts[io->cnt - 3], &wb->waiting1);
     atomic64_add(io->ts[io->cnt - 1] - io->ts2[io->cnt - 1], &wb->comp_q);
+    atomic64_add(io->estimated_transmission_time[0], &wb->trans1);
   }
   atomic64_add(io->ts[io->cnt - 1] - io->ts[1], &wb->e2e);
   atomic64_inc(&wb->cnt);

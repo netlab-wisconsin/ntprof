@@ -132,6 +132,7 @@ struct nvmetcp_read_breakdown {
   long long comp_q;
   long long resp_proc;
   long long e2e;
+  long long trans;
 };
 
 static inline void init_nvmetcp_read_breakdown(
@@ -143,6 +144,7 @@ static inline void init_nvmetcp_read_breakdown(
   rb->comp_q = 0;
   rb->resp_proc = 0;
   rb->e2e = 0;
+  rb->trans = 0;
 }
 
 struct nvmetcp_write_breakdown {
@@ -156,6 +158,10 @@ struct nvmetcp_write_breakdown {
   long long waiting2;
   long long comp_q;
   long long e2e;
+
+  long long trans1;
+  long long trans2;
+  int cnt2;
 };
 
 static inline void init_nvmetcp_write_breakdown(
@@ -170,6 +176,9 @@ static inline void init_nvmetcp_write_breakdown(
   wb->waiting2 = 0;
   wb->comp_q = 0;
   wb->e2e = 0;
+  wb->trans1 = 0;
+  wb->trans2 = 0;
+  wb->cnt2 = 0;
 }
 
 #define MAX_BATCH_SIZE 64
