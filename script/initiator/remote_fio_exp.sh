@@ -7,13 +7,13 @@ if [ -f "$output_file" ]; then
 fi
 
 workload_types=("randread")
-io_depths=(4)
+io_depths=(1)
 
 jobs=(1)
 devices=("/dev/nvme4n1")
 block_sizes=("4K")
 # block_sizes=("4K")
-echo "Workload,io_depth,block_size,jobn,mean_lat(usec),p999lat(usec),iops,bw(MB/s)" > "$output_file"
+echo "Workload,io_depth,block_size,jobn,sub_lat(us),mean_lat(usec),p999lat(usec),iops,bw(MB/s)" > "$output_file"
 
 run_fio() {
     local device="$1"
@@ -23,7 +23,7 @@ run_fio() {
     local jobn="$5"
     local output_file="${device//\//_}.fio_out"
     # echo the command
-    echo "sudo fio --name=test --filename=$device --size=20G --direct=1 --time_based --runtime=60 --cpus_allowed=10 --cpus_allowed_policy=split --ioengine=libaio --group_reporting --rw=$workload_type --numjobs=$jobn --bs=$block_size --iodepth=$io_depth"
+    echo "sudo fio --name=test --filename=$device --size=20G --direct=1 --time_based --runtime=60 --cpus_allowed=0 --cpus_allowed_policy=split --ioengine=libaio --group_reporting --rw=$workload_type --numjobs=$jobn --bs=$block_size --iodepth=$io_depth"
 
     sudo fio --name=test --filename="$device" --size=20G --direct=1 --time_based --runtime=60 --cpus_allowed=0 --cpus_allowed_policy=split --ioengine=libaio --group_reporting --output-format=terse --rw="$workload_type" --numjobs=$jobn --bs="$block_size" --iodepth="$io_depth" > "$output_file" &
 }
@@ -38,6 +38,7 @@ extract_and_summarize_metrics() {
     local total_mean_lat=0
     local total_p99_9_lat=0
     local count=0
+    local total_sub_lat=0
 
     for device in "${devices[@]}"; do
         local output_file_="${device//\//_}.fio_out"
@@ -48,11 +49,13 @@ extract_and_summarize_metrics() {
             local iops=$(echo "$fio_output" | cut -d';' -f8)
             local mean_lat=$(echo "$fio_output" | cut -d';' -f16)
             local p99_9_lat=$(echo "$fio_output" | cut -d';' -f32 | cut -d'=' -f2)
+            local sub_lat=$(echo "$fio_output" | cut -d';' -f12)
         else
             local bw_kib=$(echo "$fio_output" | cut -d';' -f48)
             local iops=$(echo "$fio_output" | cut -d';' -f49)
             local mean_lat=$(echo "$fio_output" | cut -d';' -f57)
             local p99_9_lat=$(echo "$fio_output" | cut -d';' -f73 | cut -d'=' -f2)
+            local sub_lat=$(echo "$fio_output" | cut -d';' -f53)
         fi
 
         local bw_mbs=$(echo "scale=2; $bw_kib / 1024" | bc)
@@ -61,13 +64,15 @@ extract_and_summarize_metrics() {
         total_bw=$(echo "$total_bw + $bw_mbs" | bc)
         total_mean_lat=$(echo "$total_mean_lat + $mean_lat" | bc)
         total_p99_9_lat=$(echo "$total_p99_9_lat + $p99_9_lat" | bc)
+        total_sub_lat=$(echo "$total_sub_lat + $sub_lat" | bc)
         ((count++))
     done
 
     local avg_mean_lat=$(echo "scale=2; $total_mean_lat / $count" | bc)
     local avg_p99_9_lat=$(echo "scale=2; $total_p99_9_lat / $count" | bc)
+    local avg_sub_lat=$(echo "scale=2; $total_sub_lat / $count" | bc)
 
-    echo "$workload_type,$io_depth,$block_size,$jobn,$avg_mean_lat,$avg_p99_9_lat,$total_iops,$total_bw" >> "$output_file"
+    echo "$workload_type,$io_depth,$block_size,$jobn,$avg_sub_lat,$avg_mean_lat,$avg_p99_9_lat,$total_iops,$total_bw" >> "$output_file"
 
     for device in "${devices[@]}"; do
         local output_file="${device//\//_}.fio_out"
