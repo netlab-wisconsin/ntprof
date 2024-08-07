@@ -1,5 +1,6 @@
 #include "k_nvmet_tcp_layer.h"
 
+#include <linux/io.h>
 #include <linux/irqflags.h>
 #include <linux/mm.h>
 #include <linux/mutex.h>
@@ -12,7 +13,6 @@
 #include <linux/types.h>
 #include <linux/vmalloc.h>
 #include <trace/events/nvmet_tcp.h>
-#include <linux/io.h>
 
 #include "k_nttm.h"
 #include "nttm_com.h"
@@ -42,6 +42,19 @@ static bool to_sample(void) {
 
 static bool to_sample_io_work(void) {
   return atomic64_inc_return(&io_work_sample_cnt) % args->rate == 0;
+}
+
+unsigned int estimate_latency(int size, int cwnd, int mtu, int rtt) {
+  if (rtt == 0) return 0;
+  /** calculate the following value
+   *
+   * number of packets = ceiling (size / mtu)
+   * round trip number  = ceiling (number of packets / cwnd)
+   * tramsmission time = round trip number * rtt
+   */
+  int num_packets = (size + mtu - 1) / mtu;
+  int round_trip_num = (num_packets + cwnd - 1) / cwnd;
+  return round_trip_num * rtt;
 }
 
 void append_event(struct nvmet_io_instance* io_instance,
@@ -173,6 +186,9 @@ void on_try_send_data_pdu(void* ignore, u16 cmd_id, int qid, int cp_len,
   if (ctrl && args->qid[qid]) {
     if (to_trace) {
       append_event(current_io, TRY_SEND_DATA_PDU, time, 0);
+      // this is a read request
+      // upadte the first slot
+      current_io->send_size[0] += cp_len;
     }
   }
 }
@@ -182,6 +198,9 @@ void on_try_send_r2t(void* ignore, u16 cmd_id, int qid, int cp_len, int left,
   if (ctrl && args->qid[qid]) {
     if (to_trace) {
       append_event(current_io, TRY_SEND_R2T, time, 0);
+      current_io->send_size[0] = cp_len;
+      current_io->estimated_rtt[0] = estimate_latency(
+          current_io->send_size[0], cwnds[qid], args->mtu, args->rtt);
     }
   }
 }
@@ -262,6 +281,7 @@ void update_atomic_read_breakdown(
   atomic64_add(io_instance->ts[io_instance->cnt - 1] - io_instance->recv_ts[0],
                &breakdown->end2end);
   atomic_inc(&breakdown->cnt);
+  atomic64_add(io_instance->estimated_rtt[0], &breakdown->trans);
 }
 
 void update_atomic_write_breakdown(
@@ -293,6 +313,10 @@ void update_atomic_write_breakdown(
                  &breakdown->e2e);
     atomic_inc(&breakdown->cnt);
 
+    atomic64_add(io_instance->estimated_rtt[0], &breakdown->trans1);
+    atomic64_add(io_instance->estimated_rtt[1], &breakdown->trans2);
+    atomic64_inc(&breakdown->cnt2);
+
   } else {
     atomic64_add(io_instance->ts[0] - io_instance->recv_ts[0],
                  &breakdown->cmd_caps_q);
@@ -307,6 +331,7 @@ void update_atomic_write_breakdown(
     atomic64_add(io_instance->ts[cnt - 1] - io_instance->recv_ts[0],
                  &breakdown->e2e);
     atomic_inc(&breakdown->cnt);
+    atomic64_add(io_instance->estimated_rtt[0], &breakdown->trans1);
   }
 }
 
@@ -317,6 +342,16 @@ void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
     // pr_info("%d, 1, %llu, %d;", cmd_id, time, is_write);
     if (to_trace) {
       append_event(current_io, TRY_SEND_RESPONSE, time, 0);
+      if (current_io->contain_r2t) {
+        current_io->send_size[1] += cp_len;
+        current_io->estimated_rtt[1] = estimate_latency(
+            current_io->send_size[1], cwnds[qid], args->mtu, args->rtt);
+      } else {
+        current_io->send_size[0] += cp_len;
+        current_io->estimated_rtt[0] = estimate_latency(
+            current_io->send_size[0], cwnds[qid], args->mtu, args->rtt);
+      }
+
       /** insert the current io sample to the sample sliding window */
       if (args->detail) print_io_instance(current_io);
       if (!current_io->is_spoiled) {
@@ -355,6 +390,9 @@ void on_try_send_data(void* ignore, u16 cmd_id, int qid, int cp_len,
   if (ctrl && args->qid[qid]) {
     if (to_trace) {
       append_event(current_io, TRY_SEND_DATA, time, 0);
+      // this is a read request
+      // update the first slot
+      current_io->send_size[0] += cp_len;
     }
   }
 }
@@ -502,9 +540,9 @@ void nvmet_tcp_unregister_tracepoints(void) {
 }
 
 static int mmap_nvmet_tcp_stat(struct file* file, struct vm_area_struct* vma) {
-  unsigned long pfn = virt_to_phys((void *)nvmettcp_stat)>>PAGE_SHIFT;
-  if (remap_pfn_range(vma, vma->vm_start, pfn,
-                      vma->vm_end - vma->vm_start, vma->vm_page_prot)) {
+  unsigned long pfn = virt_to_phys((void*)nvmettcp_stat) >> PAGE_SHIFT;
+  if (remap_pfn_range(vma, vma->vm_start, pfn, vma->vm_end - vma->vm_start,
+                      vma->vm_page_prot)) {
     return -EAGAIN;
   }
   return 0;

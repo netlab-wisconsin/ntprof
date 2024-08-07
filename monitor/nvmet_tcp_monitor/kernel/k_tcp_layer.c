@@ -6,9 +6,12 @@
 #include <linux/vmalloc.h>
 #include <linux/proc_fs.h>
 #include <linux/mm.h>
+#include <asm/io.h>
 
 #include "k_nttm.h"
 #include "nttm_com.h"
+
+int cwnds[MAX_QID];
 
 static atomic64_t sample_cnt;
 
@@ -54,8 +57,8 @@ void on_cwnd_tcp_slow_start(void *ignore, u32 old_cwnd, u32 new_cwnd,
     struct atomic_tcp_stat_of_one_queue *p;
     pr_info("tcp_slow_start, old_cwnd: %d, new_cwnd: %d, local_port: %d, remote_port: %d\n",
             old_cwnd, new_cwnd, local_port, remote_port);
-    
-    p = &raw_tcp_stat->sks[port2qid(remote_port)];
+    int qid = port2qid(remote_port);
+    p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
     snprintf(p->last_event, 64, "tcp_slow_start");
@@ -67,9 +70,10 @@ void on_cwnd_tcp_cong_avoid_ai(void *ignore, u32 old_cwnd, u32 new_cwnd,
                                u32 local_port, u32 remote_port, u64 time) {
   if (remote_port_filter(local_port) && local_port_filter(remote_port)) {
     struct atomic_tcp_stat_of_one_queue *p;
+    int qid = port2qid(remote_port);
     pr_info("tcp_slow_start, old_cwnd: %d, new_cwnd: %d, local_port: %d, remote_port: %d\n",
             old_cwnd, new_cwnd, local_port, remote_port);
-    p = &raw_tcp_stat->sks[port2qid(remote_port)];
+    p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
     snprintf(p->last_event, 64, "tcp_cong_avoid_ai");
@@ -81,9 +85,10 @@ void on_cwnd_tcp_enter_loss(void *ignore, u32 old_cwnd, u32 new_cwnd,
                             u32 local_port, u32 remote_port, u64 time) {
   if (remote_port_filter(local_port) && local_port_filter(remote_port)) {
     struct atomic_tcp_stat_of_one_queue *p;
+    int qid = port2qid(remote_port);
     pr_info("tcp_slow_start, old_cwnd: %d, new_cwnd: %d, local_port: %d, remote_port: %d\n",
             old_cwnd, new_cwnd, local_port, remote_port);
-    p = &raw_tcp_stat->sks[port2qid(remote_port)];
+    p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
     snprintf(p->last_event, 64, "tcp_enter_loss");
@@ -96,9 +101,10 @@ void on_cwnd_tcp_undo_cwnd_reduction(void *ignore, u32 old_cwnd, u32 new_cwnd,
                                      u64 time) {
   if (remote_port_filter(local_port) && local_port_filter(remote_port)) {
     struct atomic_tcp_stat_of_one_queue *p;
+    int qid = port2qid(remote_port);
     pr_info("tcp_slow_start, old_cwnd: %d, new_cwnd: %d, local_port: %d, remote_port: %d\n",
             old_cwnd, new_cwnd, local_port, remote_port);
-    p = &raw_tcp_stat->sks[port2qid(remote_port)];
+    p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
     snprintf(p->last_event, 64, "tcp_undo_cwnd_reduction");
@@ -110,9 +116,10 @@ void on_cwnd_tcp_cwnd_reduction(void *ignore, u32 old_cwnd, u32 new_cwnd,
                                 u32 local_port, u32 remote_port, u64 time) {
   if (remote_port_filter(local_port) && local_port_filter(remote_port)) {
     struct atomic_tcp_stat_of_one_queue *p;
+    int qid = port2qid(remote_port);
     pr_info("tcp_slow_start, old_cwnd: %d, new_cwnd: %d, local_port: %d, remote_port: %d\n",
             old_cwnd, new_cwnd, local_port, remote_port);
-    p = &raw_tcp_stat->sks[port2qid(remote_port)];
+    p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
     snprintf(p->last_event, 64, "tcp_cwnd_reduction");
@@ -124,9 +131,10 @@ void on_cwnd_tcp_end_cwnd_reduction(void *ignore, u32 old_cwnd, u32 new_cwnd,
                                     u32 local_port, u32 remote_port, u64 time) {
   if (remote_port_filter(local_port) && local_port_filter(remote_port)) {
     struct atomic_tcp_stat_of_one_queue *p;
+    int qid = port2qid(remote_port);
     pr_info("tcp_slow_start, old_cwnd: %d, new_cwnd: %d, local_port: %d, remote_port: %d\n",
             old_cwnd, new_cwnd, local_port, remote_port);
-    p = &raw_tcp_stat->sks[port2qid(remote_port)];
+    p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
     snprintf(p->last_event, 64, "tcp_end_cwnd_reduction");
@@ -138,9 +146,10 @@ void on_cwnd_tcp_mtup_probe_success(void *ignore, u32 old_cwnd, u32 new_cwnd,
                                     u32 local_port, u32 remote_port, u64 time) {
   if (remote_port_filter(local_port) && local_port_filter(remote_port)) {
     struct atomic_tcp_stat_of_one_queue *p;
+    int qid = port2qid(remote_port);
     pr_info("tcp_slow_start, old_cwnd: %d, new_cwnd: %d, local_port: %d, remote_port: %d\n",
             old_cwnd, new_cwnd, local_port, remote_port);
-    p = &raw_tcp_stat->sks[port2qid(remote_port)];
+    p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
     snprintf(p->last_event, 64, "tcp_mtup_probe_success");
@@ -152,9 +161,10 @@ void on_cwnd_tcp_mtup_probe_failed(void *ignore, u32 old_cwnd, u32 new_cwnd,
                                    u32 local_port, u32 remote_port, u64 time) {
   if (remote_port_filter(local_port) && local_port_filter(remote_port)) {
     struct atomic_tcp_stat_of_one_queue *p;
+    int qid = port2qid(remote_port);
     pr_info("tcp_slow_start, old_cwnd: %d, new_cwnd: %d, local_port: %d, remote_port: %d\n",
             old_cwnd, new_cwnd, local_port, remote_port);
-    p = &raw_tcp_stat->sks[port2qid(remote_port)];
+    p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
     snprintf(p->last_event, 64, "tcp_mtup_probe_failed");
@@ -166,9 +176,10 @@ void on_cwnd_tcp_init_transfer(void *ignore, u32 old_cwnd, u32 new_cwnd,
                                u32 local_port, u32 remote_port, u64 time) {
   if (remote_port_filter(local_port) && local_port_filter(remote_port)) {
     struct atomic_tcp_stat_of_one_queue *p;
+    int qid = port2qid(remote_port);
     pr_info("tcp_slow_start, old_cwnd: %d, new_cwnd: %d, local_port: %d, remote_port: %d\n",
             old_cwnd, new_cwnd, local_port, remote_port);
-    p = &raw_tcp_stat->sks[port2qid(remote_port)];
+    p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
     snprintf(p->last_event, 64, "tcp_init_transfer");
@@ -180,9 +191,10 @@ void on_cwnd_tcp_cwnd_restart(void *ignore, u32 old_cwnd, u32 new_cwnd,
                               u32 local_port, u32 remote_port, u64 time) {
   if (remote_port_filter(local_port) && local_port_filter(remote_port)) {
     struct atomic_tcp_stat_of_one_queue *p;
+    int qid = port2qid(remote_port);
     pr_info("tcp_slow_start, old_cwnd: %d, new_cwnd: %d, local_port: %d, remote_port: %d\n",
             old_cwnd, new_cwnd, local_port, remote_port);
-    p = &raw_tcp_stat->sks[port2qid(remote_port)];
+    p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
     snprintf(p->last_event, 64, "tcp_cwnd_restart");
@@ -195,9 +207,10 @@ void on_cwnd_tcp_cwnd_application_limited(void *ignore, u32 old_cwnd,
                                           u32 remote_port, u64 time) {
   if (remote_port_filter(local_port) && local_port_filter(remote_port)) {
     struct atomic_tcp_stat_of_one_queue *p;
+    int qid = port2qid(remote_port);
     pr_info("tcp_slow_start, old_cwnd: %d, new_cwnd: %d, local_port: %d, remote_port: %d\n",
             old_cwnd, new_cwnd, local_port, remote_port);
-    p = &raw_tcp_stat->sks[port2qid(remote_port)];
+    p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
     snprintf(p->last_event, 64, "tcp_cwnd_application_limited");
@@ -209,9 +222,10 @@ void on_cwnd_tcp_mtu_probe(void *ignore, u32 old_cwnd, u32 new_cwnd,
                            u32 local_port, u32 remote_port, u64 time) {
   if (remote_port_filter(local_port) && local_port_filter(remote_port)) {
     struct atomic_tcp_stat_of_one_queue *p;
+    int qid = port2qid(remote_port);
     pr_info("tcp_slow_start, old_cwnd: %d, new_cwnd: %d, local_port: %d, remote_port: %d\n",
             old_cwnd, new_cwnd, local_port, remote_port);
-    p = &raw_tcp_stat->sks[port2qid(remote_port)];
+    p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
     snprintf(p->last_event, 64, "tcp_mtu_probe");
@@ -223,9 +237,13 @@ void on_pkt_tcp_event_new_data_sent(void *ignore, u32 packeg_in_flight, u32 skb_
                                     u32 cwnd, u32 local_port, u32 remote_port,
                                     u64 time) {
   if (remote_port_filter(local_port) && port2qid(remote_port) != -1 && to_sample() ){
-    struct atomic_tcp_stat_of_one_queue *p = &raw_tcp_stat->sks[port2qid(remote_port)];
+    int qid = port2qid(remote_port);
+    struct atomic_tcp_stat_of_one_queue *p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->pkt_in_flight, packeg_in_flight);
     atomic_set(&p->cwnd, cwnd);
+    spin_lock(&p->lock);
+    cwnds[qid] = cwnd;
+    spin_unlock(&p->lock);
   }
 }
 
@@ -404,8 +422,9 @@ void tcp_unregister_tracepoints(void) {
 }
 
 static int mmap_tcp_stat(struct file *file, struct vm_area_struct *vma) {
-  if (remap_pfn_range(vma, vma->vm_start, vmalloc_to_pfn(tcp_s),
-                      vma->vm_end - vma->vm_start, vma->vm_page_prot)) {
+  unsigned long pfn = virt_to_phys((void *)tcp_s) >> PAGE_SHIFT;
+  if (remap_pfn_range(vma, vma->vm_start, pfn, vma->vm_end - vma->vm_start,
+                      vma->vm_page_prot)) {
     return -EAGAIN;
   }
   return 0;
@@ -424,7 +443,7 @@ int init_tcp_proc_entries(void) {
   entry_tcp_stat = proc_create(stat_name, 0, entry_tcp_dir, &nttm_tcp_stat_fops);
   if (!entry_tcp_stat) {
     pr_err("Failed to create %s/%s\n", dir_name, stat_name);
-    vfree(tcp_s);
+    kfree(tcp_s);
     return -ENOMEM;
   }
   return 0;
@@ -437,17 +456,19 @@ static void remove_tcp_proc_entries(void) {
 
 int init_tcp_variables(void) {
   atomic64_set(&sample_cnt, 0);
-  tcp_s = vmalloc(sizeof(struct tcp_stat));
+  tcp_s = kmalloc(sizeof(struct tcp_stat), GFP_KERNEL);
   if (!tcp_s) {
     pr_err("Failed to allocate memory for tcp_stat\n");
     return -ENOMEM;
+  } else {
+    pr_info("Allocated memory for tcp_stat\n");
   }
   init_tcp_stat(tcp_s);
 
   raw_tcp_stat = kmalloc(sizeof(struct atomic_tcp_stat), GFP_KERNEL);
   if (!raw_tcp_stat) {
     pr_err("Failed to allocate memory for raw_tcp_stat\n");
-    vfree(tcp_s);
+    kfree(tcp_s);
     return -ENOMEM;
   }
   init_atomic_tcp_stat(raw_tcp_stat);
@@ -457,7 +478,7 @@ int init_tcp_variables(void) {
 
 void free_tcp_variables(void) {
   if (tcp_s) {
-    vfree(tcp_s);
+    kfree(tcp_s);
   }
   if (raw_tcp_stat) {
     kfree(raw_tcp_stat);

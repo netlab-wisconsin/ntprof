@@ -24,6 +24,8 @@ void print_tcp_stat(struct tcp_stat *stat) {
 void print_tcp_layer_stat() {
   if (tcp_s) {
     print_tcp_stat(tcp_s);
+  } else {
+    printf("tcp_s is NULL\n");
   }
 }
 

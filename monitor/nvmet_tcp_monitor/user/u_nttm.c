@@ -83,8 +83,9 @@ void print_usage() {
       "  -nrate=<nrate>      Network packet sample rate (default: 0.00001)\n");
   printf("  -detail=<print>     Print detail or not (default: false)");
   printf(
-      " -batch_thred     Time threshold(ns) for considering as a "
-      "batch.(default: 1000)\n");
+      "  -mtu=<size of mtu>  Maximum transmission unit in bytes (default: "
+      "9000)\n");
+  printf("  -rtt=<rtt in us>    Round trip time in us (default: 0)\n");
 }
 
 void parse_qid(const char *qid_str, Arguments *args) {
@@ -125,6 +126,8 @@ void parse_arguments(int argc, char *argv[], Arguments *args) {
   args->qstr[0] = '\0';
   args->nrate = 100000;
   args->detail = 0;
+  args->mtu = 9000;
+  args->rtt = 0;
   // args->latency_group_thred = 1000;
 
   for (int i = 2; i < argc; i++) {
@@ -166,6 +169,10 @@ void parse_arguments(int argc, char *argv[], Arguments *args) {
         print_usage();
         exit(EXIT_FAILURE);
       }
+    } else if (strncmp(argv[i], "-mtu=", 5) == 0) {
+      args->mtu = atoi(argv[i] + 5);
+    } else if (strncmp(argv[i], "-rtt=", 5) == 0) {
+      args->rtt = atoi(argv[i] + 5);
     } else {
       printf("Invalid argument: %s\n", argv[i]);
       print_usage();
@@ -274,7 +281,7 @@ int main(int argc, char **argv) {
 
   // init_blk_layer_monitor();
   init_nvmet_tcp_layer_monitor();
-  // init_tcp_layer_monitor();
+  init_tcp_layer_monitor();
 
   while (keep_running) {
     printf("\033[H\033[J");
@@ -282,11 +289,11 @@ int main(int argc, char **argv) {
     print_args(args);
     // print_blk_layer_stat();
     print_nvmet_tcp_layer_stat();
-    // print_tcp_layer_stat();
+    print_tcp_layer_stat();
     sleep(1);
   }
 
-  // exit_tcp_layer_monitor();
+  exit_tcp_layer_monitor();
   exit_nvmet_tcp_layer_monitor();
   // exit_blk_layer_monitor();
 

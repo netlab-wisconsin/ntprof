@@ -47,7 +47,8 @@ void print_read_breakdown(struct nvmet_tcp_read_breakdown *ns) {
            (float)ns->sub_and_exec / 1000 / ns->cnt);
     printf("comp_q(us): %.2f, ", (float)ns->comp_q / 1000 / ns->cnt);
     printf("resp_proc(us): %.2f, ", (float)ns->resp_proc / 1000 / ns->cnt);
-    printf("end2end(us): %.2f\n", (float)ns->end2end / 1000 / ns->cnt);
+    printf("end2end(us): %.2f, ", (float)ns->end2end / 1000 / ns->cnt);
+    printf("trans: %.2f\n", (float)ns->trans / ns->cnt);
   } else {
     printf("cnt: %lu\n", ns->cnt);
   }
@@ -83,7 +84,9 @@ void print_write_breakdown(struct nvmet_tcp_write_breakdown *ns) {
            (float)ns->nvme_sub_exec / 1000 / ns->cnt);
     printf("comp_q(us): %.2f, ", (float)ns->comp_q / 1000 / ns->cnt);
     printf("resp_proc(us): %.2f, ", (float)ns->resp_proc / 1000 / ns->cnt);
-    printf("e2e(us): %.2f\n", (float)ns->e2e / 1000 / ns->cnt);
+    printf("e2e(us): %.2f", (float)ns->e2e / 1000 / ns->cnt);
+    printf("trans1(us): %.2f, ", (float)ns->trans1 / ns-> cnt);
+    printf("trans2(us): %.2f, ", ns-> cnt2 == 0 ? 0 : (float)ns->trans2 / ns-> cnt2);
     printf("\n");
   } else {
     printf("cnt: %lu\n", ns->cnt);
@@ -152,15 +155,15 @@ void print_throughput(struct nvmet_tcp_stat* shared_nvmet_tcp_stat) {
 void print_nvmet_tcp_layer_stat() {
   if (nvmet_tcp_stat) {
     // printf(HEADER1 "[NVMET_TCP LAYER]:\n" RESET);
-    // printf(HEADER2 "all time lat(us)" RESET "\n");
-    // int i;
-    // for (i = 0; i < SIZE_NUM; i++) {
-    //   printf(HEADER3 "size=%s, \n" RESET, size_name(i));
-    //   print_read_breakdown(&nvmet_tcp_stat->all_read[i]);
-    //   print_write_breakdown(&nvmet_tcp_stat->all_write[i]);
-    // }
+    printf(HEADER2 "all time lat(us)" RESET "\n");
+    int i;
+    for (i = 0; i < SIZE_NUM; i++) {
+      printf(HEADER3 "size=%s, \n" RESET, size_name(i));
+      print_read_breakdown(&nvmet_tcp_stat->all_read[i]);
+      print_write_breakdown(&nvmet_tcp_stat->all_write[i]);
+    }
     // print_recv_send();
-    print_throughput(nvmet_tcp_stat);
+    // print_throughput(nvmet_tcp_stat);
   } else {
     printf("nvmet_tcp_stat is NULL\n");
   }

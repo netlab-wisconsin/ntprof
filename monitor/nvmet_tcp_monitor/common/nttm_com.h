@@ -98,6 +98,8 @@ struct nvmet_tcp_read_breakdown {
   unsigned long long resp_proc;
   unsigned long long end2end;
   unsigned long cnt;
+
+  unsigned long long trans;
 };
 
 static inline void init_nvmet_tcp_read_breakdown(
@@ -109,6 +111,7 @@ static inline void init_nvmet_tcp_read_breakdown(
   breakdown->resp_proc = 0;
   breakdown->end2end = 0;
   breakdown->cnt = 0;
+  breakdown->trans = 0;
 }
 
 struct nvmet_tcp_write_breakdown {
@@ -124,6 +127,9 @@ struct nvmet_tcp_write_breakdown {
   long long resp_proc;
   long long e2e;
   long cnt;
+  long long trans1;
+  long long trans2;
+  long cnt2;
 };
 
 static inline void init_nvmet_tcp_write_breakdown(
@@ -140,6 +146,9 @@ static inline void init_nvmet_tcp_write_breakdown(
   breakdown->resp_proc = 0;
   breakdown->e2e = 0;
   breakdown->cnt = 0;
+  breakdown->trans1 = 0;
+  breakdown->trans2 = 0;
+  breakdown->cnt2 = 0;
 }
 
 struct nvmet_tcp_throughput_one_queue{

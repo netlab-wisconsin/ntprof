@@ -9,7 +9,7 @@ extern int ctrl;
 extern Arguments* args;
 extern int qid2port[MAX_QID];
 extern struct proc_dir_entry *parent_dir;
-
+extern int cwnds[MAX_QID];
 
 
 #endif // _K_NTTM_H_
