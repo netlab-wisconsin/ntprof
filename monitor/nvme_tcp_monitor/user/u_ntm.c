@@ -72,6 +72,8 @@ void print_usage() {
   printf("  -type=<type>        Request type (read or write, default: both)\n");
   printf("  -size=<size>        IO size in bytes (default: all sizes)\n");
   printf("  -qid=<queue_id>     Queue ID (default: all queues)\n");
+  printf("  -mtu=<size of mtu>  Maximum transmission unit in bytes (default: 9000)\n");
+  printf("  -rtt=<rtt in us>    Round trip time in us (default: 0)\n");
   // printf(
   //     "  -nrate=<nrate>      Network packet sample rate (default: 0.00001)\n");
   // printf("  -detail=<print>     Print detail or not (default: false)");
@@ -117,6 +119,8 @@ void parse_arguments(int argc, char *argv[], Arguments *args) {
   args->qstr[0] = '\0';
   args->nrate = 100000;
   args->detail = 0;
+  args->mtu = 9000;
+  args->rtt = 0;
   // args->latency_group_thred = 1000;
 
   for (int i = 2; i < argc; i++) {
@@ -158,6 +162,10 @@ void parse_arguments(int argc, char *argv[], Arguments *args) {
         print_usage();
         exit(EXIT_FAILURE);
       }
+    } else if (strncmp(argv[i], "-mtu=", 5) == 0) {
+      args->mtu = atoi(argv[i] + 5);
+    } else if (strncmp(argv[i], "-rtt=", 5) == 0) {
+      args->rtt = atoi(argv[i] + 5);
     } else {
       printf("Invalid argument: %s\n", argv[i]);
       print_usage();

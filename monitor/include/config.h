@@ -34,6 +34,9 @@ typedef struct {
   short detail;
   // int latency_group_thred;
   // int proc_time;
+
+  int mtu;
+  int rtt;
 } Arguments;
 
 #endif  // _CONFIG_H_

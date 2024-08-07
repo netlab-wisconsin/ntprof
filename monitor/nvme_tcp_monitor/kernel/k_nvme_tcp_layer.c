@@ -48,8 +48,7 @@ void append_event(struct nvme_tcp_io_instance *inst, u64 ts,
   inst->cnt++;
 }
 
-
-void pr_info_lock(bool grab,int core, int qid, char* msg){
+void pr_info_lock(bool grab, int core, int qid, char *msg) {
   // pr_info("core: %d, qid: %d, %s, grab: %d\n", core, qid, msg, grab);
 }
 /**
@@ -73,12 +72,17 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid,
 
   /**
    * record throughput
-   * 1. if the time gap is greater than 10 second, update the first ts to current timestamp, and the last timestamp to 0
+   * 1. if the time gap is greater than 10 second, update the first ts to
+   * current timestamp, and the last timestamp to 0
    * 2. increase read/write cnt accordingly
    */
   s64 gap = time - atomic64_read(&a_throughput[qid]->last_ts);
-  if( gap >  10*NSEC_PER_SEC || -gap > 10*NSEC_PER_SEC){ 
-    pr_info("update first timestamp, since the time gap is too large %lld, bool: %d\n", time - atomic64_read(&a_throughput[qid]->last_ts), time - atomic64_read(&a_throughput[qid]->last_ts) >  10*NSEC_PER_SEC);
+  if (gap > 10 * NSEC_PER_SEC || -gap > 10 * NSEC_PER_SEC) {
+    pr_info(
+        "update first timestamp, since the time gap is too large %lld, bool: "
+        "%d\n",
+        time - atomic64_read(&a_throughput[qid]->last_ts),
+        time - atomic64_read(&a_throughput[qid]->last_ts) > 10 * NSEC_PER_SEC);
     atomic64_set(&a_throughput[qid]->first_ts, time);
     atomic64_set(&a_throughput[qid]->last_ts, time);
   } else {
@@ -94,11 +98,13 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid,
   u64 lat = 0;
   u32 size = 0;
   // traverse the bio and update throughput info
-  while (b) {    
+  while (b) {
     if (rq_data_dir(req)) {
-      atomic64_inc(&a_throughput[qid]->write_cnt[size_to_enum(b->bi_iter.bi_size)]);
+      atomic64_inc(
+          &a_throughput[qid]->write_cnt[size_to_enum(b->bi_iter.bi_size)]);
     } else {
-      atomic64_inc(&a_throughput[qid]->read_cnt[size_to_enum(b->bi_iter.bi_size)]);
+      atomic64_inc(
+          &a_throughput[qid]->read_cnt[size_to_enum(b->bi_iter.bi_size)]);
     }
     if (!lat) lat = __bio_issue_time(time) - bio_issue_time(&b->bi_issue);
     size += b->bi_iter.bi_size;
@@ -106,10 +112,10 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid,
   }
 
   // if to_sample, update the current_io
-  if(to_sample()){
+  if (to_sample()) {
     spin_lock_bh(&current_io_lock);
     pr_info_lock(true, smp_processor_id(), qid, "queue_rq");
-    if (current_io == NULL){
+    if (current_io == NULL) {
       current_io = kmalloc(sizeof(struct nvme_tcp_io_instance), GFP_KERNEL);
       init_nvme_tcp_io_instance(current_io, (rq_data_dir(req) == WRITE),
                                 req->tag, len1 + len2, 0, false, false, false,
@@ -128,7 +134,7 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid,
 void nvme_tcp_stat_update(u64 now) {
   copy_nvme_tcp_stat(a_nvme_tcp_stat, &shared_nvme_tcp_stat->all_time_stat);
   int i;
-  for(i = 0; i < MAX_QID; i++) 
+  for (i = 0; i < MAX_QID; i++)
     copy_nvmetcp_throughput(a_throughput[i], &shared_nvme_tcp_stat->tp[i]);
 }
 
@@ -175,10 +181,13 @@ void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int qid,
     pr_info("set qid %d to port %d\n", qid, local_port);
   }
 
+  // pr_info("try_send_cmd_pdu, len: %d\n", len);
+
   spin_lock_bh(&current_io_lock);
   pr_info_lock(true, smp_processor_id(), qid, "try_send_cmd_pdu");
   if (current_io && req->tag == current_io->req_tag && qid == current_io->qid) {
     append_event(current_io, time, TRY_SEND_CMD_PDU, 0, 0);
+    current_io->send_size[0] += len;
   }
   spin_unlock_bh(&current_io_lock);
   pr_info_lock(false, smp_processor_id(), qid, "try_send_cmd_pdu");
@@ -194,6 +203,7 @@ void on_nvme_tcp_try_send_data_pdu(void *ignore, struct request *req, int qid,
   pr_info_lock(true, smp_processor_id(), qid, "try_send_data_pdu");
   if (current_io && req->tag == current_io->req_tag && qid == current_io->qid) {
     append_event(current_io, time, TRY_SEND_DATA_PDU, 0, 0);
+    current_io->send_size[1] += len;
   }
   spin_unlock_bh(&current_io_lock);
   pr_info_lock(false, smp_processor_id(), qid, "try_send_data_pdu");
@@ -209,6 +219,11 @@ void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int qid,
   pr_info_lock(true, smp_processor_id(), qid, "try_send_data");
   if (current_io && req->tag == current_io->req_tag && qid == current_io->qid) {
     append_event(current_io, time, TRY_SEND_DATA, len, 0);
+    if (current_io->contains_r2t) {
+      current_io->send_size[1] += len;
+    } else {
+      current_io->send_size[0] += len;
+    }
   }
   spin_unlock_bh(&current_io_lock);
   pr_info_lock(false, smp_processor_id(), qid, "try_send_data");
@@ -535,11 +550,10 @@ static void nvmetcp_unregister_tracepoint(void) {
 }
 
 static int mmap_nvme_tcp_stat(struct file *filp, struct vm_area_struct *vma) {
+  unsigned long pfn = virt_to_phys((void *)shared_nvme_tcp_stat) >> PAGE_SHIFT;
 
-  unsigned long pfn = virt_to_phys((void *)shared_nvme_tcp_stat)>>PAGE_SHIFT;
-
-  if (remap_pfn_range(vma, vma->vm_start, pfn,
-                      vma->vm_end - vma->vm_start, vma->vm_page_prot))
+  if (remap_pfn_range(vma, vma->vm_start, pfn, vma->vm_end - vma->vm_start,
+                      vma->vm_page_prot))
     return -EAGAIN;
   return 0;
 }
@@ -575,13 +589,14 @@ int init_nvmetcp_variables(void) {
   init_atomic_nvme_tcp_stat(a_nvme_tcp_stat);
 
   int i;
-  for(i = 0; i < MAX_QID; i++){
+  for (i = 0; i < MAX_QID; i++) {
     a_throughput[i] = kmalloc(sizeof(*a_throughput[i]), GFP_KERNEL);
     if (!a_throughput[i]) return -ENOMEM;
     init_atomic_nvmetcp_throughput(a_throughput[i]);
   }
 
-  int shared_nvme_tcp_stat_size = PAGE_ALIGN(sizeof(struct shared_nvme_tcp_layer_stat));
+  int shared_nvme_tcp_stat_size =
+      PAGE_ALIGN(sizeof(struct shared_nvme_tcp_layer_stat));
   shared_nvme_tcp_stat = kmalloc(shared_nvme_tcp_stat_size, GFP_KERNEL);
   // shared_nvme_tcp_stat = vmalloc(shared_nvme_tcp_stat_size);
   // shared_nvme_tcp_stat = vmalloc(sizeof(*shared_nvme_tcp_stat));
@@ -596,7 +611,7 @@ int clear_nvmetcp_variables(void) {
     kfree(a_nvme_tcp_stat);
   }
   int i;
-  for(i = 0; i < MAX_QID; i++){
+  for (i = 0; i < MAX_QID; i++) {
     if (a_throughput[i]) {
       kfree(a_throughput[i]);
     }

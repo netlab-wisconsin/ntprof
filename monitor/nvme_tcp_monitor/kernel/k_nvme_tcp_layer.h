@@ -223,6 +223,11 @@ struct nvme_tcp_io_instance {
   int size;    // size of the whole request
   u64 before;  // time between bio issue and entering the nvme_tcp_layer
   int qid;
+
+  // the size of this array is 2, because for write request with r2t, it will send 2 mesages
+  // the second element only makes sense for write request with r2t
+  int send_size[2]; 
+  int estimated_transmission_time[2]; // the estimated transmission time for each message
 };
 
 
@@ -245,6 +250,10 @@ static inline void init_nvme_tcp_io_instance(struct nvme_tcp_io_instance *inst,
   inst->is_spoiled = _is_spoiled;
   inst->cnt = _cnt;
   inst->size = _size;
+  inst->send_size[0] = 0;
+  inst->send_size[1] = 0;
+  inst->estimated_transmission_time[0] = 0;
+  inst->estimated_transmission_time[1] = 0;
 }
 
 #define BIG_NUM 1720748973000000000
@@ -259,6 +268,7 @@ static inline void print_io_instance(struct nvme_tcp_io_instance *inst) {
     pr_info("event%d, %llu, %s, size: %llu, ts2: %llu\n", i,
             inst->ts[i] - BIG_NUM, name, inst->sizs[i], inst->ts2[i]);
   }
+  pr_info("size0: %d, size1: %d", inst->send_size[0], inst->send_size[1]);
 }
 
 void nvme_tcp_stat_update(u64 now);
