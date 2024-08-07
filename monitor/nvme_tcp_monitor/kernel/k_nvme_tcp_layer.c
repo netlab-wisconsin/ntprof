@@ -236,6 +236,10 @@ unsigned int estimate_latency(int size, int cwnd, int mtu, int rtt) {
    * round trip number  = ceiling (number of packets / cwnd)
    * tramsmission time = round trip number * rtt
    */
+  if(cwnd == 0){
+    pr_info("cwnd is 0\n");
+    return 0;
+  }
   int num_packets = (size + mtu - 1) / mtu;
   int round_trip_num = (num_packets + cwnd - 1) / cwnd;
   return round_trip_num * rtt;

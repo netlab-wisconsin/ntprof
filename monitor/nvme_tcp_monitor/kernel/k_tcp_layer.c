@@ -272,19 +272,23 @@ void on_cwnd_tcp_mtu_probe(void *ignore, u32 old_cwnd, u32 new_cwnd,
 void on_pkt_tcp_event_new_data_sent(void *ignore, u32 packeg_in_flight,
                                     u32 skb_len, u32 pk_num, u32 cwnd,
                                     u32 local_port, u32 remote_port, u64 time) {
-  if (remote_port_filter(remote_port) && port2qid(local_port) != -1 &&
-      to_sample()) {
+  if (remote_port_filter(remote_port) && port2qid(local_port) != -1) {
     //     pr_info("data send, pktout: %d, cwnd: %d, local: %d, remot: %d\n",
     // packeg_in_flight, cwnd, local_port, remote_port);
-    struct atomic_tcp_stat_of_one_queue *p =
-        &raw_tcp_stat->sks[port2qid(local_port)];
+  int qid = port2qid(local_port);
+  struct atomic_tcp_stat_of_one_queue *p =
+        &raw_tcp_stat->sks[qid];
+  if(to_sample()){
     atomic_set(&p->pkt_in_flight, packeg_in_flight);
     atomic_set(&p->cwnd, cwnd);
-    spin_lock(&p->lock);
-    cwnds[port2qid(local_port)] = atomic_read(&p->cwnd);
-    spin_unlock(&p->lock);
     atomic64_inc(&p->skb_num);
     atomic64_add(skb_len, &p->skb_size);
+  } 
+  spin_lock(&p->lock);
+  if(!cwnds[qid]) {
+    cwnds[qid] = atomic_read(&p->cwnd);
+  }
+  spin_unlock(&p->lock);    
   }
 }
 
