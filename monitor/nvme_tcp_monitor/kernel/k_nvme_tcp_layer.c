@@ -229,7 +229,7 @@ void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int qid,
   pr_info_lock(false, smp_processor_id(), qid, "try_send_data");
 }
 
-unsigned int estimate_latency(int size, int cnwd, int mtu, int rtt) {
+unsigned int estimate_latency(int size, int cwnd, int mtu, int rtt) {
   /** calculate the following value
    *
    * number of packets = ceiling (size / mtu)
@@ -237,7 +237,7 @@ unsigned int estimate_latency(int size, int cnwd, int mtu, int rtt) {
    * tramsmission time = round trip number * rtt
    */
   int num_packets = (size + mtu - 1) / mtu;
-  int round_trip_num = (num_packets + cnwd - 1) / cnwd;
+  int round_trip_num = (num_packets + cwnd - 1) / cwnd;
   return round_trip_num * rtt;
 }
 
