@@ -46,6 +46,10 @@ static bool to_sample_io_work(void) {
 
 unsigned int estimate_latency(int size, int cwnd, int mtu, int rtt) {
   if (rtt == 0) return 0;
+  if (cwnd == 0) {
+    pr_err("cwnd is 0\n");
+    return 0;
+  }
   /** calculate the following value
    *
    * number of packets = ceiling (size / mtu)
