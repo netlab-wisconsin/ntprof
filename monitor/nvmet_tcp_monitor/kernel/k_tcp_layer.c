@@ -63,6 +63,7 @@ void on_cwnd_tcp_slow_start(void *ignore, u32 old_cwnd, u32 new_cwnd,
     p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
+    cwnds[qid] = new_cwnd;
     snprintf(p->last_event, 64, "tcp_slow_start");
     spin_unlock(&p->lock);
   }
@@ -80,6 +81,7 @@ void on_cwnd_tcp_cong_avoid_ai(void *ignore, u32 old_cwnd, u32 new_cwnd,
     p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
+    cwnds[qid] = new_cwnd;
     snprintf(p->last_event, 64, "tcp_cong_avoid_ai");
     spin_unlock(&p->lock);
   }
@@ -97,6 +99,7 @@ void on_cwnd_tcp_enter_loss(void *ignore, u32 old_cwnd, u32 new_cwnd,
     p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
+    cwnds[qid] = new_cwnd;
     snprintf(p->last_event, 64, "tcp_enter_loss");
     spin_unlock(&p->lock);
   }
@@ -115,6 +118,7 @@ void on_cwnd_tcp_undo_cwnd_reduction(void *ignore, u32 old_cwnd, u32 new_cwnd,
     p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
+    cwnds[qid] = new_cwnd;
     snprintf(p->last_event, 64, "tcp_undo_cwnd_reduction");
     spin_unlock(&p->lock);
   }
@@ -132,6 +136,7 @@ void on_cwnd_tcp_cwnd_reduction(void *ignore, u32 old_cwnd, u32 new_cwnd,
     p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
+    cwnds[qid] = new_cwnd;
     snprintf(p->last_event, 64, "tcp_cwnd_reduction");
     spin_unlock(&p->lock);
   }
@@ -149,6 +154,7 @@ void on_cwnd_tcp_end_cwnd_reduction(void *ignore, u32 old_cwnd, u32 new_cwnd,
     p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
+    cwnds[qid] = new_cwnd;
     snprintf(p->last_event, 64, "tcp_end_cwnd_reduction");
     spin_unlock(&p->lock);
   }
@@ -166,6 +172,7 @@ void on_cwnd_tcp_mtup_probe_success(void *ignore, u32 old_cwnd, u32 new_cwnd,
     p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
+    cwnds[qid] = new_cwnd;
     snprintf(p->last_event, 64, "tcp_mtup_probe_success");
     spin_unlock(&p->lock);
   }
@@ -183,6 +190,7 @@ void on_cwnd_tcp_mtup_probe_failed(void *ignore, u32 old_cwnd, u32 new_cwnd,
     p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
+    cwnds[qid] = new_cwnd;
     snprintf(p->last_event, 64, "tcp_mtup_probe_failed");
     spin_unlock(&p->lock);
   }
@@ -200,6 +208,7 @@ void on_cwnd_tcp_init_transfer(void *ignore, u32 old_cwnd, u32 new_cwnd,
     p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
+    cwnds[qid] = new_cwnd;
     snprintf(p->last_event, 64, "tcp_init_transfer");
     spin_unlock(&p->lock);
   }
@@ -217,6 +226,7 @@ void on_cwnd_tcp_cwnd_restart(void *ignore, u32 old_cwnd, u32 new_cwnd,
     p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
+    cwnds[qid] = new_cwnd;
     snprintf(p->last_event, 64, "tcp_cwnd_restart");
     spin_unlock(&p->lock);
   }
@@ -235,6 +245,7 @@ void on_cwnd_tcp_cwnd_application_limited(void *ignore, u32 old_cwnd,
     p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
+    cwnds[qid] = new_cwnd;
     snprintf(p->last_event, 64, "tcp_cwnd_application_limited");
     spin_unlock(&p->lock);
   }
@@ -252,6 +263,7 @@ void on_cwnd_tcp_mtu_probe(void *ignore, u32 old_cwnd, u32 new_cwnd,
     p = &raw_tcp_stat->sks[qid];
     atomic_set(&p->cwnd, new_cwnd);
     spin_lock(&p->lock);
+    cwnds[qid] = new_cwnd;
     snprintf(p->last_event, 64, "tcp_mtu_probe");
     spin_unlock(&p->lock);
   }
