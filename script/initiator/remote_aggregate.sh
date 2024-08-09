@@ -165,7 +165,7 @@ run_fio() {
     local jobn="$5"
     local output_file="${device//\//_}.fio_out"
 
-    command="sudo fio --name=test --filename=$device --size=20G --direct=1 --time_based --runtime=10 --cpus_allowed=0-31 --cpus_allowed_policy=split --ioengine=libaio --group_reporting --output-format=terse --rw=$workload_type --numjobs=$jobn --bs=$block_size --iodepth=$io_depth > $output_file"
+    command="sudo fio --name=test --filename=$device --size=20G --direct=1 --time_based --runtime=60 --cpus_allowed=0-31 --cpus_allowed_policy=split --ioengine=libaio --group_reporting --output-format=terse --rw=$workload_type --numjobs=$jobn --bs=$block_size --iodepth=$io_depth > $output_file"
 
     #echo the command string, but remove --output-format=terse and output file
 
