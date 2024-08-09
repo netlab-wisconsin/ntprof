@@ -48,7 +48,7 @@ void print_read_breakdown(struct nvmet_tcp_read_breakdown *ns) {
     printf("comp_q(us): %.2f, ", (float)ns->comp_q / 1000 / ns->cnt);
     printf("resp_proc(us): %.2f, ", (float)ns->resp_proc / 1000 / ns->cnt);
     printf("end2end(us): %.2f, ", (float)ns->end2end / 1000 / ns->cnt);
-    printf("trans: %.2f\n", (float)ns->trans / ns->cnt);
+    printf("trans: %.2f,\n", (float)ns->trans / ns->cnt);
   } else {
     printf("cnt: %lu\n", ns->cnt);
   }
