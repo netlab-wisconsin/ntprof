@@ -415,6 +415,7 @@ void on_handle_h2c_data_pdu(void* ignore, u16 cmd_id, int qid, int datalen,
                             unsigned long long time, long long recv_time) {
   if (ctrl && args->qid[qid]) {
     if (to_trace) {
+      // pr_info("cmd_id: %d, qid: %d, datasize: %d\n", cmd_id, qid, datalen);
       current_io->size = datalen;
       append_event(current_io, HANDLE_H2C_DATA_PDU, time, recv_time);
     }
