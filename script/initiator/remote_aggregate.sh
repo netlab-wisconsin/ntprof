@@ -16,7 +16,7 @@ fi
 
 # Configuration arrays for the experiments
 workload_types=("randread")
-io_depths=(10)
+io_depths=(1 2 3 4 5 6 7 8 9 10)
 jobs=(1)
 devices=("/dev/nvme4n1")
 block_sizes=("128K")
@@ -184,11 +184,12 @@ extract_and_summarize_metrics() {
     avg_p99_9_lat=$(echo "scale=2; $total_p99_9_lat / $count" | bc)
     avg_sub_lat=$(echo "scale=2; $total_sub_lat / $count" | bc)
 
+    # echo "output the result to $output_file"
     echo "$workload_type,$io_depth,$block_size,$jobn,$avg_sub_lat,$avg_mean_lat,$avg_p99_9_lat,$total_iops,$total_bw,,${local_stats}",,"${remote_stats}" >> "$output_file"
 
     for device in "${devices[@]}"; do
-        output_file="${device//\//_}.fio_out"
-        rm "$output_file"
+        output_file_="${device//\//_}.fio_out"
+        rm "$output_file_"
     done
 }
 
