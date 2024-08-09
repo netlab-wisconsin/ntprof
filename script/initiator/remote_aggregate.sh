@@ -16,7 +16,7 @@ fi
 
 # Configuration arrays for the experiments
 workload_types=("randread")
-io_depths=(1)
+io_depths=(1 2 3 4 5 6 7 8 9 10 11 12)
 jobs=(1)
 devices=("/dev/nvme4n1")
 block_sizes=("128K")
@@ -165,8 +165,15 @@ run_fio() {
     local jobn="$5"
     local output_file="${device//\//_}.fio_out"
 
-    echo "Running fio on $device with workload=$workload_type, io_depth=$io_depth, block_size=$block_size, jobn=$jobn"
-    sudo fio --name=test --filename="$device" --size=20G --direct=1 --time_based --runtime=10 --cpus_allowed=0-31 --cpus_allowed_policy=split --ioengine=libaio --group_reporting --output-format=terse --rw="$workload_type" --numjobs="$jobn" --bs="$block_size" --iodepth="$io_depth" > "$output_file"
+    command="sudo fio --name=test --filename=$device --size=20G --direct=1 --time_based --runtime=10 --cpus_allowed=0-31 --cpus_allowed_policy=split --ioengine=libaio --group_reporting --output-format=terse --rw=$workload_type --numjobs=$jobn --bs=$block_size --iodepth=$io_depth > $output_file"
+
+    #echo the command string, but remove --output-format=terse and output file
+
+    output_cmd=$(echo $command | sed 's/--output-format=terse//g' | sed "s/> $output_file//g")
+    
+    echo "Running cmd: $output_cmd"
+
+    eval $command &
 }
 
 # Function to extract and summarize metrics
