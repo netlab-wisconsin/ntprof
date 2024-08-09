@@ -270,6 +270,7 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
   signal(SIGINT, int_handler);
+  signal(SIGTERM, int_handler);
 
   printf("debug: start map_varialbes\n");
   map_varialbes();
@@ -284,14 +285,15 @@ int main(int argc, char **argv) {
   init_tcp_layer_monitor();
 
   while (keep_running) {
-    printf("\033[H\033[J");
-    printf("Arguments:\n");
-    print_args(args);
-    // print_blk_layer_stat();
-    print_nvmet_tcp_layer_stat();
-    print_tcp_layer_stat();
     sleep(1);
   }
+
+  //  printf("\033[H\033[J");
+  printf("Arguments:\n");
+  print_args(args);
+  // print_blk_layer_stat();
+  print_nvmet_tcp_layer_stat();
+  print_tcp_layer_stat();
 
   exit_tcp_layer_monitor();
   exit_nvmet_tcp_layer_monitor();
