@@ -19,7 +19,7 @@ static char *stat_path = "/proc/ntm/nvme_tcp/stat";
 
 void print_read(struct nvmetcp_read_breakdown *ns,
                 unsigned long long read_before) {
-  printf("read breakdown -- ");
+  printf("read breakdown: ");
   if (ns->cnt) {
     printf("cnt: %d,", ns->cnt);
     printf("blk_proc(us): %.2f, ", (float)read_before / 1000 / ns->cnt);
@@ -38,7 +38,7 @@ void print_read(struct nvmetcp_read_breakdown *ns,
 
 void print_write(struct nvmetcp_write_breakdown *ns,
                  unsigned long long write_before) {
-  printf("write breakdown -- ");
+  printf("write breakdown: ");
   if (ns->cnt) {
     printf("cnt: %d,", ns->cnt);
     printf("blk_proc: %.2f, ", (float)write_before / 1000 / ns->cnt);
@@ -50,7 +50,7 @@ void print_write(struct nvmetcp_write_breakdown *ns,
     printf("req_proc2(us): %.2f, ", (float)ns->req_proc2 / 1000 / ns->cnt);
     printf("waiting2(us): %.2f, ", (float)ns->waiting2 / 1000 / ns->cnt);
     printf("comp_q(us): %.2f, ", (float)ns->comp_q / 1000 / ns->cnt);
-    printf("e2e(us): %.2f, ", (float)ns->e2e / 1000 / ns->cnt);
+    printf("ete(us): %.2f, ", (float)ns->e2e / 1000 / ns->cnt);
     printf("trans1: %.2f, ", (float)ns->trans1 / ns->cnt);
     printf("trans2: %.2f, ", (float)ns->trans2 / ns->cnt2);
     printf("\n");

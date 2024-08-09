@@ -16,7 +16,7 @@ fi
 
 # Configuration arrays for the experiments
 workload_types=("randread")
-io_depths=(1 2 3 4 5 6 7 8 9 10)
+io_depths=(1)
 jobs=(1)
 devices=("/dev/nvme4n1")
 block_sizes=("128K")
@@ -82,6 +82,35 @@ stop_remote_rerun_script() {
     echo "$log_content"
 }
 
+extract_numbers() {
+    local input_string="$1"
+    local numbers=()
+
+    # echo "parse string $input_string"
+
+    # Split the string by commas into key-value pairs
+    IFS=',' read -ra pairs <<< "$input_string"
+    for pair in "${pairs[@]}"; do
+        # Split each pair by colon to get the value
+        IFS=':' read -ra kv <<< "$pair"
+        local value="${kv[1]}"
+        value=$(echo "$value" | xargs)
+        
+        # Check if the value is a number using regex and add it to the list if it is
+        if [[ $value =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+            numbers+=("$value")
+        fi
+    done
+
+    # Print all extracted numbers
+    # Join the numbers array into a comma-separated string
+    local result
+    result=$(IFS=','; echo "${numbers[*]}")
+
+    # Print all extracted numbers as a comma-separated list
+    echo "$result"
+}
+
 # Function to extract latency breakdown from the log content
 extract_latency_breakdown() {
     local log_content="$1"
@@ -107,8 +136,9 @@ extract_latency_breakdown() {
             if [[ "$workload_type" == *"read"* ]]; then
                 read -r next_line
                 # split the string with "breakdown" and take the second part
-                next_line=$(echo "$next_line" | awk -F 'breakdown' '{print $2}')
-                numbers=$(echo "$next_line" | grep -oE '[0-9]+(\.[0-9]+)?')
+                next_line=$(echo "$next_line" | awk -F 'breakdown:' '{print $2}')
+                # numbers=$(echo "$next_line" | grep -oE '[0-9]+(\.[0-9]+)?')
+                numbers=$(extract_numbers "$next_line")
                 result=$(echo "$numbers" | tr '\n' ',' | sed 's/,$//')
                 echo "$result"
                 break
@@ -116,7 +146,7 @@ extract_latency_breakdown() {
             elif [[ "$workload_type" == *"write"* ]]; then
                 read -r next_line
                 read -r next_next_line
-                next_next_line=$(echo "$next_next_line" | awk -F 'breakdown' '{print $2}')
+                next_next_line=$(echo "$next_next_line" | awk -F 'breakdown:' '{print $2}')
                 numbers=$(echo "$next_next_line" | grep -oE '[0-9]+(\.[0-9]+)?')
                 result=$(echo "$numbers" | tr '\n' ',' | sed 's/,$//')
                 echo "$result"
