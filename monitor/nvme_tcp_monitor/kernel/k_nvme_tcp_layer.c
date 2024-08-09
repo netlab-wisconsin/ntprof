@@ -150,6 +150,8 @@ void on_nvme_tcp_queue_request(void *ignore, struct request *req, int qid,
   if (current_io && req->tag == current_io->req_tag && qid == current_io->qid) {
     append_event(current_io, time, QUEUE_REQUEST, 0, 0);
     current_io->cmdid = cmdid;
+    // pr_info("cmd_id: %d, qid: %d, req_tag: %d, size: %d\n", current_io->cmdid,
+            // qid, current_io->req_tag, current_io->size);
   }
   spin_unlock_bh(&current_io_lock);
   pr_info_lock(false, smp_processor_id(), qid, "queue_request");
@@ -236,7 +238,7 @@ unsigned int estimate_latency(int size, int cwnd, int mtu, int rtt) {
    * round trip number  = ceiling (number of packets / cwnd)
    * tramsmission time = round trip number * rtt
    */
-  if(cwnd == 0){
+  if (cwnd == 0) {
     pr_info("cwnd is 0\n");
     return 0;
   }

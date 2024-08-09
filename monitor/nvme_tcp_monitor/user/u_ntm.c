@@ -62,7 +62,11 @@ void print_args(Arguments *args) {
   printf("nrate: %d\n", args->nrate);
 }
 
-void int_handler(int dummy) { keep_running = 0; }
+void int_handler(int dummy) {
+    printf("SIGINT received, stopping...\n");
+    fflush(stdout);  // Ensure the message is printed
+    keep_running = 0;
+}
 
 void print_usage() {
   printf("Usage: nttm track [options]\n");
@@ -72,13 +76,17 @@ void print_usage() {
   printf("  -type=<type>        Request type (read or write, default: both)\n");
   printf("  -size=<size>        IO size in bytes (default: all sizes)\n");
   printf("  -qid=<queue_id>     Queue ID (default: all queues)\n");
-  printf("  -mtu=<size of mtu>  Maximum transmission unit in bytes (default: 9000)\n");
+  printf(
+      "  -mtu=<size of mtu>  Maximum transmission unit in bytes (default: "
+      "9000)\n");
   printf("  -rtt=<rtt in us>    Round trip time in us (default: 0)\n");
   // printf(
-  //     "  -nrate=<nrate>      Network packet sample rate (default: 0.00001)\n");
+  //     "  -nrate=<nrate>      Network packet sample rate (default:
+  //     0.00001)\n");
   // printf("  -detail=<print>     Print detail or not (default: false)");
-  // printf(" -batch_thred     Time threshold(ns) for considering as a batch.(default: 1000)\n");
-  // printf(" -proc_time     core processing time on initiator for a request.(default: 1000)\n");
+  // printf(" -batch_thred     Time threshold(ns) for considering as a
+  // batch.(default: 1000)\n"); printf(" -proc_time     core processing time on
+  // initiator for a request.(default: 1000)\n");
 }
 
 void parse_qid(const char *qid_str, Arguments *args) {
@@ -263,6 +271,7 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
+  signal(SIGTERM, int_handler);
   signal(SIGINT, int_handler);
 
   printf("debug: start map_varialbes\n");
@@ -278,15 +287,15 @@ int main(int argc, char **argv) {
   init_nvme_tcp_layer_monitor();
   init_tcp_layer_monitor();
 
-
   while (keep_running) {
-    printf("\033[H\033[J");
-    print_args(args);
-    // blk_layer_monitor_display();
-    nvme_tcp_layer_monitor_display();
-    tcp_layer_monitor_display();
     sleep(1);
   }
+
+  // printf("\033[H\033[J");
+  print_args(args);
+  // blk_layer_monitor_display();
+  nvme_tcp_layer_monitor_display();
+  tcp_layer_monitor_display();
 
   /** exit monitors on different layers */
   exit_blk_layer_monitor();
