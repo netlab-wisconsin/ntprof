@@ -58,6 +58,7 @@ unsigned int estimate_latency(int size, int cwnd, int mtu, int rtt) {
    */
   int num_packets = (size + mtu - 1) / mtu;
   int round_trip_num = (num_packets + cwnd - 1) / cwnd;
+  // pr_info("size: %d, cwnd: %d, mtu: %d, rtt: %d, num_packets: %d, round: %d\n", size, cwnd, mtu, rtt, num_packets, round_trip_num);
   return round_trip_num * rtt;
 }
 

@@ -84,7 +84,7 @@ void print_write_breakdown(struct nvmet_tcp_write_breakdown *ns) {
            (float)ns->nvme_sub_exec / 1000 / ns->cnt);
     printf("comp_q(us): %.2f, ", (float)ns->comp_q / 1000 / ns->cnt);
     printf("resp_proc(us): %.2f, ", (float)ns->resp_proc / 1000 / ns->cnt);
-    printf("e2e(us): %.2f", (float)ns->e2e / 1000 / ns->cnt);
+    printf("e2e(us): %.2f, ", (float)ns->e2e / 1000 / ns->cnt);
     printf("trans1(us): %.2f, ", (float)ns->trans1 / ns-> cnt);
     printf("trans2(us): %.2f, ", ns-> cnt2 == 0 ? 0 : (float)ns->trans2 / ns-> cnt2);
     printf("\n");
