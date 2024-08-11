@@ -121,7 +121,7 @@ WantedBy=multi-user.target" | sudo tee $SERVICE_FILE > /dev/null
 fi
 
 # check the status of set_msr
-sudo systemctl status set_msr.service
+# sudo systemctl status set_msr.service
 
 
 
