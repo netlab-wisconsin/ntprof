@@ -7,7 +7,7 @@ remote_dir="$HOME/nvme-tcp/monitor/nvmet_tcp_monitor"
 local_script="run.sh"
 log_file="/tmp/u_ntm.log"
 username="yuyuan"
-target_ip="128.105.146.84"
+target_ip="128.105.146.85"
 
 # Prepare the output file
 if [ -f "$output_file" ]; then
@@ -15,8 +15,8 @@ if [ -f "$output_file" ]; then
 fi
 
 # Configuration arrays for the experiments
-workload_types=("randread")
-io_depths=(1 2 3 4 5 6 7 8 9 10 11 12)
+workload_types=("write")
+io_depths=(10)
 jobs=(1)
 devices=("/dev/nvme4n1")
 block_sizes=("128K")
@@ -147,7 +147,7 @@ extract_latency_breakdown() {
                 read -r next_line
                 read -r next_next_line
                 next_next_line=$(echo "$next_next_line" | awk -F 'breakdown:' '{print $2}')
-                numbers=$(echo "$next_next_line" | grep -oE '[0-9]+(\.[0-9]+)?')
+                numbers=$(extract_numbers "$next_next_line")
                 result=$(echo "$numbers" | tr '\n' ',' | sed 's/,$//')
                 echo "$result"
                 break
