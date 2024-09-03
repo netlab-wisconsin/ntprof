@@ -14,6 +14,7 @@ sudo apt-get install -y flex bison build-essential libncurses-dev libssl-dev lib
 # Start compiling the kernel
 echo "Starting kernel compilation..."
 cd /usr/src/linux-$KERNEL_VERSION/ || { echo "Cannot switch to kernel source directory"; exit 1; }
+sudo scripts/config --disable SYSTEM_TRUSTED_KEYS
 sudo make -j63 || { echo "Kernel compilation failed"; exit 1; }
 sudo make modules_install || { echo "Module installation failed"; exit 1; }
 sudo make install || { echo "Kernel installation failed"; exit 1; }
