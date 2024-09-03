@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Specify the kernel version you want to use
+KERNEL_VERSION="5.15.143"
+
 # Update package lists
 echo "Updating package lists..."
 sudo apt-get update || { echo "Failed to update package lists, please check your network connection"; exit 1; }
@@ -10,7 +13,7 @@ sudo apt-get install -y flex bison build-essential libncurses-dev libssl-dev lib
 
 # Start compiling the kernel
 echo "Starting kernel compilation..."
-cd /usr/src/linux-source-5.15.0/ || { echo "Cannot switch to kernel source directory"; exit 1; }
+cd /usr/src/linux-$KERNEL_VERSION/ || { echo "Cannot switch to kernel source directory"; exit 1; }
 sudo make -j63 || { echo "Kernel compilation failed"; exit 1; }
 sudo make modules_install || { echo "Module installation failed"; exit 1; }
 sudo make install || { echo "Kernel installation failed"; exit 1; }
@@ -68,7 +71,7 @@ sudo update-grub || { echo "GRUB update failed"; exit 1; }
 # install perf, if /usr/local/bin/perf exists, then skip the installation
 if [ ! -f /usr/local/bin/perf ]; then
     echo "Installing perf..."
-    cd /usr/src/linux-source-5.15.0/tools/perf
+    cd /usr/src/linux-$KERNEL_VERSION/tools/perf
     sudo make -j31
     sudo cp perf /usr/local/bin
 else
@@ -79,10 +82,10 @@ fi
 if [ ! -f /usr/bin/cpupower ]; then
     echo "Installing cpupower..."
     sudo apt-get install libpci-dev gettext
-    cd /usr/src/linux-source-5.15.0/tools/power/cpupower
+    cd /usr/src/linux-$KERNEL_VERSION/tools/power/cpupower
     sudo make
     sudo ln -s libcpupower.so.0 /usr/lib/libcpupower.so.0
-    echo "/usr/src/linux-source-5.15.0/tools/power/cpupower" | sudo tee /etc/ld.so.conf.d/cpupower.conf
+    echo "/usr/src/linux-$KERNEL_VERSION/tools/power/cpupower" | sudo tee /etc/ld.so.conf.d/cpupower.conf
     sudo ldconfig
     sudo make install
 else

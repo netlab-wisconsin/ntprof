@@ -6,27 +6,30 @@
 # for a brand new system
 # for installing a new kernel and make some backup
 
+# Specify the kernel version you want to use
+KERNEL_VERSION="5.15.143"
+
 # update the library
 sudo apt-get update
 sudo DEBIAN_FRONTEND=noninteractive apt upgrade -yq
 sudo apt install -y lrzsz
 
-# Check if linux-source-5.15.0 is already installed
-if dpkg -l | grep -qw linux-source-5.15.0; then
-    echo "linux-source-5.15.0 is installed, removing..."
-    sudo apt remove -y linux-source-5.15.0
-    sudo rm -fr /usr/src/linux-source-5.15.0
+# Check if linux-5.15.143 is already installed
+if dpkg -l | grep -qw linux-$KERNEL_VERSION; then
+    echo "linux-$KERNEL_VERSION is installed, removing..."
+    sudo apt remove -y linux-$KERNEL_VERSION
+    sudo rm -fr /usr/src/linux-$KERNEL_VERSION
 else
-    echo "linux-source-5.15.0 is not installed, no need to remove."
+    echo "linux-$KERNEL_VERSION is not installed, no need to remove."
 fi
 
-# Install linux-source-5.15.0
-sudo apt install -y linux-source-5.15.0
 
-# Extract the linux source code and backup some files
+
+# Download and extract the specific kernel version from kernel.org
 cd /usr/src || { echo "Failed to change directory to /usr/src"; exit 1; }
-sudo tar -xvf linux-source-5.15.0.tar.bz2 || { echo "Failed to extract linux-source-5.15.0.tar.bz2"; exit 1; }
-cd linux-source-5.15.0 || { echo "Failed to change directory to linux-source-5.15.0"; exit 1; }
+sudo wget https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-$KERNEL_VERSION.tar.xz || { echo "Failed to download linux-$KERNEL_VERSION.tar.xz"; exit 1; }
+sudo tar -xvf linux-$KERNEL_VERSION.tar.xz || { echo "Failed to extract linux-$KERNEL_VERSION.tar.xz"; exit 1; }
+cd linux-$KERNEL_VERSION || { echo "Failed to change directory to linux-$KERNEL_VERSION"; exit 1; }
 
 # The config file might vary by installed kernel versions; finding the latest
 latest_config=$(ls -v /boot/config-* | tail -n 1)
@@ -49,7 +52,7 @@ files_to_backup=(
 )
 
 for file in "${files_to_backup[@]}"; do
-    if ! sudo cp "/usr/src/linux-source-5.15.0/$file" "/usr/src/linux-source-5.15.0/$file.bak"; then
+    if ! sudo cp "/usr/src/linux-$KERNEL_VERSION/$file" "/usr/src/linux-$KERNEL_VERSION/$file.bak"; then
         echo "Failed to backup $file"
         exit 1
     fi
