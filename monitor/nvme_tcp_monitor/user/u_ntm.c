@@ -289,13 +289,19 @@ int main(int argc, char **argv) {
 
   while (keep_running) {
     sleep(1);
+    printf("\033[H\033[J");
+    print_args(args);
+    // blk_layer_monitor_display();
+    nvme_tcp_layer_monitor_display();
+    // tcp_layer_monitor_display();
+
   }
 
   // printf("\033[H\033[J");
-  print_args(args);
-  // blk_layer_monitor_display();
-  nvme_tcp_layer_monitor_display();
-  tcp_layer_monitor_display();
+  // print_args(args);
+  // // blk_layer_monitor_display();
+  // nvme_tcp_layer_monitor_display();
+  // tcp_layer_monitor_display();
 
   /** exit monitors on different layers */
   exit_blk_layer_monitor();

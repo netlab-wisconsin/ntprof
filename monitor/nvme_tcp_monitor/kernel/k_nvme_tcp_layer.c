@@ -11,6 +11,7 @@
 #include <linux/proc_fs.h>
 #include <linux/tracepoint.h>
 #include <trace/events/nvme_tcp.h>
+#include <linux/blk_types.h>
 
 #include "k_ntm.h"
 #include "util.h"
@@ -97,6 +98,10 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid,
   b = req->bio;
   u64 lat = 0;
   u32 size = 0;
+
+  if(b == NULL && req_op(req) != REQ_OP_FLUSH){
+    pr_err("bio is NULL, flag is %u, opresult is %u\n", req->cmd_flags, req_op(req));
+  }
   // traverse the bio and update throughput info
   while (b) {
     if (rq_data_dir(req)) {
@@ -110,6 +115,11 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid,
     size += b->bi_iter.bi_size;
     b = b->bi_next;
   }
+  // if(size == 0){
+  //   pr_err("size is 0, request type:%s\n", rq_data_dir(req)?"write":"read");
+  // }
+
+  // pr_info("request type: %s, request size: %d, tag: %i", rq_data_dir(req)?"write":"read", size, req->tag);
 
   // if to_sample, update the current_io
   if (to_sample()) {
@@ -376,8 +386,10 @@ bool is_valid_read(struct nvme_tcp_io_instance *io) {
 void update_atomic_read_breakdown(struct nvme_tcp_io_instance *io,
                                   struct atomic_nvme_tcp_read_breakdown *rb) {
   if (!is_valid_read(io)) {
-    pr_err("event sequence is not correct\n");
-    print_io_instance(io);
+    if(io->size != 0) {
+      pr_err("event sequence is not correct for read\n");
+      print_io_instance(io);
+    }
     return;
   }
   atomic64_inc(&rb->cnt);
@@ -441,7 +453,7 @@ void update_atomic_write_breakdown(struct nvme_tcp_io_instance *io,
                                    struct atomic_nvme_tcp_write_breakdown *wb) {
   if (io->contains_r2t) {
     if (!is_valid_write(io, true)) {
-      pr_err("event sequence is not correct\n");
+      pr_err("event sequence is not correct for write\n");
       print_io_instance(io);
       return;
     }
@@ -459,7 +471,7 @@ void update_atomic_write_breakdown(struct nvme_tcp_io_instance *io,
     atomic64_inc(&wb->cnt2);
   } else {
     if (!is_valid_write(io, false)) {
-      pr_err("event sequence is not correct\n");
+      pr_err("event sequence is not correct for write\n");
       print_io_instance(io);
       return;
     }
@@ -489,6 +501,8 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req, int qid,
 
     if (args->detail) print_io_instance(current_io);
 
+    
+
     /** update the all-time statistic */
     if (rq_data_dir(req)) {
       /** get the size of the request */
@@ -502,6 +516,7 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req, int qid,
       update_atomic_read_breakdown(current_io, &a_nvme_tcp_stat->read[idx]);
       atomic64_add(current_io->before, &a_nvme_tcp_stat->read_before[idx]);
     }
+    inc_req_hist(a_nvme_tcp_stat, current_io->size, req_op(req));
     current_io = NULL;
   }
   spin_unlock_bh(&current_io_lock);

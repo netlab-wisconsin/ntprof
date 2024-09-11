@@ -187,6 +187,25 @@ struct nvme_tcp_stat {
   struct nvmetcp_write_breakdown write[SIZE_NUM];
   unsigned long long read_before[SIZE_NUM];
   unsigned long long write_before[SIZE_NUM];
+  /** histogram for request type */
+  /* 0. flush
+     1. read, 0K < s <= 4K
+     2. read, 4K < s <= 8K
+     3. read, 8K < s <= 16K
+     4. read, 16K < s <= 32K
+     5. read, 32K < s <= 64K
+     6. read, 64K < s <= 128K
+     7. read, s > 128K
+     8. write, 0K < s <= 4K
+     9. write, 4K < s <= 8K
+     10. write, 8K < s <= 16K
+     11. write, 16K < s <= 32K
+     12. write, 32K < s <= 64K
+     13. write, 64K < s <= 128K
+     14. write, s > 128K
+     15. others
+  */
+  long long req_type_hist[16];
 };
 
 static inline void init_nvme_tcp_stat(struct nvme_tcp_stat *stat) {

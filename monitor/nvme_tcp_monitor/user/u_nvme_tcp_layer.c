@@ -94,6 +94,12 @@ void print_shared_nvme_tcp_layer_stat(struct shared_nvme_tcp_layer_stat *ns) {
     print_read(&ns->all_time_stat.read[i], ns->all_time_stat.read_before[i]);
     print_write(&ns->all_time_stat.write[i], ns->all_time_stat.write_before[i]);
   }
+  printf("\n");
+  printf(HEADER3 "request type hist: " RESET);
+  for(i = 0; i < 16; i++) {
+    printf(" %lld, ",ns->all_time_stat.req_type_hist[i]);
+  }
+  printf("\n");
   // print_batch_info(&ns->all_time_stat);
 }
 

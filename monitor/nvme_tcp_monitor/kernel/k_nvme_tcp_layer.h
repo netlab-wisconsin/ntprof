@@ -102,7 +102,30 @@ struct atomic_nvme_tcp_stat {
   struct atomic_nvme_tcp_write_breakdown write[SIZE_NUM];
   atomic64_t read_before[SIZE_NUM];
   atomic64_t write_before[SIZE_NUM];
+
+  /* 0. flush
+     1. read, 0K < s <= 4K
+     2. read, 4K < s <= 8K
+     3. read, 8K < s <= 16K
+     4. read, 16K < s <= 32K
+     5. read, 32K < s <= 64K
+     6. read, 64K < s <= 128K
+     7. read, s > 128K
+     8. write, 0K < s <= 4K
+     9. write, 4K < s <= 8K
+     10. write, 8K < s <= 16K
+     11. write, 16K < s <= 32K
+     12. write, 32K < s <= 64K
+     13. write, 64K < s <= 128K
+     14. write, s > 128K
+     15. others
+  */
+  atomic64_t req_type_hist[16];
 };
+
+static inline void inc_req_type_hist(struct atomic_nvme_tcp_stat *stat, int idx) {
+  atomic64_inc(&stat->req_type_hist[idx]);
+}
 
 static inline void copy_nvme_tcp_stat(struct atomic_nvme_tcp_stat *src,
                                       struct nvme_tcp_stat *dst) {
@@ -112,6 +135,52 @@ static inline void copy_nvme_tcp_stat(struct atomic_nvme_tcp_stat *src,
     copy_nvme_tcp_write_breakdown(&src->write[i], &dst->write[i]);
     dst->read_before[i] = atomic64_read(&src->read_before[i]);
     dst->write_before[i] = atomic64_read(&src->write_before[i]);
+  }
+  for (i = 0; i < 16; i++) {
+    dst->req_type_hist[i] = atomic64_read(&src->req_type_hist[i]);
+  }
+}
+
+static inline void inc_req_hist(struct atomic_nvme_tcp_stat *stat, int size, int op) {
+  if(op == 0){
+    // read
+    if(size <= 4096) {
+      inc_req_type_hist(stat, 1);
+    } else if(size <= 8192) {
+      inc_req_type_hist(stat, 2);
+    } else if(size <= 16384) {
+      inc_req_type_hist(stat, 3);
+    } else if(size <= 32768) {
+      inc_req_type_hist(stat, 4);
+    } else if(size <= 65536) {
+      inc_req_type_hist(stat, 5);
+    } else if(size <= 131072) {
+      inc_req_type_hist(stat, 6);
+    } else {
+      inc_req_type_hist(stat, 7);
+    }
+  } else if (op == 1) {
+    // write
+    if(size <= 4096) {
+      inc_req_type_hist(stat, 8);
+    } else if(size <= 8192) {
+      inc_req_type_hist(stat, 9);
+    } else if(size <= 16384) {
+      inc_req_type_hist(stat, 10);
+    } else if(size <= 32768) {
+      inc_req_type_hist(stat, 11);
+    } else if(size <= 65536) {
+      inc_req_type_hist(stat, 12);
+    } else if(size <= 131072) {
+      inc_req_type_hist(stat, 13);
+    } else {
+      inc_req_type_hist(stat, 14);
+    }
+  } else if (op == 2) {
+    // flush
+    inc_req_type_hist(stat, 0);
+  } else {
+    pr_info("unknown op: %d\n", op);
   }
 }
 
@@ -124,6 +193,7 @@ static inline void init_atomic_nvme_tcp_stat(
     atomic64_set(&stat->read_before[i], 0);
     atomic64_set(&stat->write_before[i], 0);
   }
+  for(i = 0; i < 16; i++) { atomic64_set(&stat->req_type_hist[i], 0); }
 }
 
 struct atomic_nvmetcp_throughput {

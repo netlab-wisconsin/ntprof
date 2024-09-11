@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Specify the kernel version you want to use
-KERNEL_VERSION="5.15.143"
+KERNEL_VERSION="source-5.15.0"
 
 # Update package lists
 echo "Updating package lists..."
