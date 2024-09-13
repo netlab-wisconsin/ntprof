@@ -29,43 +29,43 @@ TRACE_EVENT(nvmet_tcp_try_recv_pdu,
 );
 
 TRACE_EVENT(nvmet_tcp_done_recv_pdu,
-    TP_PROTO(u16 cmd_id, int qid, bool is_write, int size, unsigned long long time, long long recv_time),
-    TP_ARGS(cmd_id, qid, is_write, size, time, recv_time),
+    TP_PROTO(u16 cmd_id, int qid, u8 opcode, int size, unsigned long long time, long long recv_time),
+    TP_ARGS(cmd_id, qid, opcode, size, time, recv_time),
     TP_STRUCT__entry(
         __field(u16, cmd_id)
         __field(int, qid)
-        __field(bool, is_write)
+        __field(bool, opcode)
     ),
     TP_fast_assign(
         __entry->cmd_id = cmd_id;
         __entry->qid = qid;
-        __entry->is_write = is_write;
+        __entry->opcode = opcode;
     ),
     /** print all fields */
-    TP_printk("cmd_id=%u, qid=%d, is_write=%d",
-        __entry->cmd_id, __entry->qid, __entry->is_write)
+    TP_printk("cmd_id=%u, qid=%d, opcode=%d",
+        __entry->cmd_id, __entry->qid, __entry->opcode)
 );
 
 TRACE_EVENT(nvmet_tcp_exec_read_req,
-    TP_PROTO(u16 cmd_id, int qid, bool is_write, int size, unsigned long long time),
-    TP_ARGS(cmd_id, qid, is_write, size, time),
+    TP_PROTO(u16 cmd_id, int qid, u8 opcode, int size, unsigned long long time),
+    TP_ARGS(cmd_id, qid, opcode, size, time),
     TP_STRUCT__entry(
         __field(u16, cmd_id)
         __field(int, qid)
-        __field(bool, is_write)
+        __field(bool, opcode)
     ),
     TP_fast_assign(
         __entry->cmd_id = cmd_id;
         __entry->qid = qid;
-        __entry->is_write = is_write;
+        __entry->opcode = opcode;
     ),
-    TP_printk("cmd_id=%u, qid=%d, is_write=%d",
-        __entry->cmd_id, __entry->qid, __entry->is_write)
+    TP_printk("cmd_id=%u, qid=%d, opcode=%d",
+        __entry->cmd_id, __entry->qid, __entry->opcode)
 );
 
 DEFINE_EVENT(nvmet_tcp_exec_read_req, nvmet_tcp_exec_write_req,
-    TP_PROTO(u16 cmd_id, int qid, bool is_write, int size, unsigned long long time),
-    TP_ARGS(cmd_id, qid, is_write, size, time)
+    TP_PROTO(u16 cmd_id, int qid, u8 opcode, int size, unsigned long long time),
+    TP_ARGS(cmd_id, qid, opcode, size, time)
 );
 
 TRACE_EVENT(nvmet_tcp_queue_response,

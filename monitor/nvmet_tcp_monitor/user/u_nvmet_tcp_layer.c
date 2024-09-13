@@ -28,7 +28,34 @@ struct nvmet_tcp_write_breakdown {
   u32 cnt;
 };
 
+struct nvmet_tcp_flush_breakdown{
+  unsigned long long cmd_caps_q;
+  unsigned long long cmd_proc;
+  unsigned long long sub_and_exec;
+  unsigned long long comp_q;
+  unsigned long long resp_proc;
+  unsigned long long e2e;
+  unsigned long cnt;
+};
  */
+
+void print_flush_breakdown(struct nvmet_tcp_flush_breakdown *ns) {
+  printf("\t flush breakdown: \t");
+  if (ns->cnt) {
+    printf("cnt: %lu, ", ns->cnt);
+    printf("cmd_caps_q(us): %.2f, ", (float)ns->cmd_caps_q / 1000 / ns->cnt);
+    printf("cmd_proc(us): %.2f, ", (float)ns->cmd_proc / 1000 / ns->cnt);
+    printf("sub_and_exec(us): %.2f, ",
+           (float)ns->sub_and_exec / 1000 / ns->cnt);
+    printf("comp_q(us): %.2f, ", (float)ns->comp_q / 1000 / ns->cnt);
+    printf("resp_proc(us): %.2f, ", (float)ns->resp_proc / 1000 / ns->cnt);
+    printf("end2end(us): %.2f, ", (float)ns->e2e / 1000 / ns->cnt);
+    printf("\n");
+  } else {
+    printf("cnt: %lu\n", ns->cnt);
+  }
+}
+
 void print_read_breakdown(struct nvmet_tcp_read_breakdown *ns) {
   printf("\t read breakdown: \t");
   if (ns->cnt) {
@@ -157,6 +184,8 @@ void print_nvmet_tcp_layer_stat() {
     // printf(HEADER1 "[NVMET_TCP LAYER]:\n" RESET);
     printf(HEADER2 "all time lat(us)" RESET "\n");
     int i;
+    printf(HEADER3 "flush, \n" RESET);
+    print_flush_breakdown(&nvmet_tcp_stat->flush);
     for (i = 0; i < SIZE_NUM; i++) {
       printf(HEADER3 "size=%s, \n" RESET, size_name(i));
       print_read_breakdown(&nvmet_tcp_stat->all_read[i]);
