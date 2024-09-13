@@ -16,16 +16,16 @@ void print_shared_blk_stat(struct shared_blk_layer_stat *shared) {
 
   printf(HEADER3 "[read dist] \t" RESET);
   int i;
-  for (i = 0; i < SIZE_NUM; i++) {
-    printf(" [%s: %.2f]", size_name(i),
+  for (i = 0; i < READ_SIZE_NUM; i++) {
+    printf(" [%s: %.2f]", read_size_name(i),
            (float)shared->all_time_stat.read_io[i] /
                shared->all_time_stat.read_count);
   }
   printf("\n");
 
   printf(HEADER3 "[read lat] \t" RESET);
-  for (i = 0; i < SIZE_NUM; i++) {
-    printf(" [%s: %.2f]", size_name(i),
+  for (i = 0; i < READ_SIZE_NUM; i++) {
+    printf(" [%s: %.2f]", read_size_name(i),
            (float)shared->all_time_stat.read_io_lat[i] / 1000 /
                shared->all_time_stat.read_io[i]);
   }
@@ -37,16 +37,16 @@ void print_shared_blk_stat(struct shared_blk_layer_stat *shared) {
                                     shared->all_time_stat.write_count);
 
   printf(HEADER3 "[write dist] \t" RESET);
-  for (i = 0; i < SIZE_NUM; i++) {
-    printf(" [%s: %.2f]", size_name(i),
+  for (i = 0; i < WRITE_SIZE_NUM; i++) {
+    printf(" [%s: %.2f]", write_size_name(i),
            (float)shared->all_time_stat.write_io[i] /
                shared->all_time_stat.write_count);
   }
   printf("\n");
 
   printf(HEADER3 "[write lat] \t" RESET);
-  for (i = 0; i < SIZE_NUM; i++) {
-    printf(" [%s: %.2f]", size_name(i),
+  for (i = 0; i < WRITE_SIZE_NUM; i++) {
+    printf(" [%s: %.2f]", write_size_name(i),
            (float)shared->all_time_stat.write_io_lat[i] / 1000 /
                shared->all_time_stat.write_io[i]);
   }

@@ -2,6 +2,7 @@
 #include "k_nvme_tcp_layer.h"
 
 #include <linux/blk-mq.h>
+#include <linux/blk_types.h>
 #include <linux/blkdev.h>
 #include <linux/irqflags.h>
 #include <linux/kernel.h>
@@ -11,7 +12,6 @@
 #include <linux/proc_fs.h>
 #include <linux/tracepoint.h>
 #include <trace/events/nvme_tcp.h>
-#include <linux/blk_types.h>
 
 #include "k_ntm.h"
 #include "util.h"
@@ -52,6 +52,7 @@ void append_event(struct nvme_tcp_io_instance *inst, u64 ts,
 void pr_info_lock(bool grab, int core, int qid, char *msg) {
   // pr_info("core: %d, qid: %d, %s, grab: %d\n", core, qid, msg, grab);
 }
+
 /**
  * This function is called when the nvme_tcp_queue_rq tracepoint is triggered
  * @param ignore: the first parameter of the tracepoint
@@ -63,13 +64,14 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid,
   // u32 qid;
   struct bio *b;
 
+  /** if monitoring is not started, or if the io type does not match, do not
+   * record the I/O */
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) return;
 
-  if (req->rq_disk && req->rq_disk->disk_name) {
-    if (!is_same_dev_name(req->rq_disk->disk_name, args->dev)) return;
-  } else {
+  /** if the disk name is different, do not record the I/O */
+  if (!req->rq_disk || !req->rq_disk->disk_name ||
+      !is_same_dev_name(req->rq_disk->disk_name, args->dev))
     return;
-  }
 
   /**
    * record throughput
@@ -92,34 +94,29 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid,
 
   /** ignore the request from the queue 0 (admin queue) */
   if (qid == 0) return;
-  // pr_info("%d, %d, %llu, %d;\n", req->tag, 0, ktime_get_real_ns(),
-  // rq_data_dir(req));
 
   b = req->bio;
   u64 lat = 0;
   u32 size = 0;
 
-  if(b == NULL && req_op(req) != REQ_OP_FLUSH){
-    pr_err("bio is NULL, flag is %u, opresult is %u\n", req->cmd_flags, req_op(req));
+  if (b == NULL && req_op(req) != REQ_OP_FLUSH) {
+    pr_err("bio is NULL, flag is %u, opresult is %u\n", req->cmd_flags,
+           req_op(req));
   }
-  // traverse the bio and update throughput info
-  while (b) {
-    if (rq_data_dir(req)) {
-      atomic64_inc(
-          &a_throughput[qid]->write_cnt[size_to_enum(b->bi_iter.bi_size)]);
-    } else {
-      atomic64_inc(
-          &a_throughput[qid]->read_cnt[size_to_enum(b->bi_iter.bi_size)]);
-    }
-    if (!lat) lat = __bio_issue_time(time) - bio_issue_time(&b->bi_issue);
-    size += b->bi_iter.bi_size;
-    b = b->bi_next;
-  }
-  // if(size == 0){
-  //   pr_err("size is 0, request type:%s\n", rq_data_dir(req)?"write":"read");
-  // }
 
-  // pr_info("request type: %s, request size: %d, tag: %i", rq_data_dir(req)?"write":"read", size, req->tag);
+  // traverse the bio and update throughput info
+  // while (b) {
+  //   if (rq_data_dir(req)) {
+  //     atomic64_inc(
+  //         &a_throughput[qid]->write_cnt[size_to_enum(b->bi_iter.bi_size)]);
+  //   } else {
+  //     atomic64_inc(
+  //         &a_throughput[qid]->read_cnt[size_to_enum(b->bi_iter.bi_size)]);
+  //   }
+  //   if (!lat) lat = __bio_issue_time(time) - bio_issue_time(&b->bi_issue);
+  //   size += b->bi_iter.bi_size;
+  //   b = b->bi_next;
+  // }
 
   // if to_sample, update the current_io
   if (to_sample()) {
@@ -127,9 +124,8 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid,
     pr_info_lock(true, smp_processor_id(), qid, "queue_rq");
     if (current_io == NULL) {
       current_io = kmalloc(sizeof(struct nvme_tcp_io_instance), GFP_KERNEL);
-      init_nvme_tcp_io_instance(current_io, (rq_data_dir(req) == WRITE),
-                                req->tag, len1 + len2, 0, false, false, false,
-                                size);
+      init_nvme_tcp_io_instance(current_io, req_op(req), req->tag, len1 + len2,
+                                0, false, false, false, size);
       current_io->before = lat;
       append_event(current_io, time, QUEUE_RQ, 0, 0);
       *to_trace = true;
@@ -160,8 +156,8 @@ void on_nvme_tcp_queue_request(void *ignore, struct request *req, int qid,
   if (current_io && req->tag == current_io->req_tag && qid == current_io->qid) {
     append_event(current_io, time, QUEUE_REQUEST, 0, 0);
     current_io->cmdid = cmdid;
-    // pr_info("cmd_id: %d, qid: %d, req_tag: %d, size: %d\n", current_io->cmdid,
-            // qid, current_io->req_tag, current_io->size);
+    // pr_info("cmd_id: %d, qid: %d, req_tag: %d, size: %d\n",
+    // current_io->cmdid, qid, current_io->req_tag, current_io->size);
   }
   spin_unlock_bh(&current_io_lock);
   pr_info_lock(false, smp_processor_id(), qid, "queue_request");
@@ -267,21 +263,27 @@ void on_nvme_tcp_done_send_req(void *ignore, struct request *req, int qid,
   pr_info_lock(true, smp_processor_id(), qid, "done_send_req");
   if (current_io && req->tag == current_io->req_tag && qid == current_io->qid) {
     append_event(current_io, time, DONE_SEND_REQ, 0, 0);
-    if (rq_data_dir(req)) {
-      // if it is write request, check if it is
-      if (current_io->contains_r2t) {
-        // update timestamp in the second slot
-        current_io->estimated_transmission_time[1] = estimate_latency(
-            current_io->send_size[1], cwnds[qid], args->mtu, args->rtt);
-      } else {
-        // update the timestamp in the first slot
+
+    switch (req_op(req)) {
+      case REQ_OP_READ:
+        // if it is read request, update the timestamp in the first slot
         current_io->estimated_transmission_time[0] = estimate_latency(
             current_io->send_size[0], cwnds[qid], args->mtu, args->rtt);
-      }
-    } else {
-      // if it is read request, update the timestamp in the first slot
-      current_io->estimated_transmission_time[0] = estimate_latency(
-          current_io->send_size[0], cwnds[qid], args->mtu, args->rtt);
+        break;
+      case REQ_OP_WRITE:
+        // if it is write request, check if it is
+        if (current_io->contains_r2t) {
+          // update timestamp in the second slot
+          current_io->estimated_transmission_time[1] = estimate_latency(
+              current_io->send_size[1], cwnds[qid], args->mtu, args->rtt);
+        } else {
+          // update the timestamp in the first slot
+          current_io->estimated_transmission_time[0] = estimate_latency(
+              current_io->send_size[0], cwnds[qid], args->mtu, args->rtt);
+        }
+        break;
+      default:
+        break;
     }
   }
   spin_unlock_bh(&current_io_lock);
@@ -290,28 +292,7 @@ void on_nvme_tcp_done_send_req(void *ignore, struct request *req, int qid,
 
 void on_nvme_tcp_try_recv(void *ignore, int offset, size_t len, int recv_stat,
                           int qid, unsigned long long time,
-                          long long recv_time) {
-  // if (req->tag == current_io->req_tag) {
-  // append_event(current_io, time, TRY_RECV);
-  // }
-  // pr_info("on_nvme_tcp_try_recv\n");
-  // if (!ctrl) {
-  //   return;
-  // }
-  // if (current_io && current_io->contains_c2h) {
-  //   /* TODO: to remove this test */
-  //   if (current_io->is_write) {
-  //     pr_err("write io contains c2h data\n");
-  //   }
-  //   // current_io->sizs[current_io->cnt] = len;
-  //   append_event(current_io, time, TRY_RECV, len, recv_time);
-  // }
-}
-
-// void on_nvme_tcp_recv_pdu(void *ignore, int consumed, unsigned char pdu_type,
-//                           int qid, unsigned long long time) {
-//   return;
-// }
+                          long long recv_time) {}
 
 void on_nvme_tcp_handle_c2h_data(void *ignore, struct request *rq, int qid,
                                  int data_remain, unsigned long long time,
@@ -362,6 +343,33 @@ void on_nvme_tcp_handle_r2t(void *ignore, struct request *req, int qid,
   pr_info_lock(false, smp_processor_id(), qid, "handle_r2t");
 }
 
+bool is_valid_flush(struct nvme_tcp_io_instance *io) {
+  if (io->cnt != 6) return false;
+  bool ret = true;
+  ret = ret && io->trpt[0] == QUEUE_RQ;
+  ret = ret && io->trpt[1] == QUEUE_REQUEST;
+  ret = ret && io->trpt[2] == TRY_SEND;
+  ret = ret && io->trpt[3] == TRY_SEND_CMD_PDU;
+  ret = ret && io->trpt[4] == DONE_SEND_REQ;
+  ret = ret && io->trpt[5] == PROCESS_NVME_CQE;
+  return ret;
+}
+
+void update_atomic_flush_breakdown(struct nvme_tcp_io_instance *io,
+                                   struct atomic_nvme_tcp_flush_breakdown *fb) {
+  if (!is_valid_flush(io)) {
+    pr_err("event sequence is not correct for flush\n");
+    print_io_instance(io);
+    return;
+  }
+  atomic64_inc(&fb->cnt);
+  atomic64_add(io->ts[2] - io->ts[1], &fb->sub_q);
+  atomic64_add(io->ts[3] - io->ts[2], &fb->req_proc);
+  atomic64_add(io->ts2[5] - io->ts[3], &fb->waiting);
+  atomic64_add(io->ts[5] - io->ts2[5], &fb->comp_q);
+  atomic64_add(io->ts[5] - io->ts[1], &fb->e2e);
+}
+
 bool is_valid_read(struct nvme_tcp_io_instance *io) {
   int ret;
   int i;
@@ -386,10 +394,8 @@ bool is_valid_read(struct nvme_tcp_io_instance *io) {
 void update_atomic_read_breakdown(struct nvme_tcp_io_instance *io,
                                   struct atomic_nvme_tcp_read_breakdown *rb) {
   if (!is_valid_read(io)) {
-    if(io->size != 0) {
-      pr_err("event sequence is not correct for read\n");
-      print_io_instance(io);
-    }
+    pr_err("event sequence is not correct for read\n");
+    print_io_instance(io);
     return;
   }
   atomic64_inc(&rb->cnt);
@@ -501,21 +507,30 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req, int qid,
 
     if (args->detail) print_io_instance(current_io);
 
-    
-
-    /** update the all-time statistic */
-    if (rq_data_dir(req)) {
-      /** get the size of the request */
-      int size = current_io->size;
-      int idx = size_to_enum(size);
-      update_atomic_write_breakdown(current_io, &a_nvme_tcp_stat->write[idx]);
-      atomic64_add(current_io->before, &a_nvme_tcp_stat->write_before[idx]);
-    } else {
-      int size = current_io->size;
-      int idx = size_to_enum(size);
-      update_atomic_read_breakdown(current_io, &a_nvme_tcp_stat->read[idx]);
-      atomic64_add(current_io->before, &a_nvme_tcp_stat->read_before[idx]);
+    int size, idx;
+    switch (req_op(req)) {
+      case REQ_OP_FLUSH:
+        update_atomic_flush_breakdown(current_io, &a_nvme_tcp_stat->flush);
+        atomic64_add(current_io->before, &a_nvme_tcp_stat->flush_before);
+        break;
+      case REQ_OP_WRITE:
+        /** get the size of the request */
+        size = current_io->size;
+        idx = write_size_to_enum(size, current_io->contains_r2t);
+        update_atomic_write_breakdown(current_io, &a_nvme_tcp_stat->write[idx]);
+        atomic64_add(current_io->before, &a_nvme_tcp_stat->write_before[idx]);
+        break;
+      case REQ_OP_READ:
+        size = current_io->size;
+        idx = read_size_to_enum(size);
+        update_atomic_read_breakdown(current_io, &a_nvme_tcp_stat->read[idx]);
+        atomic64_add(current_io->before, &a_nvme_tcp_stat->read_before[idx]);
+        break;
+      default:
+        pr_err("unknown request type\n");
+        break;
     }
+
     inc_req_hist(a_nvme_tcp_stat, current_io->size, req_op(req));
     current_io = NULL;
   }

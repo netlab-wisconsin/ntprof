@@ -17,6 +17,21 @@ static struct shared_nvme_tcp_layer_stat *shared;
 
 static char *stat_path = "/proc/ntm/nvme_tcp/stat";
 
+void print_flush(struct nvmetcp_flush_breakdown *ns, unsigned long long read_before) {
+  printf("flush breakdown: ");
+  if (ns->cnt) {
+    printf("cnt: %d,", ns->cnt);
+    printf("blk_proc(us): %.2f, ", (float)read_before / 1000 / ns->cnt);
+    printf("sub_q(us): %.2f, ", (float)ns->sub_q / 1000 / ns->cnt);
+    printf("req_proc(us): %.2f, ", (float)ns->req_proc / 1000 / ns->cnt);
+    printf("waiting(us): %.2f, ", (float)ns->waiting / 1000 / ns->cnt);
+    printf("comp_q(us): %.2f, ", (float)ns->comp_q / 1000 / ns->cnt);
+    printf("e2e(us): %.2f, ", (float)ns->e2e / 1000 / ns->cnt);
+  } else {
+    printf("cnt: %d\n", ns->cnt);
+  }
+}
+
 void print_read(struct nvmetcp_read_breakdown *ns,
                 unsigned long long read_before) {
   printf("read breakdown: ");
@@ -68,18 +83,18 @@ void print_throughput_info(struct shared_nvme_tcp_layer_stat *s) {
     int duration = (end - start) / NSEC_PER_SEC;
     printf("qid=%d, duration:%d, ", i, duration);
     int j;
-    for (j = 0; j < SIZE_NUM; j++) {
+    for (j = 0; j < READ_SIZE_NUM; j++) {
       // printf("r[%s]:%.2f, ", size_name(j),
       // ((double)(s->tp[i].read_cnt[j]))/duration);
       if (s->tp[i].read_cnt[j] != 0)
-        printf("r[%s]:%.2f, ", size_name(j),
+        printf("r[%s]:%.2f, ", read_size_name(j),
                ((double)(s->tp[i].read_cnt[j])) / duration);
     }
-    for (j = 0; j < SIZE_NUM; j++) {
+    for (j = 0; j < WRITE_SIZE_NUM; j++) {
       // printf("w[%s]:%.2f, ", size_name(j),
       // ((double)(s->tp[i].write_cnt[j]))/duration);
       if (s->tp[i].write_cnt[j] != 0)
-        printf("w[%s]:%.2f, ", size_name(j),
+        printf("w[%s]:%.2f, ", write_size_name(j),
                ((double)(s->tp[i].write_cnt[j])) / duration);
     }
     printf("\n");
@@ -87,11 +102,18 @@ void print_throughput_info(struct shared_nvme_tcp_layer_stat *s) {
 }
 
 void print_shared_nvme_tcp_layer_stat(struct shared_nvme_tcp_layer_stat *ns) {
-  printf(HEADER2 "all time stat" RESET "\n");
+  printf(HEADER2 "READ I/Os" RESET "\n");
   int i;
-  for (i = 0; i < SIZE_NUM; i++) {
-    printf(HEADER3 "size=%s, \n" RESET, size_name(i));
+  print_flush(&ns->all_time_stat.flush, ns->all_time_stat.flush_before);
+  for (i = 0; i < READ_SIZE_NUM; i++) {
+    printf(HEADER3 "size=%s, " RESET, read_size_name(i));
     print_read(&ns->all_time_stat.read[i], ns->all_time_stat.read_before[i]);
+    
+  }
+  printf("\n");
+  printf(HEADER2 "WRITE I/Os" RESET "\n");
+  for(i = 0; i < WRITE_SIZE_NUM; i++) {
+    printf(HEADER3 "size=%s, " RESET, write_size_name(i));
     print_write(&ns->all_time_stat.write[i], ns->all_time_stat.write_before[i]);
   }
   printf("\n");

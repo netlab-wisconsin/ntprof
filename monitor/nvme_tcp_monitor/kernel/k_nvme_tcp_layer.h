@@ -9,6 +9,37 @@
 
 #include "ntm_com.h"
 
+
+struct atomic_nvme_tcp_flush_breakdown {
+  atomic64_t cnt;
+  atomic64_t sub_q;
+  atomic64_t req_proc;
+  atomic64_t waiting;
+  atomic64_t comp_q;
+  atomic64_t e2e;
+};
+
+static inline void init_atomic_nvme_tcp_flush_breakdown(
+    struct atomic_nvme_tcp_flush_breakdown *fb) {
+  atomic64_set(&fb->cnt, 0);
+  atomic64_set(&fb->sub_q, 0);
+  atomic64_set(&fb->req_proc, 0);
+  atomic64_set(&fb->waiting, 0);
+  atomic64_set(&fb->comp_q, 0);
+  atomic64_set(&fb->e2e, 0);
+}
+
+static inline void copy_nvme_tcp_flush_breakdown(
+    struct atomic_nvme_tcp_flush_breakdown *src,
+    struct nvmetcp_flush_breakdown *dst) {
+  dst->cnt = atomic64_read(&src->cnt);
+  dst->sub_q = atomic64_read(&src->sub_q);
+  dst->req_proc = atomic64_read(&src->req_proc);
+  dst->waiting = atomic64_read(&src->waiting);
+  dst->comp_q = atomic64_read(&src->comp_q);
+  dst->e2e = atomic64_read(&src->e2e);
+}
+
 struct atomic_nvme_tcp_read_breakdown {
   atomic64_t cnt;
   atomic64_t sub_q;
@@ -98,10 +129,12 @@ static inline void copy_nvme_tcp_write_breakdown(
 }
 
 struct atomic_nvme_tcp_stat {
-  struct atomic_nvme_tcp_read_breakdown read[SIZE_NUM];
-  struct atomic_nvme_tcp_write_breakdown write[SIZE_NUM];
-  atomic64_t read_before[SIZE_NUM];
-  atomic64_t write_before[SIZE_NUM];
+  struct atomic_nvme_tcp_read_breakdown read[READ_SIZE_NUM];
+  struct atomic_nvme_tcp_write_breakdown write[WRITE_SIZE_NUM];
+  atomic64_t read_before[READ_SIZE_NUM];
+  atomic64_t write_before[WRITE_SIZE_NUM];
+  atomic64_t flush_before;
+  struct atomic_nvme_tcp_flush_breakdown flush;
 
   /* 0. flush
      1. read, 0K < s <= 4K
@@ -130,12 +163,16 @@ static inline void inc_req_type_hist(struct atomic_nvme_tcp_stat *stat, int idx)
 static inline void copy_nvme_tcp_stat(struct atomic_nvme_tcp_stat *src,
                                       struct nvme_tcp_stat *dst) {
   int i;
-  for (i = 0; i < SIZE_NUM; i++) {
+  for(i = 0; i < READ_SIZE_NUM; i++) {
     copy_nvme_tcp_read_breakdown(&src->read[i], &dst->read[i]);
-    copy_nvme_tcp_write_breakdown(&src->write[i], &dst->write[i]);
     dst->read_before[i] = atomic64_read(&src->read_before[i]);
+  }
+  for(i = 0; i < WRITE_SIZE_NUM; i++) {
+    copy_nvme_tcp_write_breakdown(&src->write[i], &dst->write[i]);
     dst->write_before[i] = atomic64_read(&src->write_before[i]);
   }
+  copy_nvme_tcp_flush_breakdown(&src->flush, &dst->flush);
+  dst->flush_before = atomic64_read(&src->flush_before);
   for (i = 0; i < 16; i++) {
     dst->req_type_hist[i] = atomic64_read(&src->req_type_hist[i]);
   }
@@ -187,20 +224,24 @@ static inline void inc_req_hist(struct atomic_nvme_tcp_stat *stat, int size, int
 static inline void init_atomic_nvme_tcp_stat(
     struct atomic_nvme_tcp_stat *stat) {
   int i;
-  for (i = 0; i < SIZE_NUM; i++) {
+  for(i = 0; i < READ_SIZE_NUM; i++) {
     init_atomic_nvme_tcp_read_breakdown(&stat->read[i]);
-    init_atomic_nvme_tcp_write_breakdown(&stat->write[i]);
     atomic64_set(&stat->read_before[i], 0);
+  }
+  for(i = 0; i < WRITE_SIZE_NUM; i++) {
+    init_atomic_nvme_tcp_write_breakdown(&stat->write[i]);
     atomic64_set(&stat->write_before[i], 0);
   }
+  init_atomic_nvme_tcp_flush_breakdown(&stat->flush);
+  atomic64_set(&stat->flush_before, 0);
   for(i = 0; i < 16; i++) { atomic64_set(&stat->req_type_hist[i], 0); }
 }
 
 struct atomic_nvmetcp_throughput {
   atomic64_t first_ts;
   atomic64_t last_ts;
-  atomic64_t read_cnt[SIZE_NUM];
-  atomic64_t write_cnt[SIZE_NUM];
+  atomic64_t read_cnt[READ_SIZE_NUM];
+  atomic64_t write_cnt[WRITE_SIZE_NUM];
 };
 
 static void inline init_atomic_nvmetcp_throughput(
@@ -208,8 +249,10 @@ static void inline init_atomic_nvmetcp_throughput(
   atomic64_set(&tp->first_ts, 0);
   atomic64_set(&tp->last_ts, 0);
   int i;
-  for (i = 0; i < SIZE_NUM; i++) {
+  for(i = 0; i < READ_SIZE_NUM; i++) {
     atomic64_set(&tp->read_cnt[i], 0);
+  }
+  for(i = 0; i < WRITE_SIZE_NUM; i++) {
     atomic64_set(&tp->write_cnt[i], 0);
   }
 }
@@ -219,8 +262,10 @@ static void inline copy_nvmetcp_throughput(
   dst->first_ts = atomic64_read(&src->first_ts);
   dst->last_ts = atomic64_read(&src->last_ts);
   int i;
-  for (i = 0; i < SIZE_NUM; i++) {
+  for(i = 0; i < READ_SIZE_NUM; i++) {
     dst->read_cnt[i] = atomic64_read(&src->read_cnt[i]);
+  }
+  for(i = 0; i < WRITE_SIZE_NUM; i++) {
     dst->write_cnt[i] = atomic64_read(&src->write_cnt[i]);
   }
 }
@@ -291,7 +336,7 @@ static inline void nvme_tcp_trpt_name(enum nvme_tcp_trpt trpt, char *name) {
 }
 
 struct nvme_tcp_io_instance {
-  bool is_write;
+  int req_type;
   int req_tag;
   int waitlist;
   int cmdid;
@@ -321,7 +366,7 @@ struct nvme_tcp_io_instance {
 };
 
 static inline void init_nvme_tcp_io_instance(struct nvme_tcp_io_instance *inst,
-                                             bool _is_write, int _req_tag,
+                                             int op, int _req_tag,
                                              int _waitlist, int _cnt,
                                              bool _contains_c2h,
                                              bool _contains_r2t,
@@ -333,7 +378,7 @@ static inline void init_nvme_tcp_io_instance(struct nvme_tcp_io_instance *inst,
     inst->trpt[i] = 0;
     inst->sizs[i] = 0;
   }
-  inst->is_write = _is_write;
+  inst->req_type = op;
   inst->req_tag = _req_tag;
   inst->waitlist = _waitlist;
   inst->contains_c2h = _contains_c2h;

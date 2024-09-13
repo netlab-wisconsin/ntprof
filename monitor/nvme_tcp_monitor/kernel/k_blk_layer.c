@@ -30,13 +30,31 @@ static bool to_sample(void) {
  * @param arr the array to store the count of different size categories
  * @param size the size of the io
  */
-void inc_cnt_atomic_arr(atomic64_t *arr, int size) {
-  atomic64_inc(&arr[size_to_enum(size)]);
+// void inc_cnt_atomic_arr(atomic64_t *arr, int size) {
+//   atomic64_inc(&arr[size_to_enum(size)]);
+// }
+
+// void add_atomic_array(atomic64_t *arr, int size, u64 val) {
+//   atomic64_add(val, &arr[size_to_enum(size)]);
+// }
+
+void inc_read_cnt_atomic_arr(atomic64_t *arr, int size) {
+  atomic64_inc(&arr[read_size_to_enum(size)]);
 }
 
-void add_atomic_array(atomic64_t *arr, int size, u64 val) {
-  atomic64_add(val, &arr[size_to_enum(size)]);
+void inc_write_cnt_atomic_arr(atomic64_t *arr, int size, bool contains_r2t) {
+  atomic64_inc(&arr[write_size_to_enum(size, contains_r2t)]);
 }
+
+void add_read_atomic_array(atomic64_t *arr, int size, u64 val) {
+  atomic64_add(val, &arr[read_size_to_enum(size)]);
+}
+
+void add_write_atomic_array(atomic64_t *arr, int size, u64 val, bool contains_r2t) {
+  atomic64_add(val, &arr[write_size_to_enum(size, contains_r2t)]);
+}
+
+
 
 /**
  * initialize a atomic_blk_stat structure
@@ -50,10 +68,12 @@ void init_atomic_blk_stat(struct atomic_blk_stat *tr) {
   // atomic64_set(&tr->pending_rq, 0);
   atomic64_set(&tr->read_lat, 0);
   atomic64_set(&tr->write_lat, 0);
-  for (i = 0; i < SIZE_NUM; i++) {
+  for(i = 0; i < READ_SIZE_NUM; i++) {
     atomic64_set(&tr->read_io[i], 0);
-    atomic64_set(&tr->write_io[i], 0);
     atomic64_set(&tr->read_io_lat[i], 0);
+  }
+  for(i = 0; i < WRITE_SIZE_NUM; i++) {
+    atomic64_set(&tr->write_io[i], 0);
     atomic64_set(&tr->write_io_lat[i], 0);
   }
 }
@@ -66,10 +86,12 @@ void copy_blk_stat(struct blk_stat *dst, struct atomic_blk_stat *src) {
   int i;
   dst->read_count = atomic64_read(&src->read_count);
   dst->write_count = atomic64_read(&src->write_count);
-  for (i = 0; i < SIZE_NUM; i++) {
+  for(i = 0; i < READ_SIZE_NUM; i++) {
     dst->read_io[i] = atomic64_read(&src->read_io[i]);
-    dst->write_io[i] = atomic64_read(&src->write_io[i]);
     dst->read_io_lat[i] = atomic64_read(&src->read_io_lat[i]);
+  }
+  for(i = 0; i < WRITE_SIZE_NUM; i++) {
+    dst->write_io[i] = atomic64_read(&src->write_io[i]);
     dst->write_io_lat[i] = atomic64_read(&src->write_io_lat[i]);
   }
   dst->read_lat = atomic64_read(&src->read_lat);
@@ -100,14 +122,14 @@ void on_block_rq_complete(void *ignore, struct request *rq, int err,
         /** read the io direction and increase the corresponding counter */
         if (bio_data_dir(bio) == READ) {
           atomic64_inc(&inner_blk_stat->read_count);
-          inc_cnt_atomic_arr(inner_blk_stat->read_io, size);
-          add_atomic_array(inner_blk_stat->read_io_lat, size, lat);
+          inc_read_cnt_atomic_arr(inner_blk_stat->read_io, size);
+          add_read_atomic_array(inner_blk_stat->read_io_lat, size, lat);
           atomic64_add(lat, &inner_blk_stat->read_lat);
         } else if (bio_data_dir(bio) == WRITE) {
-          inc_cnt_atomic_arr(inner_blk_stat->write_io, size);
+          inc_write_cnt_atomic_arr(inner_blk_stat->write_io, size, false);
           atomic64_inc(&inner_blk_stat->write_count);
           atomic64_add(lat, &inner_blk_stat->write_lat);
-          add_atomic_array(inner_blk_stat->write_io_lat, size, lat);
+          add_write_atomic_array(inner_blk_stat->write_io_lat, size, lat, false);
         } else {
           pr_err("Unexpected bio direction, neither READ nor WRITE.\n");
         }

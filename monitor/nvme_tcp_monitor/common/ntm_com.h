@@ -3,47 +3,81 @@
 
 #include "config.h"
 
-#define SIZE_NUM 7
+#define READ_SIZE_NUM 7
+enum read_size_type { _R4K, _R8K, _R16K, _R32K, _R64K, _R128K, _ROTHERS };
+#define WRITE_SIZE_NUM 8
+enum write_size_type {
+  _W4K,
+  _W8K,
+  _W16K,
+  _W32K,
+  _W64K,
+  _W128K,
+  _SWOTHERS,
+  _BWOTHERS
+};
 
-enum size_type { _4K, _8K, _16K, _32K, _64K, _128K, _OTHERS };
-
-/** a function, given int size, return enum */
-static inline enum size_type size_to_enum(int size) {
-  if (size == 4096) return _4K;
-  if (size == 8192) return _8K;
-  if (size == 16384) return _16K;
-  if (size == 32768) return _32K;
-  if (size == 65536) return _64K;
-  if (size == 131072) return _128K;
-  return _OTHERS;
+static inline enum read_size_type read_size_to_enum(int size) {
+  if (size == 4096) return _R4K;
+  if (size == 8192) return _R8K;
+  if (size == 16384) return _R16K;
+  if (size == 32768) return _R32K;
+  if (size == 65536) return _R64K;
+  if (size == 131072) return _R128K;
+  return _ROTHERS;
 }
 
-static inline int size_idx(int size) {
-  if (size == 4096) return 0;
-  if (size == 8192) return 1;
-  if (size == 16384) return 2;
-  if (size == 32768) return 3;
-  if (size == 65536) return 4;
-  if (size == 131072) return 5;
-  return 6;
+static inline enum write_size_type write_size_to_enum(int size,
+                                                      short contains_r2t) {
+  if (size == 4096) return _W4K;
+  if (size == 8192) return _W8K;
+  if (size == 16384) return _W16K;
+  if (size == 32768) return _W32K;
+  if (size == 65536) return _W64K;
+  if (size == 131072) return _W128K;
+  if (contains_r2t) return _BWOTHERS;
+  return _SWOTHERS;
 }
 
-static inline char *size_name(int idx) {
+static inline char *read_size_name(int idx) {
   switch (idx) {
-    case 0:
+    case _R4K:
       return "4K";
-    case 1:
+    case _R8K:
       return "8K";
-    case 2:
+    case _R16K:
       return "16K";
-    case 3:
+    case _R32K:
       return "32K";
-    case 4:
+    case _R64K:
       return "64K";
-    case 5:
+    case _R128K:
       return "128K";
-    case 6:
+    case _ROTHERS:
       return "OTHERS";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+static inline char *write_size_name(int idx) {
+  switch (idx) {
+    case _W4K:
+      return "4K";
+    case _W8K:
+      return "8K";
+    case _W16K:
+      return "16K";
+    case _W32K:
+      return "32K";
+    case _W64K:
+      return "64K";
+    case _W128K:
+      return "128K";
+    case _SWOTHERS:
+      return "SWOTHERS";
+    case _BWOTHERS:
+      return "BWOTHERS";
     default:
       return "UNKNOWN";
   }
@@ -66,16 +100,16 @@ struct blk_stat {
    * the sizs are divided into 9 categories
    * refers to enum size_type
    */
-  unsigned long long read_io[SIZE_NUM];
+  unsigned long long read_io[READ_SIZE_NUM];
   /** write io number of different sizes */
-  unsigned long long write_io[SIZE_NUM];
+  unsigned long long write_io[WRITE_SIZE_NUM];
   /** TODO: number of io in-flight */
   // unsigned long long pending_rq;
 
   unsigned long long read_lat;
   unsigned long long write_lat;
-  unsigned long long read_io_lat[SIZE_NUM];
-  unsigned long long write_io_lat[SIZE_NUM];
+  unsigned long long read_io_lat[READ_SIZE_NUM];
+  unsigned long long write_io_lat[WRITE_SIZE_NUM];
 };
 
 /**
@@ -87,10 +121,12 @@ static inline void init_blk_stat(struct blk_stat *stat) {
   int i;
   stat->read_count = 0;
   stat->write_count = 0;
-  for (i = 0; i < SIZE_NUM; i++) {
+  for (i = 0; i < READ_SIZE_NUM; i++) {
     stat->read_io[i] = 0;
-    stat->write_io[i] = 0;
     stat->read_io_lat[i] = 0;
+  }
+  for (i = 0; i < WRITE_SIZE_NUM; i++) {
+    stat->write_io[i] = 0;
     stat->write_io_lat[i] = 0;
   }
   // stat->pending_rq = 0;
@@ -98,19 +134,19 @@ static inline void init_blk_stat(struct blk_stat *stat) {
   stat->write_lat = 0;
 }
 
-/**
- * Increase the count of a specific size category
- * @param arr the array to store the count of different size categories
- * @param size the size of the io
- */
-static inline void inc_cnt_arr(unsigned long long *arr, int size) {
-  arr[size_to_enum(size)]++;
-}
+// /**
+//  * Increase the count of a specific size category
+//  * @param arr the array to store the count of different size categories
+//  * @param size the size of the io
+//  */
+// static inline void inc_cnt_arr(unsigned long long *arr, int size) {
+//   arr[size_to_enum(size)]++;
+// }
 
-static inline void add_lat_arr(unsigned long long *arr, int size,
-                               unsigned long long lat) {
-  arr[size_to_enum(size)] += lat;
-}
+// static inline void add_lat_arr(unsigned long long *arr, int size,
+//                                unsigned long long lat) {
+//   arr[size_to_enum(size)] += lat;
+// }
 
 /** this struct is shared between kernel space and the user space */
 struct shared_blk_layer_stat {
@@ -123,6 +159,25 @@ static inline void init_shared_blk_layer_stat(
 }
 
 /** -------------- NVME-TCP LAYER -------------- */
+
+struct nvmetcp_flush_breakdown {
+  int cnt;
+  long long sub_q;
+  long long req_proc;
+  long long waiting;
+  long long comp_q;
+  long long e2e;
+};
+
+static inline void init_nvmetcp_flush_breakdown(
+    struct nvmetcp_flush_breakdown *fb) {
+  fb->cnt = 0;
+  fb->sub_q = 0;
+  fb->req_proc = 0;
+  fb->waiting = 0;
+  fb->comp_q = 0;
+  fb->e2e = 0;
+}
 
 struct nvmetcp_read_breakdown {
   int cnt;
@@ -183,10 +238,12 @@ static inline void init_nvmetcp_write_breakdown(
 
 #define MAX_BATCH_SIZE 64
 struct nvme_tcp_stat {
-  struct nvmetcp_read_breakdown read[SIZE_NUM];
-  struct nvmetcp_write_breakdown write[SIZE_NUM];
-  unsigned long long read_before[SIZE_NUM];
-  unsigned long long write_before[SIZE_NUM];
+  struct nvmetcp_read_breakdown read[READ_SIZE_NUM];
+  struct nvmetcp_write_breakdown write[WRITE_SIZE_NUM];
+  struct nvmetcp_flush_breakdown flush;
+  unsigned long long read_before[READ_SIZE_NUM];
+  unsigned long long write_before[WRITE_SIZE_NUM];
+  unsigned long long flush_before;
   /** histogram for request type */
   /* 0. flush
      1. read, 0K < s <= 4K
@@ -210,27 +267,33 @@ struct nvme_tcp_stat {
 
 static inline void init_nvme_tcp_stat(struct nvme_tcp_stat *stat) {
   int i;
-  for (i = 0; i < SIZE_NUM; i++) {
+  for(i = 0; i < READ_SIZE_NUM; i++) {
     init_nvmetcp_read_breakdown(&stat->read[i]);
-    init_nvmetcp_write_breakdown(&stat->write[i]);
     stat->read_before[i] = 0;
+  }
+  for(i = 0; i < WRITE_SIZE_NUM; i++) {
+    init_nvmetcp_write_breakdown(&stat->write[i]);
     stat->write_before[i] = 0;
   }
+  init_nvmetcp_flush_breakdown(&stat->flush);
+  stat->flush_before = 0;
 }
 
-struct nvme_tcp_throughput{
+struct nvme_tcp_throughput {
   long long first_ts;
   long long last_ts;
-  long read_cnt[SIZE_NUM];
-  long write_cnt[SIZE_NUM];
+  long read_cnt[READ_SIZE_NUM];
+  long write_cnt[WRITE_SIZE_NUM];
 };
 
 static inline void init_nvme_tcp_throughput(struct nvme_tcp_throughput *tp) {
   tp->first_ts = 0;
   tp->last_ts = 0;
   int i;
-  for (i = 0; i < SIZE_NUM; i++) {
+  for(i = 0; i < READ_SIZE_NUM; i++) {
     tp->read_cnt[i] = 0;
+  }
+  for(i = 0; i < WRITE_SIZE_NUM; i++) {
     tp->write_cnt[i] = 0;
   }
 }

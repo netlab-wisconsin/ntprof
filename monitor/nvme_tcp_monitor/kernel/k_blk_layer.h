@@ -21,17 +21,17 @@ struct atomic_blk_stat {
    * the sizs are divided into 9 categories
    * refers to enum size_type in ntm_com.h
    */
-  atomic64_t read_io[SIZE_NUM];
+  atomic64_t read_io[READ_SIZE_NUM];
   /** write io number of different sizes */
-  atomic64_t write_io[SIZE_NUM];
+  atomic64_t write_io[WRITE_SIZE_NUM];
 
   /** overall read and write lat */
   atomic64_t read_lat;
   atomic64_t write_lat;
 
   /** read and write lat for different type of io */
-  atomic64_t read_io_lat[SIZE_NUM];
-  atomic64_t write_io_lat[SIZE_NUM];
+  atomic64_t read_io_lat[READ_SIZE_NUM];
+  atomic64_t write_io_lat[WRITE_SIZE_NUM];
 
   /** TODO: number of io in-flight */
   // atomic64_t pending_rq;
