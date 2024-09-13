@@ -90,6 +90,27 @@ static inline void add_lat_arr(unsigned long long *arr, int size,
 
 /** -------------- NVME-TCP LAYER -------------- */
 
+struct nvmet_tcp_flush_breakdown{
+  unsigned long long cmd_caps_q;
+  unsigned long long cmd_proc;
+  unsigned long long sub_and_exec;
+  unsigned long long comp_q;
+  unsigned long long resp_proc;
+  unsigned long long e2e;
+  unsigned long cnt;
+};
+
+static inline void init_nvmet_tcp_flush_breakdown(
+    struct nvmet_tcp_flush_breakdown *breakdown) {
+  breakdown->cmd_caps_q = 0;
+  breakdown->cmd_proc = 0;
+  breakdown->sub_and_exec = 0;
+  breakdown->comp_q = 0;
+  breakdown->resp_proc = 0;
+  breakdown->e2e = 0;
+  breakdown->cnt = 0;
+}
+
 struct nvmet_tcp_read_breakdown {
   unsigned long long cmd_caps_q;
   unsigned long long cmd_proc;
@@ -163,6 +184,7 @@ struct nvmet_tcp_stat {
   /** these 2 attributes are summary for the whole trace */
   struct nvmet_tcp_read_breakdown all_read[SIZE_NUM];
   struct nvmet_tcp_write_breakdown all_write[SIZE_NUM];
+  struct nvmet_tcp_flush_breakdown flush;
   long long recv_cnt;
   long long recv;
   long long send_cnt;
@@ -195,6 +217,7 @@ static inline void init_nvmet_tcp_stat(struct nvmet_tcp_stat *stat) {
   for(i = 0; i < MAX_QID; i++){
     init_nvmet_tcp_throughput_one_queue(&stat->throughput[i]);
   }
+  init_nvmet_tcp_flush_breakdown(&stat->flush);
 }
 
 struct tcp_stat_one_queue {

@@ -4,6 +4,7 @@
 #include <linux/irqflags.h>
 #include <linux/mm.h>
 #include <linux/mutex.h>
+#include <linux/nvme.h>
 #include <linux/proc_fs.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
@@ -58,7 +59,8 @@ unsigned int estimate_latency(int size, int cwnd, int mtu, int rtt) {
    */
   int num_packets = (size + mtu - 1) / mtu;
   int round_trip_num = (num_packets + cwnd - 1) / cwnd;
-  // pr_info("size: %d, cwnd: %d, mtu: %d, rtt: %d, num_packets: %d, round: %d\n", size, cwnd, mtu, rtt, num_packets, round_trip_num);
+  // pr_info("size: %d, cwnd: %d, mtu: %d, rtt: %d, num_packets: %d, round:
+  // %d\n", size, cwnd, mtu, rtt, num_packets, round_trip_num);
   return round_trip_num * rtt;
 }
 
@@ -84,15 +86,23 @@ void on_try_recv_pdu(void* ignore, u8 pdu_type, u8 hdr_len, int queue_left,
   }
 }
 
-void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
-                      int size, unsigned long long time, long long recv_time) {
-  if (ctrl && args->qid[qid] && args->io_type + is_write != 1) {
+void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, u8 opcode, int size,
+                      unsigned long long time, long long recv_time) {
+  /**
+   * nvme_cmd_flush		= 0x00,
+   * nvme_cmd_write		= 0x01,
+   * nvme_cmd_read		= 0x02,
+   */
+  if (ctrl && args->qid[qid] &&
+      (args->io_type == _BOTH ||
+       (args->io_type == _READ && opcode == nvme_cmd_read) ||
+       (args->io_type == _WRITE && opcode == nvme_cmd_write))) {
     // pr_info("%d, 0, %llu, %d;", cmd_id, recv_time, is_write);
     if (to_sample()) {
       if (!current_io) {
         current_io = kmalloc(sizeof(struct nvmet_io_instance), GFP_KERNEL);
 
-        init_nvmet_tcp_io_instance(current_io, cmd_id, is_write, size);
+        init_nvmet_tcp_io_instance(current_io, cmd_id, opcode, size);
         append_event(current_io, DONE_RECV_PDU, time, recv_time);
         current_io->qid = qid;
       } else {
@@ -102,9 +112,9 @@ void on_done_recv_pdu(void* ignore, u16 cmd_id, int qid, bool is_write,
   }
 }
 
-void on_exec_read_req(void* ignore, u16 cmd_id, int qid, bool is_write,
-                      int size, unsigned long long time) {
-  if (is_write) {
+void on_exec_read_req(void* ignore, u16 cmd_id, int qid, u8 opcode, int size,
+                      unsigned long long time) {
+  if (opcode == nvme_cmd_write) {
     pr_err("exec_read_req: is_write is true\n");
   }
   if (ctrl) {
@@ -125,10 +135,10 @@ void on_exec_read_req(void* ignore, u16 cmd_id, int qid, bool is_write,
   }
 }
 
-void on_exec_write_req(void* ignore, u16 cmd_id, int qid, bool is_write,
-                       int size, unsigned long long time) {
+void on_exec_write_req(void* ignore, u16 cmd_id, int qid, u8 opcode, int size,
+                       unsigned long long time) {
   if (qid == 0) return;
-  if (!is_write) {
+  if (opcode != nvme_cmd_write) {
     pr_err("exec_write_req: is_write is false\n");
   }
   if (ctrl) {
@@ -148,6 +158,7 @@ void on_exec_write_req(void* ignore, u16 cmd_id, int qid, bool is_write,
   }
 }
 
+// TODO: use opcode instead
 void on_queue_response(void* ignore, u16 cmd_id, int qid, bool is_write,
                        unsigned long long time) {
   if (ctrl && args->qid[qid]) {
@@ -210,6 +221,19 @@ void on_try_send_r2t(void* ignore, u16 cmd_id, int qid, int cp_len, int left,
   }
 }
 
+bool is_valid_flush(struct nvmet_io_instance* io_instance) {
+  bool ret;
+  int i;
+  if (io_instance->cnt != 5) return false;
+  ret = true;
+  ret = ret && io_instance->trpt[0] == DONE_RECV_PDU;
+  ret = ret && io_instance->trpt[1] == EXEC_READ_REQ;
+  ret = ret && io_instance->trpt[2] == QUEUE_RESPONSE;
+  ret = ret && io_instance->trpt[3] == SETUP_RESPONSE_PDU;
+  ret = ret && io_instance->trpt[4] == TRY_SEND_RESPONSE;
+  return ret;
+}
+
 bool is_valid_read(struct nvmet_io_instance* io_instance) {
   bool ret;
   int i;
@@ -267,6 +291,18 @@ bool is_valid_write(struct nvmet_io_instance* io_instance, bool contain_rt2) {
     ret = ret && io_instance->trpt[io_instance->cnt - 1] == TRY_SEND_RESPONSE;
     return ret;
   }
+}
+
+void update_atomic_flush_breakdown(struct atomic_nvmet_tcp_flush_breakdown* fb,
+                                   struct nvmet_io_instance* io_instance) {
+  int cnt = io_instance->cnt;
+  atomic64_add(io_instance->ts[0] - io_instance->recv_ts[0], &fb->cmd_caps_q);
+  atomic64_add(io_instance->ts[1] - io_instance->ts[0], &fb->cmd_proc);
+  atomic64_add(io_instance->ts[2] - io_instance->ts[1], &fb->sub_and_exec);
+  atomic64_add(io_instance->ts[3] - io_instance->ts[2], &fb->comp_q);
+  atomic64_add(io_instance->ts[4] - io_instance->ts[3], &fb->resp_proc);
+  atomic64_add(io_instance->ts[cnt - 1] - io_instance->recv_ts[0], &fb->end2end);
+  atomic_inc(&fb->cnt);
 }
 
 void update_atomic_read_breakdown(
@@ -360,27 +396,41 @@ void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
       /** insert the current io sample to the sample sliding window */
       if (args->detail) print_io_instance(current_io);
       if (!current_io->is_spoiled) {
-        // pr_info("size of current req is %d\n", current_io->size);
-        if (current_io->is_write) {
-          if (is_valid_write(current_io, current_io->contain_r2t)) {
-            update_atomic_write_breakdown(
-                &atomic_nvmettcp_stat
-                     ->write_breakdown[size_to_enum(current_io->size)],
-                current_io);
-          } else {
-            pr_err("write io is not standard: ");
-            print_io_instance(current_io);
-          }
-        } else {
-          if (is_valid_read(current_io)) {
-            update_atomic_read_breakdown(
-                &atomic_nvmettcp_stat
-                     ->read_breakdown[size_to_enum(current_io->size)],
-                current_io);
-          } else {
-            pr_err("read io is not standard: ");
-            print_io_instance(current_io);
-          }
+        switch (current_io->opcode) {
+          case nvme_cmd_flush:
+            if (is_valid_flush(current_io)) {
+              update_atomic_flush_breakdown(
+                  &atomic_nvmettcp_stat->flush, current_io);
+            } else {
+              pr_err("flush io is not standard: ");
+              print_io_instance(current_io);
+            }
+            break;
+          case nvme_cmd_read:
+            if (is_valid_read(current_io)) {
+              update_atomic_read_breakdown(
+                  &atomic_nvmettcp_stat
+                       ->read_breakdown[size_to_enum(current_io->size)],
+                  current_io);
+            } else {
+              pr_err("read io is not standard: ");
+              print_io_instance(current_io);
+            }
+            break;
+          case nvme_cmd_write:
+            if (is_valid_write(current_io, current_io->contain_r2t)) {
+              update_atomic_write_breakdown(
+                  &atomic_nvmettcp_stat
+                       ->write_breakdown[size_to_enum(current_io->size)],
+                  current_io);
+            } else {
+              pr_err("write io is not standard: ");
+              print_io_instance(current_io);
+            }
+            break;
+          default:
+            pr_err("unknown opcode: %d\n", current_io->opcode);
+            break;
         }
         current_io = NULL;
       } else {
