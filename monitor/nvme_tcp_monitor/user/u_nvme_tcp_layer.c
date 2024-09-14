@@ -108,7 +108,6 @@ void print_shared_nvme_tcp_layer_stat(struct shared_nvme_tcp_layer_stat *ns) {
   for (i = 0; i < READ_SIZE_NUM; i++) {
     printf(HEADER3 "size=%s, " RESET, read_size_name(i));
     print_read(&ns->all_time_stat.read[i], ns->all_time_stat.read_before[i]);
-    
   }
   printf("\n");
   printf(HEADER2 "WRITE I/Os" RESET "\n");

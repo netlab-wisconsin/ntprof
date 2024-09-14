@@ -105,18 +105,18 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid,
   }
 
   // traverse the bio and update throughput info
-  // while (b) {
-  //   if (rq_data_dir(req)) {
-  //     atomic64_inc(
-  //         &a_throughput[qid]->write_cnt[size_to_enum(b->bi_iter.bi_size)]);
-  //   } else {
-  //     atomic64_inc(
-  //         &a_throughput[qid]->read_cnt[size_to_enum(b->bi_iter.bi_size)]);
-  //   }
-  //   if (!lat) lat = __bio_issue_time(time) - bio_issue_time(&b->bi_issue);
-  //   size += b->bi_iter.bi_size;
-  //   b = b->bi_next;
-  // }
+  while (b) {
+    // if (rq_data_dir(req)) {
+    //   atomic64_inc(
+    //       &a_throughput[qid]->write_cnt[size_to_enum(b->bi_iter.bi_size)]);
+    // } else {
+    //   atomic64_inc(
+    //       &a_throughput[qid]->read_cnt[size_to_enum(b->bi_iter.bi_size)]);
+    // }
+    if (!lat) lat = __bio_issue_time(time) - bio_issue_time(&b->bi_issue);
+    size += b->bi_iter.bi_size;
+    b = b->bi_next;
+  }
 
   // if to_sample, update the current_io
   if (to_sample()) {
@@ -163,16 +163,23 @@ void on_nvme_tcp_queue_request(void *ignore, struct request *req, int qid,
   pr_info_lock(false, smp_processor_id(), qid, "queue_request");
 }
 
-void on_nvme_tcp_try_send(void *ignore, struct request *req, int qid,
+void on_nvme_tcp_try_send(void *ignore, struct request *req, u16 cmdid, int qid,
                           long long unsigned int time) {
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
   }
 
+  // pr_info(">>>> try_send is called, cmdid: %u, qid: %d\n", cmdid, qid);
+
   spin_lock_bh(&current_io_lock);
   pr_info_lock(true, smp_processor_id(), qid, "try_send");
   if (current_io && req->tag == current_io->req_tag && qid == current_io->qid) {
+    if (current_io->trpt[current_io->cnt - 1] != QUEUE_REQUEST) {
+      pr_err("try_send is not after queue_request, current commd id is %d\n",
+             cmdid);
+    }
     append_event(current_io, time, TRY_SEND, 0, 0);
+  } else {
   }
   spin_unlock_bh(&current_io_lock);
   pr_info_lock(false, smp_processor_id(), qid, "try_send");
@@ -227,10 +234,12 @@ void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int qid,
   pr_info_lock(true, smp_processor_id(), qid, "try_send_data");
   if (current_io && req->tag == current_io->req_tag && qid == current_io->qid) {
     append_event(current_io, time, TRY_SEND_DATA, len, 0);
-    if (current_io->contains_r2t) {
-      current_io->send_size[1] += len;
-    } else {
-      current_io->send_size[0] += len;
+    if (len > 0) {
+      if (current_io->contains_r2t) {
+        current_io->send_size[1] += len;
+      } else {
+        current_io->send_size[0] += len;
+      }
     }
   }
   spin_unlock_bh(&current_io_lock);
@@ -428,7 +437,11 @@ bool is_valid_write(struct nvme_tcp_io_instance *io, bool contains_r2t) {
     ret = ret && io->trpt[8] == TRY_SEND_DATA_PDU;
 
     for (i = 9; i < io->cnt - 2; i++) {
-      ret = ret && io->trpt[i] == TRY_SEND_DATA;
+      // if current event is TRY_SEND, the last event should be TRY_SEND_DATA
+      // with a failed ret otherwise, current event should be TRY_SEND_DATA
+      ret = ret && ((io->trpt[i] == TRY_SEND &&
+                     io->trpt[i - 1] == TRY_SEND_DATA && io->sizs[i - 1] < 0) ||
+                    io->trpt[i] == TRY_SEND_DATA);
     }
     ret = ret && io->trpt[io->cnt - 2] == DONE_SEND_REQ;
     ret = ret && io->trpt[io->cnt - 1] == PROCESS_NVME_CQE;
@@ -447,7 +460,9 @@ bool is_valid_write(struct nvme_tcp_io_instance *io, bool contains_r2t) {
     ret = ret && io->trpt[3] == TRY_SEND_CMD_PDU;
 
     for (i = 4; i < io->cnt - 2; i++) {
-      ret = ret && io->trpt[i] == TRY_SEND_DATA;
+      ret = ret && ((io->trpt[i] == TRY_SEND &&
+                     io->trpt[i - 1] == TRY_SEND_DATA && io->sizs[i - 1] < 0) ||
+                    io->trpt[i] == TRY_SEND_DATA);
     }
     ret = ret && io->trpt[io->cnt - 2] == DONE_SEND_REQ;
     ret = ret && io->trpt[io->cnt - 1] == PROCESS_NVME_CQE;

@@ -1890,8 +1890,8 @@ static unsigned int nvme_tcp_nr_io_queues(struct nvme_ctrl *ctrl)
 {
 	unsigned int nr_io_queues;
 
-	// nr_io_queues = min(ctrl->opts->nr_io_queues, num_online_cpus());
-	nr_io_queues = min(3, num_online_cpus());
+	nr_io_queues = min(ctrl->opts->nr_io_queues, num_online_cpus());
+	// nr_io_queues = min(3, num_online_cpus());
 	nr_io_queues += min(ctrl->opts->nr_write_queues, num_online_cpus());
 	nr_io_queues += min(ctrl->opts->nr_poll_queues, num_online_cpus());
 

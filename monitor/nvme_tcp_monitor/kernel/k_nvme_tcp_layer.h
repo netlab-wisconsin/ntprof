@@ -286,7 +286,7 @@ enum nvme_tcp_trpt {
   PROCESS_NVME_CQE,
 };
 
-#define EVENT_NUM 64
+#define EVENT_NUM 1024
 
 static inline void nvme_tcp_trpt_name(enum nvme_tcp_trpt trpt, char *name) {
   switch (trpt) {
@@ -344,7 +344,7 @@ struct nvme_tcp_io_instance {
   u64 ts2[EVENT_NUM];
   enum nvme_tcp_trpt trpt[EVENT_NUM];
   // size of data for an event, such as a receiving event
-  u64 sizs[EVENT_NUM];
+  long long sizs[EVENT_NUM];
   int cnt;
   // this is only useful for read io, maybe separate read and write io
   bool contains_c2h;
@@ -401,7 +401,7 @@ static inline void print_io_instance(struct nvme_tcp_io_instance *inst) {
   for (i = 0; i < inst->cnt; i++) {
     char name[32];
     nvme_tcp_trpt_name(inst->trpt[i], name);
-    pr_info("event%d, %llu, %s, size: %llu, ts2: %llu\n", i,
+    pr_info("event%d, %llu, %s, size: %lld, ts2: %llu\n", i,
             inst->ts[i] - BIG_NUM, name, inst->sizs[i], inst->ts2[i]);
   }
   pr_info("size0: %d, size1: %d", inst->send_size[0], inst->send_size[1]);
