@@ -1,9 +1,9 @@
 #ifndef _K_BLK_LAYER_H_
 #define _K_BLK_LAYER_H_
 
-#include <linux/types.h>
 #include <linux/atomic.h>
 #include <linux/string.h>
+#include <linux/types.h>
 
 #include "nttm_com.h"
 
@@ -38,10 +38,10 @@ static inline void blk_trpt_name(enum blk_trpt trpt, char *name) {
 struct atomic_blk_stat {
   atomic64_t read_cnt;
   atomic64_t write_cnt;
-  atomic64_t read_io[SIZE_NUM];
-  atomic64_t write_io[SIZE_NUM];
-  atomic64_t read_time[SIZE_NUM];
-  atomic64_t write_time[SIZE_NUM];
+  atomic64_t read_io[READ_SIZE_NUM];
+  atomic64_t write_io[WRITE_SIZE_NUM];
+  atomic64_t read_time[READ_SIZE_NUM];
+  atomic64_t write_time[WRITE_SIZE_NUM];
   // atomic64_t in_flight;
 };
 
@@ -49,17 +49,18 @@ static inline void init_atomic_blk_stat(struct atomic_blk_stat *tr) {
   int i;
   atomic64_set(&tr->read_cnt, 0);
   atomic64_set(&tr->write_cnt, 0);
-  for (i = 0; i < SIZE_NUM; i++) {
+  for (i = 0; i < READ_SIZE_NUM; i++) {
     atomic64_set(&tr->read_io[i], 0);
+  }
+  for (i = 0; i < WRITE_SIZE_NUM; i++) {
     atomic64_set(&tr->write_io[i], 0);
   }
 }
 
-
 void blk_layer_update(u64 now);
 
-int init_blk_layer(void) ;
+int init_blk_layer(void);
 
-void exit_blk_layer(void) ;
+void exit_blk_layer(void);
 
 #endif  // _K_BLK_LAYER_H_

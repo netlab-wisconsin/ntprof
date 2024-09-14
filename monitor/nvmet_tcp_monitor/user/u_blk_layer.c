@@ -21,14 +21,14 @@ void print_blk_stat(struct blk_stat *b_stat) {
   printf("total bio: %llu, ", b_stat->all_read_cnt);
   printf("avg lat(us)");
   int i;
-  for(i = 0; i < SIZE_NUM; i++) {
-    printf(", [%s: %.2f]", size_name(i), (float) b_stat->all_read_time[i] / 1000 / b_stat->all_read_io[i]);
+  for(i = 0; i < READ_SIZE_NUM; i++) {
+    printf(", [%s: %.2f]", read_size_name(i), (float) b_stat->all_read_time[i] / 1000 / b_stat->all_read_io[i]);
   }
   printf("\n");
   
   printf(HEADER3 "\t [read dist] \t" RESET);
-  for (i = 0; i < SIZE_NUM; i++) {
-    printf(" [%s: %.2f]", size_name(i),
+  for (i = 0; i < READ_SIZE_NUM; i++) {
+    printf(" [%s: %.2f]", read_size_name(i),
            (float)b_stat->all_read_io[i] / b_stat->all_read_cnt);
   }
   printf("\n");
@@ -36,14 +36,14 @@ void print_blk_stat(struct blk_stat *b_stat) {
   printf(HEADER3 "\t [write] \t" RESET);
   printf("total bio: %llu, ", b_stat->all_write_cnt);
   printf("avg lat(us)");
-  for(i = 0; i < SIZE_NUM; i++) {
-    printf(", [%s: %.2f]", size_name(i), (float) b_stat->all_write_time[i] / 1000 / b_stat->all_write_io[i]);
+  for(i = 0; i < WRITE_SIZE_NUM; i++) {
+    printf(", [%s: %.2f]", write_size_name(i), (float) b_stat->all_write_time[i] / 1000 / b_stat->all_write_io[i]);
   }
   printf("\n");
   
   printf(HEADER3 "\t [write dist] \t" RESET);
-  for (i = 0; i < SIZE_NUM; i++) {
-    printf(" [%s: %.2f]", size_name(i),
+  for (i = 0; i < WRITE_SIZE_NUM; i++) {
+    printf(" [%s: %.2f]", write_size_name(i),
            (float)b_stat->all_write_io[i] / b_stat->all_write_cnt);
   }
   printf("\n");

@@ -8,7 +8,7 @@
 
 #include "nttm_com.h"
 
-#define EVENT_NUM 64
+#define EVENT_NUM 1024
 
 /**
  * tracepoints:
@@ -102,7 +102,7 @@ struct nvmet_io_instance {
   u64 ts[EVENT_NUM];
   long long recv_ts[EVENT_NUM]; 
   enum nvmet_tcp_trpt trpt[EVENT_NUM];
-  u8 cnt;
+  u32 cnt;
   u32 size;
   bool is_spoiled;
   bool contain_r2t;
@@ -279,8 +279,8 @@ static inline void copy_nvmet_tcp_write_breakdown(
 }
 
 struct atomic_nvmet_tcp_stat {
-  struct atomic_nvmet_tcp_read_breakdown read_breakdown[SIZE_NUM];
-  struct atomic_nvmet_tcp_write_breakdown write_breakdown[SIZE_NUM];
+  struct atomic_nvmet_tcp_read_breakdown read_breakdown[READ_SIZE_NUM];
+  struct atomic_nvmet_tcp_write_breakdown write_breakdown[WRITE_SIZE_NUM];
   struct atomic_nvmet_tcp_flush_breakdown flush;
   atomic64_t recv_cnt;
   atomic64_t recv;
@@ -291,8 +291,10 @@ struct atomic_nvmet_tcp_stat {
 static inline void init_atomic_nvmet_tcp_stat(
     struct atomic_nvmet_tcp_stat* stat) {
   int i;
-  for (i = 0; i < SIZE_NUM; i++) {
+  for (i = 0; i < READ_SIZE_NUM; i++) {
     init_atomic_nvmet_tcp_read_breakdown(&stat->read_breakdown[i]);
+  }
+  for(i = 0; i < WRITE_SIZE_NUM; i++) {
     init_atomic_nvmet_tcp_write_breakdown(&stat->write_breakdown[i]);
   }
   init_atomic_nvmet_tcp_flush_breakdown(&stat->flush);
@@ -305,8 +307,10 @@ static inline void init_atomic_nvmet_tcp_stat(
 static inline void copy_nvmet_tcp_stat(
     struct nvmet_tcp_stat* dst, struct atomic_nvmet_tcp_stat* src) {
   int i;
-  for (i = 0; i < SIZE_NUM; i++) {
+  for (i = 0; i < READ_SIZE_NUM; i++) {
     copy_nvmet_tcp_read_breakdown(&dst->all_read[i], &src->read_breakdown[i]);
+  }
+  for(i = 0; i < WRITE_SIZE_NUM; i++) {
     copy_nvmet_tcp_write_breakdown(&dst->all_write[i], &src->write_breakdown[i]);
   }
   copy_nvmet_tcp_flush_breakdown(&dst->flush, &src->flush);
