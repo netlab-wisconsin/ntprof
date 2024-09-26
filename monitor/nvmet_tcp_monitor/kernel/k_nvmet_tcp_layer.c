@@ -441,6 +441,7 @@ void on_try_send_response(void* ignore, u16 cmd_id, int qid, int cp_len,
       } else {
         pr_info("current_io %d is spoiled\n", current_io->command_id);
       }
+      kfree(current_io);
       current_io = NULL;
     }
   }
