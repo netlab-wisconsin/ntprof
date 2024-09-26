@@ -64,6 +64,8 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid,
   // u32 qid;
   struct bio *b;
 
+  // pr_info("queue_rq is called, qid: %d\n", qid);
+
   /** if monitoring is not started, or if the io type does not match, do not
    * record the I/O */
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) return;
@@ -113,10 +115,12 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid,
     //   atomic64_inc(
     //       &a_throughput[qid]->read_cnt[size_to_enum(b->bi_iter.bi_size)]);
     // }
-    if (!lat) lat = __bio_issue_time(time) - bio_issue_time(&b->bi_issue);
+    // if (!lat) lat = __bio_issue_time(time) - bio_issue_time(&b->bi_issue);
     size += b->bi_iter.bi_size;
     b = b->bi_next;
   }
+
+  lat = time - req->start_time_ns;
 
   // if to_sample, update the current_io
   if (to_sample()) {
@@ -547,6 +551,7 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req, int qid,
     }
 
     inc_req_hist(a_nvme_tcp_stat, current_io->size, req_op(req));
+    kfree(current_io);
     current_io = NULL;
   }
   spin_unlock_bh(&current_io_lock);

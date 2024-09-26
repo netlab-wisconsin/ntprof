@@ -27,6 +27,7 @@ void print_flush(struct nvmetcp_flush_breakdown *ns, unsigned long long read_bef
     printf("waiting(us): %.2f, ", (float)ns->waiting / 1000 / ns->cnt);
     printf("comp_q(us): %.2f, ", (float)ns->comp_q / 1000 / ns->cnt);
     printf("e2e(us): %.2f, ", (float)ns->e2e / 1000 / ns->cnt);
+    printf("\n");
   } else {
     printf("cnt: %d\n", ns->cnt);
   }
