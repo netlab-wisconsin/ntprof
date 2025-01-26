@@ -9,14 +9,14 @@ sudo apt-get update || { echo "Failed to update package lists, please check your
 
 # Install required packages for kernel compilation
 echo "Installing required packages..."
-sudo apt-get install -y flex bison build-essential libncurses-dev libssl-dev libelf-dev bc dwarves cpufrequtils msr-tools || { echo "Failed to install packages"; exit 1; }
+sudo apt-get install -y flex bison build-essential libncurses-dev libssl-dev libelf-dev bc dwarves cpufrequtils msr-tools dwarves || { echo "Failed to install packages"; exit 1; }
 
 # Start compiling the kernel
 echo "Starting kernel compilation..."
 cd /usr/src/linux-$KERNEL_VERSION/ || { echo "Cannot switch to kernel source directory"; exit 1; }
 sudo scripts/config --disable SYSTEM_TRUSTED_KEYS
 sudo scripts/config --disable SYSTEM_REVOCATION_KEYS
-sudo make -j63 || { echo "Kernel compilation failed"; exit 1; }
+sudo make -j32 || { echo "Kernel compilation failed"; exit 1; }
 sudo make modules_install || { echo "Module installation failed"; exit 1; }
 sudo make install || { echo "Kernel installation failed"; exit 1; }
 

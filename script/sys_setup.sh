@@ -13,7 +13,7 @@ KERNEL_VERSION="source-5.15.0"
 
 # update the library
 sudo apt-get update
-sudo DEBIAN_FRONTEND=noninteractive apt upgrade -yq
+# sudo DEBIAN_FRONTEND=noninteractive apt upgrade -yq
 sudo apt install -y lrzsz
 
 # Check if linux-5.15.143 is already installed
