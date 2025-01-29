@@ -36,7 +36,7 @@ static int update_routine_fn(void *data) {
     u64 now = ktime_get_ns();
     blk_layer_update(now);
     nvme_tcp_stat_update(now);
-    tcp_stat_update();
+    // tcp_stat_update();
 
     /** wait for 1 second to start routine again */
     msleep(1000);
@@ -190,14 +190,14 @@ static int __init init_ntm_module(void) {
     return ret;
   }
 
-  ret = init_tcp_layer();
-  if (ret) {
-    pr_err("Failed to initialize tcp layer\n");
-    exit_blk_layer_monitor();
-    exit_nvme_tcp_layer_monitor();
-    remove_proc_entries();
-    return ret;
-  }
+  // ret = init_tcp_layer();
+  // if (ret) {
+  //   pr_err("Failed to initialize tcp layer\n");
+  //   exit_blk_layer_monitor();
+  //   exit_nvme_tcp_layer_monitor();
+  //   remove_proc_entries();
+  //   return ret;
+  // }
   return 0;
 }
 
@@ -207,7 +207,7 @@ static void __exit exit_ntm_module(void) {
   }
 
   /** exit the blk layer monitor */
-  exit_tcp_layer();
+  // exit_tcp_layer();
   exit_blk_layer_monitor();
   exit_nvme_tcp_layer_monitor();
 

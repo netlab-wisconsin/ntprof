@@ -167,7 +167,7 @@ void on_nvme_tcp_queue_request(void *ignore, struct request *req, int qid,
   pr_info_lock(false, smp_processor_id(), qid, "queue_request");
 }
 
-void on_nvme_tcp_try_send(void *ignore, struct request *req, u16 cmdid, int qid,
+void on_nvme_tcp_try_send(void *ignore, struct request *req, int qid,
                           long long unsigned int time) {
   if (!ctrl || args->io_type + rq_data_dir(req) == 1) {
     return;
@@ -180,7 +180,7 @@ void on_nvme_tcp_try_send(void *ignore, struct request *req, u16 cmdid, int qid,
   if (current_io && req->tag == current_io->req_tag && qid == current_io->qid) {
     if (current_io->trpt[current_io->cnt - 1] != QUEUE_REQUEST) {
       pr_err("try_send is not after queue_request, current commd id is %d\n",
-             cmdid);
+             current_io->req_tag);
     }
     append_event(current_io, time, TRY_SEND, 0, 0);
   } else {
@@ -250,21 +250,21 @@ void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int qid,
   pr_info_lock(false, smp_processor_id(), qid, "try_send_data");
 }
 
-unsigned int estimate_latency(int size, int cwnd, int mtu, int rtt) {
-  /** calculate the following value
-   *
-   * number of packets = ceiling (size / mtu)
-   * round trip number  = ceiling (number of packets / cwnd)
-   * tramsmission time = round trip number * rtt
-   */
-  if (cwnd == 0) {
-    pr_info("cwnd is 0\n");
-    return 0;
-  }
-  int num_packets = (size + mtu - 1) / mtu;
-  int round_trip_num = (num_packets + cwnd - 1) / cwnd;
-  return round_trip_num * rtt;
-}
+// unsigned int estimate_latency(int size, int cwnd, int mtu, int rtt) {
+//   /** calculate the following value
+//    *
+//    * number of packets = ceiling (size / mtu)
+//    * round trip number  = ceiling (number of packets / cwnd)
+//    * tramsmission time = round trip number * rtt
+//    */
+//   if (cwnd == 0) {
+//     pr_info("cwnd is 0\n");
+//     return 0;
+//   }
+//   int num_packets = (size + mtu - 1) / mtu;
+//   int round_trip_num = (num_packets + cwnd - 1) / cwnd;
+//   return round_trip_num * rtt;
+// }
 
 void on_nvme_tcp_done_send_req(void *ignore, struct request *req, int qid,
                                long long unsigned int time) {
@@ -280,19 +280,22 @@ void on_nvme_tcp_done_send_req(void *ignore, struct request *req, int qid,
     switch (req_op(req)) {
       case REQ_OP_READ:
         // if it is read request, update the timestamp in the first slot
-        current_io->estimated_transmission_time[0] = estimate_latency(
-            current_io->send_size[0], cwnds[qid], args->mtu, args->rtt);
+        // current_io->estimated_transmission_time[0] = estimate_latency(
+        //     current_io->send_size[0], cwnds[qid], args->mtu, args->rtt);
+        current_io->estimated_transmission_time[0] = 0;
         break;
       case REQ_OP_WRITE:
         // if it is write request, check if it is
         if (current_io->contains_r2t) {
           // update timestamp in the second slot
-          current_io->estimated_transmission_time[1] = estimate_latency(
-              current_io->send_size[1], cwnds[qid], args->mtu, args->rtt);
+          // current_io->estimated_transmission_time[1] = estimate_latency(
+          //     current_io->send_size[1], cwnds[qid], args->mtu, args->rtt);
+          current_io->estimated_transmission_time[1] = 0;
         } else {
           // update the timestamp in the first slot
-          current_io->estimated_transmission_time[0] = estimate_latency(
-              current_io->send_size[0], cwnds[qid], args->mtu, args->rtt);
+          // current_io->estimated_transmission_time[0] = estimate_latency(
+          //     current_io->send_size[0], cwnds[qid], args->mtu, args->rtt);
+          current_io->estimated_transmission_time[0] = 0;
         }
         break;
       default:

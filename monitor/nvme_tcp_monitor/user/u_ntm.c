@@ -285,7 +285,7 @@ int main(int argc, char **argv) {
   /** initialize monitors on different layers */
   init_blk_layer_monitor();
   init_nvme_tcp_layer_monitor();
-  init_tcp_layer_monitor();
+  // init_tcp_layer_monitor();
 
   while (keep_running) {
     sleep(1);
@@ -306,7 +306,7 @@ int main(int argc, char **argv) {
   /** exit monitors on different layers */
   exit_blk_layer_monitor();
   exit_nvme_tcp_layer_monitor();
-  exit_tcp_layer_monitor();
+  // exit_tcp_layer_monitor();
 
   printf("start exit ntm_user\n");
 
