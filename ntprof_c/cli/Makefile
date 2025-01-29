@@ -1,6 +1,9 @@
 CC = gcc
 
-SRCS = main.c
+CFLAGS = -Wall -I/usr/include
+LDFLAGS = -liniparser -lrt
+
+SRCS = config.c main.c
 OBJS = $(SRCS:.c=.o)
 
 TARGET = ntprof_cli
@@ -8,11 +11,10 @@ TARGET = ntprof_cli
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CC) -o $(TARGET) $(OBJS) -lrt
+	$(CC) $(CFLAGS) -o $(TARGET) $(OBJS) $(LDFLAGS)
 
 %.o: %.c
-	$(CC) $(EXTRA_CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) -I$(CURDIR) -I. -c $< -o $@
 
 clean:
 	rm -f $(OBJS) $(TARGET)
-

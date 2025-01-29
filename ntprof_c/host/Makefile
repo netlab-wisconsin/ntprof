@@ -1,6 +1,6 @@
 obj-m += ntprof_host.o
 
-ntprof_host-y := host_main.o
+ntprof_host-y := config.o host_main.o
 
 host_main:
 	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(CURDIR) \
