@@ -9,6 +9,7 @@
 
 #include "../include/config.h"
 #include "../include/ntprof_ctl.h"
+#include "trace_nvme_tcp.h"
 
 #define DEVICE_NAME "ntprof"
 #define CLASS_NAME "ntprof_class"
@@ -20,7 +21,14 @@ static struct ntprof_config global_config;
 static int is_profiling = 0;
 
 
-// ioctl 处理函数
+void register_tracepoints(void) {
+    register_nvme_tcp_tracepoints();
+}
+
+void unregister_tracepoints(void) {
+    unregister_nvme_tcp_tracepoints();
+}
+
 static long ntprof_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
     switch (cmd) {
         case NTPROF_IOCTL_START:
@@ -28,12 +36,14 @@ static long ntprof_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 return -EFAULT;
             }
             is_profiling = 1;
+            register_tracepoints();
             printk(KERN_INFO "[ntprof] Profiling started: %s\n", global_config.session_name);
             print_config(&global_config);
             break;
 
         case NTPROF_IOCTL_STOP:
             is_profiling = 0;
+            unregister_tracepoints();
             printk(KERN_INFO "[ntprof] Profiling stopped\n");
             break;
 
@@ -72,6 +82,7 @@ static int __init ntprof_host_module_init(void) {
 }
 
 static void __exit ntprof_host_module_exit(void) {
+
     device_destroy(ntprof_class, dev_num);
     class_destroy(ntprof_class);
     cdev_del(&ntprof_cdev);

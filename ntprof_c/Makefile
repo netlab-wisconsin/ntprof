@@ -6,7 +6,7 @@ CLI_DIR := cli
 
 
 KERNEL_SRC := /usr/src/linux-source-5.15.0
-EXTRA_CFLAGS := -I$(CURDIR)/include
+EXTRA_CFLAGS := -I$(CURDIR)/include -I$(KERNEL_SRC)/include
 
 all: host target cli
 
