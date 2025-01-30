@@ -209,8 +209,8 @@ static inline void append_events(struct profile_record *record, struct ts_entry 
     }
 
     list_splice_tail(&to_append->list, &record->ts->list);
+    kfree(to_append);
 }
-
 
 static inline void free_timeseries(struct ts_entry *timeseries) {
     struct ts_entry *entry, *tmp;
@@ -219,8 +219,17 @@ static inline void free_timeseries(struct ts_entry *timeseries) {
         list_del(&entry->list);
         kfree(entry);
     }
-
     kfree(timeseries);
+}
+
+static inline void free_profile_record(struct profile_record *record) {
+    if (unlikely(!record)) return;
+    if (!list_empty(&record->list)) {
+        pr_warn("free_profile_record: Attempting to free record still linked!\n");
+        return;
+    }
+    free_timeseries(record->ts);
+    kfree(record);
 }
 
 #endif //STATISTICS_H

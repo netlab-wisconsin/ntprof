@@ -12,13 +12,16 @@ struct per_core_statistics {
     struct list_head completed_records;
 };
 
-void init_per_core_statistics(struct per_core_statistics *stats) ;
+void init_per_core_statistics(struct per_core_statistics *stats);
+
+void free_per_core_statistics(struct per_core_statistics *stats);
 
 void append_record(struct per_core_statistics *stats, struct profile_record *record);
 
 void complete_record(struct per_core_statistics *stats, struct profile_record *record);
 
-struct profile_record* get_profile_record(struct per_core_statistics *stats, int req_tag);
+
+struct profile_record *get_profile_record(struct per_core_statistics *stats, int req_tag);
 
 bool match_config(struct request *req, struct ntprof_config *config);
 

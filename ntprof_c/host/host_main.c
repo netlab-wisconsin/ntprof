@@ -38,6 +38,17 @@ void unregister_tracepoints(void) {
     unregister_nvme_tcp_tracepoints();
 }
 
+void clear_up(void){
+    // if the tracepoints are still registered, unregister them
+    if (is_profiling) {
+        unregister_tracepoints();
+    }
+    int i;
+    for (i = 0; i < MAX_CORE_NUM; i++) {
+        free_per_core_statistics(&stat[i]);
+    }
+}
+
 static long ntprof_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
     switch (cmd) {
         case NTPROF_IOCTL_START:
@@ -90,7 +101,10 @@ static int __init ntprof_host_module_init(void) {
     return 0;
 }
 
+
+
 static void __exit ntprof_host_module_exit(void) {
+    clear_up();
     device_destroy(ntprof_class, dev_num);
     class_destroy(ntprof_class);
     cdev_del(&ntprof_cdev);

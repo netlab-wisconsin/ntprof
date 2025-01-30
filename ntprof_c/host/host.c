@@ -13,6 +13,24 @@ void init_per_core_statistics(struct per_core_statistics *stats) {
     INIT_LIST_HEAD(&stats->completed_records);
 }
 
+void free_per_core_statistics(struct per_core_statistics *stats) {
+    // use free_profile_record to free all records
+    struct list_head *pos, *q;
+    struct profile_record *record;
+
+    list_for_each_safe(pos, q, &stats->incomplete_records) {
+        record = list_entry(pos, struct profile_record, list);
+        list_del(pos);
+        free_profile_record(record);
+    }
+
+    list_for_each_safe(pos, q, &stats->completed_records) {
+        record = list_entry(pos, struct profile_record, list);
+        list_del(pos);
+        free_profile_record(record);
+    }
+}
+
 void append_record(struct per_core_statistics *stats, struct profile_record *record) {
     list_add_tail(&record->list, &stats->incomplete_records);
 }
