@@ -10,9 +10,36 @@
 #include <linux/tracepoint.h>
 #include <trace/events/nvme_tcp.h>
 #include "../include/statistics.h"
+#include "host.h"
 
 void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid, bool *to_trace, int len1, int len2,
                           long long unsigned int time) {
+    int cid = smp_processor_id();
+
+    if (unlikely(global_config.frequency == 0)) {
+        printk(KERN_ERR "[ntprof_host] on_block_rq_complete: frequency is 0, no sampling\n");
+        return;
+    }
+
+    if (stat[cid].sampler++ % global_config.frequency == 0 && match_config(req, &global_config)) {
+        if (unlikely(!get_profile_record(&stat[cid], req->tag))) {
+            pr_err("[ntprof_host] duplicated tag in incomplete list, cid=%d, tag=%d\n", cid, req->tag);
+            return;
+        }
+
+        struct profile_record *record = kmalloc(sizeof(struct profile_record), GFP_KERNEL);
+        if (!record) {
+            printk(KERN_ERR "[ntprof_host] Failed to allocate memory for profile_record\n");
+            return;
+        }
+
+        init_profile_record(record, blk_rq_bytes(req), rq_data_dir(req), req->rq_disk->disk_name, req->tag);
+        append_event(record, req->start_time_ns, BLK_SUBMIT);
+        append_event(record, time, NVME_TCP_QUEUE_RQ);
+        append_record(&stat[cid], record);
+        // TODO remove
+        print_profile_record(record);
+    }
 }
 
 void on_nvme_tcp_queue_request(void *ignore, struct request *req, int qid, int cmdid, bool is_initial,

@@ -6,6 +6,7 @@
 #include "config.h"
 #include <linux/list.h>
 #include <linux/compiler.h>
+#include <linux/slab.h>
 
 enum EEvent {
     // ---------------------
@@ -50,12 +51,71 @@ enum EEvent {
     NVMET_TCP_IO_WORK,
 };
 
-struct metadata {
-    int size; // in bytes
-    int is_write; // 0 for read, 1 for write
-    int contains_c2h; // 0 for true, 1 for false
-    int contains_r2t; // 0 for true, 1 for false
-};
+// return event name in string given enum
+static inline char *event_to_string(enum EEvent event) {
+    switch (event) {
+        case BLK_SUBMIT:
+            return "BLK_SUBMIT";
+        case BLK_RQ_COMPLETE:
+            return "BLK_RQ_COMPLETE";
+        case NVME_TCP_QUEUE_RQ:
+            return "NVME_TCP_QUEUE_RQ";
+        case NVME_TCP_QUEUE_REQUEST:
+            return "NVME_TCP_QUEUE_REQUEST";
+        case NVME_TCP_TRY_SEND:
+            return "NVME_TCP_TRY_SEND";
+        case NVME_TCP_TRY_SEND_CMD_PDU:
+            return "NVME_TCP_TRY_SEND_CMD_PDU";
+        case NVME_TCP_TRY_SEND_DATA_PDU:
+            return "NVME_TCP_TRY_SEND_DATA_PDU";
+        case NVME_TCP_TRY_SEND_DATA:
+            return "NVME_TCP_TRY_SEND_DATA";
+        case NVME_TCP_DONE_SEND_REQ:
+            return "NVME_TCP_DONE_SEND_REQ";
+        case NVME_TCP_TRY_RECV:
+            return "NVME_TCP_TRY_RECV";
+        case NVME_TCP_HANDLE_C2H_DATA:
+            return "NVME_TCP_HANDLE_C2H_DATA";
+        case NVME_TCP_RECV_DATA:
+            return "NVME_TCP_RECV_DATA";
+        case NVME_TCP_HANDLE_R2T:
+            return "NVME_TCP_HANDLE_R2T";
+        case NVME_TCP_PROCESS_NVME_CQE:
+            return "NVME_TCP_PROCESS_NVME_CQE";
+        case NVMET_TCP_TRY_RECV_PDU:
+            return "NVMET_TCP_TRY_RECV_PDU";
+        case NVMET_TCP_DONE_RECV_PDU:
+            return "NVMET_TCP_DONE_RECV_PDU";
+        case NVMET_TCP_EXEC_READ_REQ:
+            return "NVMET_TCP_EXEC_READ_REQ";
+        case NVMET_TCP_EXEC_WRITE_REQ:
+            return "NVMET_TCP_EXEC_WRITE_REQ";
+        case NVMET_TCP_QUEUE_RESPONSE:
+            return "NVMET_TCP_QUEUE_RESPONSE";
+        case NVMET_TCP_SETUP_C2H_DATA_PDU:
+            return "NVMET_TCP_SETUP_C2H_DATA_PDU";
+        case NVMET_TCP_SETUP_R2T_PDU:
+            return "NVMET_TCP_SETUP_R2T_PDU";
+        case NVMET_TCP_SETUP_RESPONSE_PDU:
+            return "NVMET_TCP_SETUP_RESPONSE_PDU";
+        case NVMET_TCP_TRY_SEND_DATA_PDU:
+            return "NVMET_TCP_TRY_SEND_DATA_PDU";
+        case NVMET_TCP_TRY_SEND_R2T:
+            return "NVMET_TCP_TRY_SEND_R2T";
+        case NVMET_TCP_TRY_SEND_RESPONSE:
+            return "NVMET_TCP_TRY_SEND_RESPONSE";
+        case NVMET_TCP_TRY_SEND_DATA:
+            return "NVMET_TCP_TRY_SEND_DATA";
+        case NVMET_TCP_HANDLE_H2C_DATA_PDU:
+            return "NVMET_TCP_HANDLE_H2C_DATA_PDU";
+        case NVMET_TCP_TRY_RECV_DATA:
+            return "NVMET_TCP_TRY_RECV_DATA";
+        case NVMET_TCP_IO_WORK:
+            return "NVMET_TCP_IO_WORK";
+        default:
+            return "UNKNOWN";
+    }
+}
 
 
 struct ts_entry {
@@ -65,30 +125,53 @@ struct ts_entry {
 };
 
 struct profile_record {
-    struct metadata meta;
+    struct {
+        char disk[MAX_SESSION_NAME_LEN];
+        int req_tag;
+        int size; // in bytes
+        int is_write; // 0 for read, 1 for write
+        int contains_c2h; // 0 for true, 1 for false
+        int contains_r2t; // 0 for true, 1 for false
+    } metadata;
+
     struct ts_entry *ts;
+
+    struct list_head list;
 };
 
+static inline void print_profile_record(struct profile_record *record) {
+    struct ts_entry *entry;
+    pr_info("Record: disk=%s, tag=%d, size=%d, is_write=%d, contains_c2h=%d, contains_r2t=%d\n",
+            record->metadata.disk, record->metadata.req_tag, record->metadata.size, record->metadata.is_write,
+            record->metadata.contains_c2h, record->metadata.contains_r2t);
+    list_for_each_entry(entry, &record->ts->list, list) {
+        pr_info("    timestamp=%llu, event=%s\n", entry->timestamp, event_to_string(entry->event));
+    }
+}
 
-inline void init_profile_record(struct profile_record *record, int size, int is_write) {
-    record->meta.size = size;
-    record->meta.is_write = is_write;
-    record->meta.contains_c2h = 0;
-    record->meta.contains_r2t = 0;
 
-    // 先分配 `record->ts`，避免空指针访问
+static inline void init_profile_record(struct profile_record *record, int size, int is_write, char *disk, int tag) {
+    record->metadata.size = size;
+    record->metadata.is_write = is_write;
+    record->metadata.req_tag = tag;
+    strncpy(record->metadata.disk, disk, MAX_SESSION_NAME_LEN);
+
+    record->metadata.contains_c2h = 0;
+    record->metadata.contains_r2t = 0;
+
     record->ts = kmalloc(sizeof(struct ts_entry), GFP_KERNEL);
     if (unlikely(!record->ts)) {
         pr_err("Failed to allocate memory for ts_entry list head\n");
         return;
     }
     INIT_LIST_HEAD(&record->ts->list);
+    INIT_LIST_HEAD(&record->list);
 }
 
 /**
  * append a single <time, event> pair at the end of the timeseries list
  */
-inline void append_event(struct profile_record *record, unsigned long long timestamp, enum EEvent event) {
+static inline void append_event(struct profile_record *record, unsigned long long timestamp, enum EEvent event) {
     struct ts_entry *new_entry;
 
     if (unlikely(!record->ts)) {
@@ -114,7 +197,7 @@ inline void append_event(struct profile_record *record, unsigned long long times
  * NOTE: DO NOT FREE THE MEMORY OF to_append AFTER CALLING THIS FUNCTION
  * SINCE WE USE THE OLD POINTERS DIRECTLY
  */
-inline void append_events(struct profile_record *record, struct ts_entry *to_append) {
+static inline void append_events(struct profile_record *record, struct ts_entry *to_append) {
     if (unlikely(!record->ts)) {
         pr_err("append_events: record->ts is NULL, did you forget to call init_profile_record?\n");
         return;
@@ -129,7 +212,7 @@ inline void append_events(struct profile_record *record, struct ts_entry *to_app
 }
 
 
-inline void free_timeseries(struct ts_entry *timeseries) {
+static inline void free_timeseries(struct ts_entry *timeseries) {
     struct ts_entry *entry, *tmp;
     if (unlikely(!timeseries)) return;
     list_for_each_entry_safe(entry, tmp, &timeseries->list, list) {

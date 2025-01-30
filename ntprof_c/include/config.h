@@ -1,15 +1,19 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#define MAX_SESSION_NAME_LEN 32
+#define MAX_IO_SIZE_FILTERS_NUM 32
+
 enum EIoType { IO_READ, IO_WRITE, BOTH };
 
 enum EAggregation { MIN, MAX, AVG, DIST };
 
 struct ntprof_config {
     // Workload Specification
-    char session_name[128]; // Name of the profiling session
+    char session_name[MAX_SESSION_NAME_LEN]; // Name of the profiling session
     enum EIoType io_type; // Type of IO to collect
-    int io_size[32]; // Fixed size of IO to collect, in bytes
+    int io_size_num; // Number of IO size filters
+    int io_size[MAX_IO_SIZE_FILTERS_NUM]; // Fixed size of IO to collect, in bytes
     int min_io_size; // Minimum size of IO to collect
     int max_io_size; // Maximum size of IO to collect
 

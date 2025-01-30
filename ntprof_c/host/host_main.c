@@ -10,22 +10,31 @@
 #include "../include/config.h"
 #include "../include/ntprof_ctl.h"
 #include "trace_nvme_tcp.h"
+#include "trace_blk.h"
+#include "host.h"
 
 #define DEVICE_NAME "ntprof"
 #define CLASS_NAME "ntprof_class"
+#define MAX_CORE_NUM 128
 
 static struct class *ntprof_class;
 static struct cdev ntprof_cdev;
 static dev_t dev_num;
-static struct ntprof_config global_config;
+struct ntprof_config global_config;
 static int is_profiling = 0;
 
 
+struct per_core_statistics stat[MAX_CORE_NUM];
+
+struct ntprof_config config;
+
 void register_tracepoints(void) {
+    register_blk_tracepoints();
     register_nvme_tcp_tracepoints();
 }
 
 void unregister_tracepoints(void) {
+    unregister_blk_tracepoints();
     unregister_nvme_tcp_tracepoints();
 }
 
@@ -82,7 +91,6 @@ static int __init ntprof_host_module_init(void) {
 }
 
 static void __exit ntprof_host_module_exit(void) {
-
     device_destroy(ntprof_class, dev_num);
     class_destroy(ntprof_class);
     cdev_del(&ntprof_cdev);

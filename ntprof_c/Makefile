@@ -24,3 +24,5 @@ clean:
 	$(MAKE) -C $(HOST_DIR) clean
 	$(MAKE) -C $(TARGET_DIR) clean
 	$(MAKE) -C $(CLI_DIR) clean
+	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(CURDIR) clean
+	rm -f *.o *.ko *.mod.c *.symvers *.order
