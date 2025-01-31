@@ -151,7 +151,7 @@ struct nvme_tcp_cmd_pdu {
 struct ntprof_stat{
 	s64 ts;
 	char event_name[32];
-}
+};
 
 /**
  * struct nvme_tcp_rsp_pdu - nvme tcp response capsule pdu
