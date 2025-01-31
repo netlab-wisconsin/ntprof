@@ -182,6 +182,7 @@ struct nvme_tcp_r2t_pdu {
 	__le32			r2t_offset;
 	__le32			r2t_length;
 	__u8			rsvd[4];
+	struct ntprof_stat stat;
 };
 
 /**
@@ -200,6 +201,7 @@ struct nvme_tcp_data_pdu {
 	__le32			data_offset;
 	__le32			data_length;
 	__u8			rsvd[4];
+	struct ntprof_stat stat;
 };
 
 union nvme_tcp_pdu {
