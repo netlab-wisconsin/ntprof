@@ -12,10 +12,10 @@
 #include "trace_nvme_tcp.h"
 #include "trace_blk.h"
 #include "host.h"
+#include "host_logging.h"
 
 #define DEVICE_NAME "ntprof"
 #define CLASS_NAME "ntprof_class"
-#define MAX_CORE_NUM 128
 
 static struct class *ntprof_class;
 static struct cdev ntprof_cdev;
@@ -38,7 +38,14 @@ void unregister_tracepoints(void) {
     unregister_nvme_tcp_tracepoints();
 }
 
-void clear_up(void){
+void init_variables(void) {
+    int i;
+    for (i = 0; i < MAX_CORE_NUM; i++) {
+        init_per_core_statistics(&stat[i]);
+    }
+}
+
+void clear_up(void) {
     // if the tracepoints are still registered, unregister them
     if (is_profiling) {
         unregister_tracepoints();
@@ -57,14 +64,14 @@ static long ntprof_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             }
             is_profiling = 1;
             register_tracepoints();
-            printk(KERN_INFO "[ntprof] Profiling started: %s\n", global_config.session_name);
+            pr_info("Profiling started: %s\n", global_config.session_name);
             print_config(&global_config);
             break;
 
         case NTPROF_IOCTL_STOP:
             is_profiling = 0;
             unregister_tracepoints();
-            printk(KERN_INFO "[ntprof] Profiling stopped\n");
+            pr_info("Profiling stopped\n");
             break;
 
         default:
@@ -80,7 +87,7 @@ static struct file_operations fops = {
 static int __init ntprof_host_module_init(void) {
     pr_info("ntprof_host: Module loaded\n");
     if (alloc_chrdev_region(&dev_num, 0, 1, DEVICE_NAME) < 0) {
-        printk(KERN_ALERT "Failed to allocate char device region\n");
+        pr_alert("Failed to allocate char device region\n");
         return -1;
     }
 
@@ -98,9 +105,10 @@ static int __init ntprof_host_module_init(void) {
         return -1;
     }
     device_create(ntprof_class, NULL, dev_num, NULL, DEVICE_NAME);
+
+    init_variables();
     return 0;
 }
-
 
 
 static void __exit ntprof_host_module_exit(void) {
@@ -109,7 +117,7 @@ static void __exit ntprof_host_module_exit(void) {
     class_destroy(ntprof_class);
     cdev_del(&ntprof_cdev);
     unregister_chrdev_region(dev_num, 1);
-    printk(KERN_INFO "[ntprof] Module unloaded\n");
+    pr_info("Module unloaded");
 }
 
 module_init(ntprof_host_module_init);

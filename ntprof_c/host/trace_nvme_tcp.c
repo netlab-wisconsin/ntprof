@@ -9,73 +9,131 @@
 #include <linux/proc_fs.h>
 #include <linux/tracepoint.h>
 #include <trace/events/nvme_tcp.h>
+#include <linux/timekeeping.h>
 #include "../include/statistics.h"
 #include "host.h"
+#include "host_logging.h"
 
 void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid, bool *to_trace, int len1, int len2,
                           long long unsigned int time) {
-    pr_info("[ntprof_host] n_nvme_tcp_queue_rq is called");
-    // int cid = smp_processor_id();
-    //
-    // if (unlikely(global_config.frequency == 0)) {
-    //     printk(KERN_ERR "[ntprof_host] on_block_rq_complete: frequency is 0, no sampling\n");
-    //     return;
-    // }
-    //
-    // if (stat[cid].sampler++ % global_config.frequency == 0 && match_config(req, &global_config)) {
-    //     if (unlikely(!get_profile_record(&stat[cid], req->tag))) {
-    //         pr_err("[ntprof_host] duplicated tag in incomplete list, cid=%d, tag=%d\n", cid, req->tag);
-    //         return;
-    //     }
-    //     *to_trace = true;
-    //     struct profile_record *record = kmalloc(sizeof(struct profile_record), GFP_KERNEL);
-    //     if (!record) {
-    //         printk(KERN_ERR "[ntprof_host] Failed to allocate memory for profile_record\n");
-    //         return;
-    //     }
-    //
-    //     init_profile_record(record, blk_rq_bytes(req), rq_data_dir(req), req->rq_disk->disk_name, req->tag);
-    //     append_event(record, req->start_time_ns, BLK_SUBMIT);
-    //     append_event(record, time, NVME_TCP_QUEUE_RQ);
-    //     append_record(&stat[cid], record);
-    //     // TODO remove
-    //     print_profile_record(record);
-    // }
+    if (qid == 0) {
+        return;
+    }
+    int cid = smp_processor_id();
+
+    if (unlikely(global_config.frequency == 0)) {
+        pr_err("on_block_rq_complete: frequency is 0, no sampling");
+        return;
+    }
+
+    if (++stat[cid].sampler >= global_config.frequency) {
+        stat[cid].sampler = 0;
+        if (match_config(req, &global_config)) {
+            if (unlikely(get_profile_record(&stat[cid], req->tag))) {
+                pr_err("duplicated tag in incomplete list, cid=%d, tag=%d\n", cid, req->tag);
+                return;
+            }
+            *to_trace = true;
+            // pr_info("sample request %d", req->tag);
+            struct profile_record *record = kmalloc(sizeof(struct profile_record), GFP_KERNEL);
+            if (!record) {
+                pr_err("Failed to allocate memory for profile_record");
+                return;
+            }
+            long diff = ktime_get_real_ns() - ktime_get_ns();
+            init_profile_record(record, blk_rq_bytes(req), rq_data_dir(req), req->rq_disk->disk_name, req->tag);
+            // req->start_time_ns is initialized in blk-core.c, blk_rq_init
+            // it was calling ktime_get_ns();
+            append_event(record, req->start_time_ns + diff, BLK_SUBMIT);
+            append_event(record, time + diff, NVME_TCP_QUEUE_RQ);
+            append_record(&stat[cid], record);
+        }
+    }
 }
 
 void on_nvme_tcp_queue_request(void *ignore, struct request *req, int qid, int cmdid, bool is_initial,
                                long long unsigned int time) {
+    int cid = smp_processor_id();
+    struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
+    if (rec) {
+        append_event(rec, time, NVME_TCP_QUEUE_REQUEST);
+    }
 }
 
 void on_nvme_tcp_try_send(void *ignore, struct request *req, int qid, long long unsigned int time) {
+    int cid = smp_processor_id();
+    struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
+    if (rec) {
+        append_event(rec, time, NVME_TCP_TRY_SEND);
+    }
 }
 
 void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int qid, int len, int local_port,
                                   long long unsigned int time) {
+    int cid = smp_processor_id();
+    struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
+    if (rec) {
+        append_event(rec, time, NVME_TCP_TRY_SEND_CMD_PDU);
+    }
 }
 
 void on_nvme_tcp_try_send_data_pdu(void *ignore, struct request *req, int qid, int len, long long unsigned int time) {
+    int cid = smp_processor_id();
+    struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
+    if (rec) {
+        append_event(rec, time, NVME_TCP_TRY_SEND_DATA_PDU);
+    }
 }
 
 void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int qid, int len, long long unsigned int time) {
+    int cid = smp_processor_id();
+    struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
+    if (rec) {
+        append_event(rec, time, NVME_TCP_TRY_SEND_DATA);
+    }
 }
 
 void on_nvme_tcp_done_send_req(void *ignore, struct request *req, int qid, long long unsigned int time) {
+    int cid = smp_processor_id();
+    struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
+    if (rec) {
+        append_event(rec, time, NVME_TCP_DONE_SEND_REQ);
+    }
 }
 
 void on_nvme_tcp_handle_c2h_data(void *ignore, struct request *rq, int qid, int data_remain, unsigned long long time,
                                  long long recv_time) {
+    int cid = smp_processor_id();
+    struct profile_record *rec = get_profile_record(&stat[cid], rq->tag);
+    if (rec) {
+        append_event(rec, time, NVME_TCP_HANDLE_C2H_DATA);
+    }
 }
 
 void on_nvme_tcp_recv_data(void *ignore, struct request *rq, int qid, int cp_len, unsigned long long time,
                            long long recv_time) {
+    int cid = smp_processor_id();
+    struct profile_record *rec = get_profile_record(&stat[cid], rq->tag);
+    if (rec) {
+        append_event(rec, time, NVME_TCP_RECV_DATA);
+    }
 }
 
 void on_nvme_tcp_handle_r2t(void *ignore, struct request *req, int qid, unsigned long long time, long long recv_time) {
+    int cid = smp_processor_id();
+    struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
+    if (rec) {
+        append_event(rec, time, NVME_TCP_HANDLE_R2T);
+    }
 }
 
 void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req, int qid, unsigned long long time,
                                   long long recv_time) {
+    int cid = smp_processor_id();
+    struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
+    if (rec) {
+        append_event(rec, time, NVME_TCP_PROCESS_NVME_CQE);
+    }
 }
 
 int register_nvme_tcp_tracepoints(void) {

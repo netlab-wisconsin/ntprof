@@ -6,6 +6,7 @@
 #include <linux/string.h>
 #include <linux/ctype.h>
 #include <linux/slab.h>
+#include "host_logging.h"
 
 void init_per_core_statistics(struct per_core_statistics *stats) {
     stats->sampler = 0;
@@ -14,24 +15,27 @@ void init_per_core_statistics(struct per_core_statistics *stats) {
 }
 
 void free_per_core_statistics(struct per_core_statistics *stats) {
+    if (stats == NULL) {
+        pr_info("stats is NULL");
+    }
     // use free_profile_record to free all records
     struct list_head *pos, *q;
     struct profile_record *record;
-
     list_for_each_safe(pos, q, &stats->incomplete_records) {
         record = list_entry(pos, struct profile_record, list);
-        list_del(pos);
+        list_del_init(pos);
         free_profile_record(record);
     }
 
     list_for_each_safe(pos, q, &stats->completed_records) {
         record = list_entry(pos, struct profile_record, list);
-        list_del(pos);
+        list_del_init(pos);
         free_profile_record(record);
     }
 }
 
 void append_record(struct per_core_statistics *stats, struct profile_record *record) {
+    // pr_info("append a record to the incomplete list, %d\n", record->metadata.req_tag);
     list_add_tail(&record->list, &stats->incomplete_records);
 }
 
@@ -40,6 +44,9 @@ void complete_record(struct per_core_statistics *stats, struct profile_record *r
     list_add_tail(&record->list, &stats->completed_records);
 }
 
+/**
+ * get the profile record with the given request tag from the incomplete list
+ */
 struct profile_record *get_profile_record(struct per_core_statistics *stats, int req_tag) {
     struct list_head *pos;
     struct profile_record *record;
@@ -51,6 +58,27 @@ struct profile_record *get_profile_record(struct per_core_statistics *stats, int
     }
     return NULL;
 }
+
+/**
+ * convert a string to an integer
+ * If the string is NULL or does not start with a digit, return -1
+ * If the string starts with a digit, convert the string to an integer in the beginning, 20A24 -> 20
+ */
+int strtoint(const char *str, int *num) {
+    if (unlikely(str == NULL || !isdigit(str[0]))) {
+        pr_err("[ntprof_host] try to convert str to int, but str is NULL\n");
+        *num = -1;
+        return -EINVAL;
+    }
+    *num = 0;
+    int i = 0;
+    while (isdigit(str[i])) {
+        *num = *num * 10 + (str[i] - '0');
+        i++;
+    }
+    return 0;
+}
+
 
 /**
  * Parse NVMe device name, considering the following format:
@@ -67,14 +95,13 @@ int parse_nvme_name(const char *name, int *ctrl_id, int *ns_id) {
 
     // skip "nvme"
     const char *p = name + 4;
-    long x, z;
+    int x, z;
 
     // 1. parse the controller ID
-    if (!isdigit((unsigned char) *p)) {
+    if (!isdigit((unsigned char) *p))
         return 0; // "nvme" must be followed by a digit
-    }
 
-    if (kstrtol(p, 10, &x) < 0) {
+    if (strtoint(p,  &x) < 0) {
         return 0;
     }
 
@@ -87,13 +114,12 @@ int parse_nvme_name(const char *name, int *ctrl_id, int *ns_id) {
         return 0;
     }
 
-    if (kstrtol(last_n + 1, 10, &z) < 0) {
+    if (strtoint(last_n + 1, &z) < 0) {
         return 0;
     }
 
     // update namespace ID
     *ns_id = (int) z;
-
     return 1;
 }
 
@@ -105,6 +131,9 @@ bool is_same_dev_name(const char *name1, const char *name2) {
         return true;
 
     int c1, n1, c2, n2;
+    parse_nvme_name(name1, &c1, &n1);
+    parse_nvme_name(name2, &c2, &n2);
+    // pr_info("name1=%s, name2=%s, c1=%d, n1=%d, c2=%d, n2=%d\n", name1, name2, c1, n1, c2, n2);
     return parse_nvme_name(name1, &c1, &n1) &&
            parse_nvme_name(name2, &c2, &n2) &&
            (c1 == c2) && (n1 == n2);
@@ -114,6 +143,7 @@ bool is_same_dev_name(const char *name1, const char *name2) {
 bool match_config(struct request *req, struct ntprof_config *config) {
     // check type
     if (config->io_type != BOTH && config->io_type != rq_data_dir(req)) {
+        pr_info("type is not matched\n");
         return false;
     }
 
@@ -129,11 +159,14 @@ bool match_config(struct request *req, struct ntprof_config *config) {
                     break;
                 }
             }
+            pr_info("size is not matched 1");
             if (!is_found) return false;
         }
     } else if (config->min_io_size != -1 && io_size < config->min_io_size) {
+        pr_info("size is not matched 2");
         return false;
     } else if (config->max_io_size != -1 && io_size > config->max_io_size) {
+        pr_info("size is not matched 3");
         return false;
     }
 
@@ -142,7 +175,8 @@ bool match_config(struct request *req, struct ntprof_config *config) {
     // check device name
     if (!req->rq_disk || !req->rq_disk->disk_name ||
         !is_same_dev_name(req->rq_disk->disk_name, config->session_name)) {
-        return 0;
+        pr_info("disk is not matched, %s, %s\n", req->rq_disk->disk_name, config->session_name);
+        return false;
     }
-    return 1;
+    return true;
 }
