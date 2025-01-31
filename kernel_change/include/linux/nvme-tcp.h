@@ -148,6 +148,11 @@ struct nvme_tcp_cmd_pdu {
 	bool tag; // to record this request or not
 };
 
+struct ntprof_stat{
+	s64 ts;
+	char event_name[32];
+}
+
 /**
  * struct nvme_tcp_rsp_pdu - nvme tcp response capsule pdu
  *
@@ -158,6 +163,7 @@ struct nvme_tcp_cmd_pdu {
 struct nvme_tcp_rsp_pdu {
 	struct nvme_tcp_hdr	hdr;
 	struct nvme_completion	cqe;
+	struct ntprof_stat stat;
 };
 
 /**
