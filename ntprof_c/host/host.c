@@ -102,7 +102,7 @@ int parse_nvme_name(const char *name, int *ctrl_id, int *ns_id) {
     if (!isdigit((unsigned char) *p))
         return 0; // "nvme" must be followed by a digit
 
-    if (strtoint(p,  &x) < 0) {
+    if (strtoint(p, &x) < 0) {
         return 0;
     }
 
@@ -174,10 +174,14 @@ bool match_config(struct request *req, struct ntprof_config *config) {
     // todo: check core id
 
     // check device name
-    if (!req->rq_disk || !req->rq_disk->disk_name ||
-        !is_same_dev_name(req->rq_disk->disk_name, config->session_name)) {
-        pr_info("disk is not matched, %s, %s\n", req->rq_disk->disk_name, config->session_name);
-        return false;
+    // if config->session_name is "all", return true
+    if (strcmp(config->session_name, "all")) {
+        if (!req->rq_disk || !req->rq_disk->disk_name ||
+            !is_same_dev_name(req->rq_disk->disk_name, config->session_name)) {
+            pr_info("disk is not matched, %s, %s\n", req->rq_disk->disk_name, config->session_name);
+            return false;
+        }
     }
+    pr_info("passing checking!");
     return true;
 }
