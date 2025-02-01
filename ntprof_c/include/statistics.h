@@ -180,6 +180,11 @@ static inline void append_event(struct profile_record *record, unsigned long lon
         return;
     }
 
+    // deduplicate, if the last event is the same as the current event, we don't add it
+    if (!list_empty(&record->ts->list) && list_last_entry(&record->ts->list, struct ts_entry, list)->event == event) {
+        return;
+    }
+
     new_entry = kmalloc(sizeof(struct ts_entry), GFP_KERNEL);
     if (unlikely(!new_entry)) {
         pr_err("Failed to allocate memory for ts_entry\n");
