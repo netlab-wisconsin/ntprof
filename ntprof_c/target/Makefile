@@ -1,5 +1,5 @@
 obj-m += ntprof_target.o
-ntprof_target-y := trace_nvmet_tcp.o target_main.o
+ntprof_target-y := trace_nvmet_tcp.o target.o target_main.o
 
 all: ntprof_target
 

@@ -2,6 +2,11 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 
+#include "target.h"
+
+struct per_queue_statistics stat[MAX_QUEUE_NUM];
+
+#include "target.h"
 #include "trace_nvmet_tcp.h"
 
 void register_tracepoints(void) {

@@ -16,7 +16,8 @@ void init_per_core_statistics(struct per_core_statistics *stats) {
 
 void free_per_core_statistics(struct per_core_statistics *stats) {
     if (stats == NULL) {
-        pr_info("stats is NULL");
+        pr_err("Try to free a per_core_statistics but it is NULL\n");
+        return;
     }
     // use free_profile_record to free all records
     struct list_head *pos, *q;

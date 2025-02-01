@@ -30,7 +30,7 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid, bool *to_t
         stat[cid].sampler = 0;
         if (match_config(req, &global_config)) {
             if (unlikely(get_profile_record(&stat[cid], req->tag))) {
-                pr_err("duplicated tag in incomplete list, cid=%d, tag=%d\n", cid, req->tag);
+                pr_err("Duplicated tag in incomplete list, cid=%d, tag=%d\n", cid, req->tag);
                 return;
             }
             *to_trace = true;

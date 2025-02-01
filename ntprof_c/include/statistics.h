@@ -128,6 +128,7 @@ struct profile_record {
     struct {
         char disk[MAX_SESSION_NAME_LEN];
         int req_tag;
+        int cmdid;
         int size; // in bytes
         int is_write; // 0 for read, 1 for write
         int contains_c2h; // 0 for true, 1 for false

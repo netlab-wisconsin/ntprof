@@ -1,52 +1,139 @@
 #include "trace_nvmet_tcp.h"
+
+#include <linux/slab.h>
 #include <linux/tracepoint.h>
 #include <trace/events/nvmet_tcp.h>
+
+#include "target.h"
+#include "../include/statistics.h"
+#include "target_logging.h"
+
 
 void on_try_recv_pdu(void *ignore, u8 pdu_type, u8 hdr_len, int queue_left, int qid, int remote_port,
                      unsigned long long time) {
 }
 
-void on_done_recv_pdu(void *ignore, u16 cmd_id, int qid, u8 opcode, int size, unsigned long long time,
+void on_done_recv_pdu(void *ignore, u16 cmdid, int qid, u8 opcode, int size, unsigned long long time,
                       long long recv_time) {
+    if (unlikely(get_profile_record(&stat[qid], cmdid))) {
+        pr_err("Duplicated cmdid %d in the record list %d\n", cmdid, qid);
+        return;
+    }
+    int is_write;
+    if (opcode == nvme_cmd_read) {
+        is_write = 0;
+    } else if (opcode == nvme_cmd_write) {
+        is_write = 1;
+    } else {
+        pr_err("Unknown opcode in on_done_recv_pdu: %d\n", opcode);
+        return;
+    }
+    //TODO: manually release the memory
+    struct profile_record *record = kmalloc(sizeof(struct profile_record), GFP_KERNEL);
+    if (!record) {
+        pr_err("Failed to allocate memory for profile_record");
+        return;
+    }
+
+    init_profile_record(record, size, is_write, "", cmdid);
+    append_event(record, recv_time, NVMET_TCP_TRY_RECV_PDU);
+    append_event(record, time, NVMET_TCP_DONE_RECV_PDU);
+    append_record(&stat[qid], record);
 }
 
-void on_exec_read_req(void *ignore, u16 cmd_id, int qid, u8 opcode, int size, unsigned long long time) {
+void on_exec_read_req(void *ignore, u16 cmdid, int qid, u8 opcode, int size, unsigned long long time) {
+    if (opcode != nvme_cmd_read) {
+        pr_err("Invalid opcode in on_exec_read_req: %d\n", opcode);
+        return;
+    }
+    struct profile_record *record = get_profile_record(&stat[qid], cmdid);
+    if (record) {
+        append_event(record, time, NVMET_TCP_EXEC_READ_REQ);
+    }
 }
 
 void on_exec_write_req(void *ignore, u16 cmd_id, int qid, u8 opcode, int size, unsigned long long time) {
+    if (opcode != nvme_cmd_write) {
+        pr_err("Invalid opcode in on_exec_write_req: %d\n", opcode);
+        return;
+    }
+    struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
+    if (record) {
+        append_event(record, time, NVMET_TCP_EXEC_WRITE_REQ);
+    }
 }
 
 // TODO: use opcode instead
 void on_queue_response(void *ignore, u16 cmd_id, int qid, bool is_write, unsigned long long time) {
+    struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
+    if (record) {
+        append_event(record, time, NVMET_TCP_QUEUE_RESPONSE);
+    }
 }
 
 void on_setup_c2h_data_pdu(void *ignore, u16 cmd_id, int qid, unsigned long long time) {
+    struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
+    if (record) {
+        append_event(record, time, NVMET_TCP_SETUP_C2H_DATA_PDU);
+    }
 }
 
 void on_setup_r2t_pdu(void *ignore, u16 cmd_id, int qid, unsigned long long time) {
+    struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
+    if (record) {
+        append_event(record, time, NVMET_TCP_SETUP_R2T_PDU);
+    }
 }
 
 void on_setup_response_pdu(void *ignore, u16 cmd_id, int qid, unsigned long long time) {
+    struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
+    if (record) {
+        append_event(record, time, NVMET_TCP_SETUP_RESPONSE_PDU);
+    }
 }
 
 void on_try_send_data_pdu(void *ignore, u16 cmd_id, int qid, int cp_len, int left, unsigned long long time) {
+    struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
+    if (record) {
+        append_event(record, time, NVMET_TCP_TRY_SEND_DATA_PDU);
+    }
 }
 
 void on_try_send_r2t(void *ignore, u16 cmd_id, int qid, int cp_len, int left, unsigned long long time) {
+    struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
+    if (record) {
+        append_event(record, time, NVMET_TCP_TRY_SEND_R2T);
+    }
 }
 
 void on_try_send_response(void *ignore, u16 cmd_id, int qid, int cp_len, int left, int is_write,
                           unsigned long long time) {
+    struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
+    if (record) {
+        append_event(record, time, NVMET_TCP_TRY_SEND_RESPONSE);
+    }
 }
 
 void on_try_send_data(void *ignore, u16 cmd_id, int qid, int cp_len, unsigned long long time) {
+    struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
+    if (record) {
+        append_event(record, time, NVMET_TCP_TRY_SEND_DATA);
+    }
 }
 
 void on_try_recv_data(void *ignore, u16 cmd_id, int qid, int cp_len, unsigned long long time, long long recv_time) {
+    struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
+    if (record) {
+        append_event(record, time, NVMET_TCP_TRY_RECV_DATA);
+    }
 }
 
 void on_handle_h2c_data_pdu(void *ignore, u16 cmd_id, int qid, int datalen, unsigned long long time,
                             long long recv_time) {
+    struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
+    if (record) {
+        append_event(record, time, NVMET_TCP_HANDLE_H2C_DATA_PDU);
+    }
 }
 
 void on_io_work(void *ignore, int qid, long long recv, long long send) {

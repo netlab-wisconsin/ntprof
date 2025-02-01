@@ -612,6 +612,8 @@ static int nvmet_try_send_data_pdu(struct nvmet_tcp_cmd *cmd)
 	int left = sizeof(*cmd->data_pdu) - cmd->offset + hdgst;
 	int ret;
 
+	trace_nvmet_tcp_try_send_data_pdu(cmd->req.cqe->command_id, cmd->queue->idx, ret, left, ktime_get_real_ns(), cmd->data_pdu);
+
 	ret = kernel_sendpage(cmd->queue->sock, virt_to_page(cmd->data_pdu),
 			offset_in_page(cmd->data_pdu) + cmd->offset,
 			left, MSG_DONTWAIT | MSG_MORE | MSG_SENDPAGE_NOTLAST);
@@ -622,7 +624,7 @@ static int nvmet_try_send_data_pdu(struct nvmet_tcp_cmd *cmd)
 	cmd->offset += ret;
 	left -= ret;
 
-	trace_nvmet_tcp_try_send_data_pdu(cmd->req.cqe->command_id, cmd->queue->idx, ret, left, ktime_get_real_ns());
+	
 
 	if (left)
 		return -EAGAIN;
@@ -698,6 +700,8 @@ static int nvmet_try_send_response(struct nvmet_tcp_cmd *cmd,
 	else
 		flags |= MSG_EOR;
 
+	trace_nvmet_tcp_try_send_response(cmd->req.cqe->command_id, cmd->queue->idx, ret, left,nvme_is_write(cmd->req.cmd), ktime_get_real_ns(), cmd->rsp_pdu);
+
 	ret = kernel_sendpage(cmd->queue->sock, virt_to_page(cmd->rsp_pdu),
 		offset_in_page(cmd->rsp_pdu) + cmd->offset, left, flags);
 	if (ret <= 0)
@@ -705,7 +709,7 @@ static int nvmet_try_send_response(struct nvmet_tcp_cmd *cmd,
 	cmd->offset += ret;
 	left -= ret;
 
-	trace_nvmet_tcp_try_send_response(cmd->req.cqe->command_id, cmd->queue->idx, ret, left,nvme_is_write(cmd->req.cmd), ktime_get_real_ns());
+
 
 	if (left)
 		return -EAGAIN;
@@ -729,14 +733,14 @@ static int nvmet_try_send_r2t(struct nvmet_tcp_cmd *cmd, bool last_in_batch)
 	else
 		flags |= MSG_EOR;
 
+	trace_nvmet_tcp_try_send_r2t(cmd->req.cmd->common.command_id, cmd->queue->idx, ret, left, ktime_get_real_ns(), cmd->r2t_pdu);
+
 	ret = kernel_sendpage(cmd->queue->sock, virt_to_page(cmd->r2t_pdu),
 		offset_in_page(cmd->r2t_pdu) + cmd->offset, left, flags);
 	if (ret <= 0)
 		return ret;
 	cmd->offset += ret;
 	left -= ret;
-
-	trace_nvmet_tcp_try_send_r2t(cmd->req.cmd->common.command_id, cmd->queue->idx, ret, left, ktime_get_real_ns());
 
 	if (left)
 		return -EAGAIN;
