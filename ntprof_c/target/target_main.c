@@ -25,6 +25,8 @@ void init_variables(void) {
 }
 
 void clean_up(void) {
+    // make sure unregister_tracepoints is called
+    // before free_per_queue_statistics
     unregister_tracepoints();
     int i;
     for (i = 0; i < MAX_QUEUE_NUM; i++) {
@@ -34,8 +36,11 @@ void clean_up(void) {
 
 static int __init ntprof_host_module_init(void) {
     pr_info("ntprof_target: Module loaded\n");
-    register_tracepoints();
+    // make sure init variables is called first
+    // otherwise, if register_tracepoints is called first
+    // there can be nullptr exceptions
     init_variables();
+    register_tracepoints();
     return 0;
 }
 
