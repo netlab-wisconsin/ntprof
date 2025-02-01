@@ -4,8 +4,10 @@ set -e
 NAME="[run_exp_host]"
 CONFIG_FILE="ntprof_config.ini"
 MODULE_NAME="ntprof_host"
-MODULE_PATH="host/$MODULE_NAME.ko"
-CLI_PATH="cli/ntprof_cli"
+HOST_DIR_NAME="host"
+CLI_DIR_NAME="cli"
+MODULE_PATH="$HOST_DIR_NAME/$MODULE_NAME.ko"
+CLI_PATH="$CLI_DIR_NAME/ntprof_cli"
 DURATION=5
 
 # check if ini config file is specified

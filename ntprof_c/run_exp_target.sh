@@ -2,8 +2,9 @@
 set -e
 
 NAME="[run_exp_target]"
+DIR_NAME="target"
 MODULE_NAME="ntprof_target"
-MODULE_PATH="host/$MODULE_NAME.ko"
+MODULE_PATH="$DIR_NAME/$MODULE_NAME.ko"
 DURATION=10
 
 echo "$NAME Cleaning up old build..."
