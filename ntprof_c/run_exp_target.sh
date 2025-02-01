@@ -6,7 +6,7 @@ MODULE_NAME="ntprof_target"
 MODULE_PATH="host/$MODULE_NAME.ko"
 DURATION=10
 
-cho "$NAME Cleaning up old build..."
+echo "$NAME Cleaning up old build..."
 make clean && make target
 
 
