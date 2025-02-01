@@ -16,6 +16,7 @@ void on_try_recv_pdu(void *ignore, u8 pdu_type, u8 hdr_len, int queue_left, int 
 
 void on_done_recv_pdu(void *ignore, u16 cmdid, int qid, u8 opcode, int size, unsigned long long time,
                       long long recv_time) {
+    pr_info("on_done_recv_pdu is called!");
     if (unlikely(get_profile_record(&stat[qid], cmdid))) {
         pr_err("Duplicated cmdid %d in the record list %d\n", cmdid, qid);
         return;
@@ -111,13 +112,13 @@ void cpy_stat(struct profile_record *record, struct ntprof_stat *s) {
 void on_try_send_data_pdu(void *ignore, u16 cmd_id, int qid, int size, unsigned long long time, void *pdu) {
     struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
     if (record) {
-        pr_info("on_try_send_data_pdu is called -> ");
-        print_profile_record(record);
+        // pr_info("on_try_send_data_pdu is called -> ");
+        // print_profile_record(record);
         // (struct nvme_tcp_data_pdu *)pdu;
         append_event(record, time, NVMET_TCP_TRY_SEND_DATA_PDU);
-        cpy_stat(record, &((struct nvme_tcp_data_pdu *)pdu)->stat);
-        list_del(&record->list);
-        free_profile_record(record);
+        // cpy_stat(record, &((struct nvme_tcp_data_pdu *)pdu)->stat);
+        // list_del_init(&record->list);
+        // free_profile_record(record);
     }
 }
 
@@ -129,7 +130,7 @@ void on_try_send_r2t(void *ignore, u16 cmd_id, int qid, int size, unsigned long 
         // (struct nvme_tcp_r2t_pdu *)pdu;
         append_event(record, time, NVMET_TCP_TRY_SEND_R2T);
         cpy_stat(record, &((struct nvme_tcp_data_pdu *)pdu)->stat);
-        list_del(&record->list);
+        list_del_init(&record->list);
         free_profile_record(record);
     }
 }
@@ -143,7 +144,7 @@ void on_try_send_response(void *ignore, u16 cmd_id, int qid, int size, int is_wr
         // (struct nvme_tcp_rsp_pdu *)pdu;
         append_event(record, time, NVMET_TCP_TRY_SEND_RESPONSE);
         cpy_stat(record, &((struct nvme_tcp_data_pdu *)pdu)->stat);
-        list_del(&record->list);
+        list_del_init(&record->list);
         free_profile_record(record);
     }
 }

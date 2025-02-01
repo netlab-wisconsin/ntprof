@@ -29,7 +29,7 @@ struct profile_record *get_profile_record(struct per_queue_statistics *pqs, int 
     struct profile_record *record;
     list_for_each(pos, &pqs->records) {
         record = list_entry(pos, struct profile_record, list);
-        if (record->metadata.cmdid == cmdid) {
+        if (record->metadata.req_tag == cmdid) {
             return record;
         }
     }
