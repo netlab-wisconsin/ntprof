@@ -3,6 +3,7 @@
 #include <linux/slab.h>
 #include <linux/tracepoint.h>
 #include <trace/events/nvmet_tcp.h>
+#include <linux/nvme-tcp.h>
 
 #include "target.h"
 #include "../include/statistics.h"
@@ -92,25 +93,58 @@ void on_setup_response_pdu(void *ignore, u16 cmd_id, int qid, unsigned long long
     }
 }
 
-void on_try_send_data_pdu(void *ignore, u16 cmd_id, int qid, int cp_len, int left, unsigned long long time) {
+void cpy_stat(struct profile_record *record, struct ntprof_stat *s) {
+    s->cnt = 0;
+    // taverse record->ts
+    struct ts_entry *entry;
+    list_for_each_entry(entry, &record->ts->list, list) {
+        if (s->cnt >= 16) {
+            pr_warn("Cnt exceeds 16, skip the rest\n");
+            break;
+        }
+        s->ts[s->cnt] = entry->timestamp;
+        s->event[s->cnt] = entry->event;
+        s->cnt++;
+    }
+}
+
+void on_try_send_data_pdu(void *ignore, u16 cmd_id, int qid, int size, unsigned long long time, void *pdu) {
     struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
     if (record) {
+        pr_info("on_try_send_data_pdu is called -> ");
+        print_profile_record(record);
+        // (struct nvme_tcp_data_pdu *)pdu;
         append_event(record, time, NVMET_TCP_TRY_SEND_DATA_PDU);
+        cpy_stat(record, &((struct nvme_tcp_data_pdu *)pdu)->stat);
+        list_del(&record->list);
+        free_profile_record(record);
     }
 }
 
-void on_try_send_r2t(void *ignore, u16 cmd_id, int qid, int cp_len, int left, unsigned long long time) {
+void on_try_send_r2t(void *ignore, u16 cmd_id, int qid, int size, unsigned long long time, void *pdu) {
     struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
     if (record) {
+        pr_info("on_try_send_r2t is called -> ");
+        print_profile_record(record);
+        // (struct nvme_tcp_r2t_pdu *)pdu;
         append_event(record, time, NVMET_TCP_TRY_SEND_R2T);
+        cpy_stat(record, &((struct nvme_tcp_data_pdu *)pdu)->stat);
+        list_del(&record->list);
+        free_profile_record(record);
     }
 }
 
-void on_try_send_response(void *ignore, u16 cmd_id, int qid, int cp_len, int left, int is_write,
-                          unsigned long long time) {
+void on_try_send_response(void *ignore, u16 cmd_id, int qid, int size, int is_write, unsigned long long time,
+                          void *pdu) {
     struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
     if (record) {
+        pr_info("on_try_send_response is called -> ");
+        print_profile_record(record);
+        // (struct nvme_tcp_rsp_pdu *)pdu;
         append_event(record, time, NVMET_TCP_TRY_SEND_RESPONSE);
+        cpy_stat(record, &((struct nvme_tcp_data_pdu *)pdu)->stat);
+        list_del(&record->list);
+        free_profile_record(record);
     }
 }
 

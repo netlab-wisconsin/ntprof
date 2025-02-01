@@ -149,8 +149,9 @@ struct nvme_tcp_cmd_pdu {
 };
 
 struct ntprof_stat{
-	s64 ts;
-	char event_name[32];
+	int cnt;
+	s64 ts[16];
+	int event[16];
 };
 
 /**
