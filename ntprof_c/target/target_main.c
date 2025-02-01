@@ -17,13 +17,25 @@ void unregister_tracepoints(void) {
     unregister_nvmet_tcp_tracepoints();
 }
 
+void init_variables(void) {
+    int i;
+    for (i = 0; i < MAX_QUEUE_NUM; i++) {
+        init_per_queue_statistics(&stat[i]);
+    }
+}
+
 void clean_up(void) {
     unregister_tracepoints();
+    int i;
+    for (i = 0; i < MAX_QUEUE_NUM; i++) {
+        free_per_queue_statistics(&stat[i]);
+    }
 }
 
 static int __init ntprof_host_module_init(void) {
     pr_info("ntprof_target: Module loaded\n");
     register_tracepoints();
+    init_variables();
     return 0;
 }
 
