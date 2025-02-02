@@ -271,8 +271,8 @@ TRACE_EVENT(nvme_tcp_recv_data,
 
 
 TRACE_EVENT(nvme_tcp_process_nvme_cqe,
-    TP_PROTO(struct request *req, int qid, unsigned long long time, long long skb_time),
-    TP_ARGS(req, qid, time, skb_time),
+    TP_PROTO(struct request *req, int qid, unsigned long long time, long long skb_time, void* pdu),
+    TP_ARGS(req, qid, time, skb_time, pdu),
     TP_STRUCT__entry(
         __array(char, disk, DISK_NAME_LEN)
         __field(int, ctrl_id)
@@ -303,8 +303,8 @@ TRACE_EVENT(nvme_tcp_process_nvme_cqe,
 
 
 DEFINE_EVENT(nvme_tcp_process_nvme_cqe, nvme_tcp_handle_r2t,
-    TP_PROTO(struct request *req, int qid, unsigned long long time, long long skb_time),
-    TP_ARGS(req, qid, time, skb_time)
+    TP_PROTO(struct request *req, int qid, unsigned long long time, long long skb_time, void *pdu),
+    TP_ARGS(req, qid, time, skb_time, pdu)
 );
 
 DEFINE_EVENT(nvme_tcp_done_send_req, nvme_tcp_try_send,

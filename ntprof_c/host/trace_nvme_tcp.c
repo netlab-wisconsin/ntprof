@@ -5,6 +5,7 @@
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/mutex.h>
+#include <linux/nvme-tcp.h>
 #include <linux/nvme.h>
 #include <linux/proc_fs.h>
 #include <linux/tracepoint.h>
@@ -119,19 +120,33 @@ void on_nvme_tcp_recv_data(void *ignore, struct request *rq, int qid, int cp_len
     }
 }
 
-void on_nvme_tcp_handle_r2t(void *ignore, struct request *req, int qid, unsigned long long time, long long recv_time) {
+void cpy_ntprof_stat_to_record(struct profile_record *record, struct ntprof_stat *pdu_stat) {
+    if (unlikely(pdu_stat == NULL)) {
+        pr_err("try to copy time series from pdu_stat but it is NULL");
+        return;
+    }
+    int i;
+    for (i = 0; i < pdu_stat->cnt; i++) {
+        append_event(record, pdu_stat->ts[i], pdu_stat->event[i]);
+    }
+}
+
+
+void on_nvme_tcp_handle_r2t(void *ignore, struct request *req, int qid, unsigned long long time, long long recv_time, void *pdu) {
     int cid = smp_processor_id();
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
     if (rec) {
+        cpy_ntprof_stat_to_record(rec, &((struct nvme_tcp_r2t_pdu *)pdu)->stat);
         append_event(rec, time, NVME_TCP_HANDLE_R2T);
     }
 }
 
 void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req, int qid, unsigned long long time,
-                                  long long recv_time) {
+                                  long long recv_time, void *pdu) {
     int cid = smp_processor_id();
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
     if (rec) {
+        cpy_ntprof_stat_to_record(rec, &((struct nvme_tcp_rsp_pdu *)pdu)->stat);
         append_event(rec, time, NVME_TCP_PROCESS_NVME_CQE);
     }
 }

@@ -585,7 +585,7 @@ static int nvme_tcp_process_nvme_cqe(struct nvme_tcp_queue *queue,
 		return -EINVAL;
 	}
 
-	trace_nvme_tcp_process_nvme_cqe(rq, nvme_tcp_queue_id(queue), ktime_get_real_ns(), time);
+	trace_nvme_tcp_process_nvme_cqe(rq, nvme_tcp_queue_id(queue), ktime_get_real_ns(), time, (void *)queue->pdu);
 	// pr_info("%lld, %lld,nvme_tcp_process_nvme_cqe is called\n", ktime_get_real_ns(), time);
 
 	req = blk_mq_rq_to_pdu(rq);
@@ -730,7 +730,7 @@ static int nvme_tcp_handle_r2t(struct nvme_tcp_queue *queue,
 		return -ENOENT;
 	}
 
-	trace_nvme_tcp_handle_r2t(rq, nvme_tcp_queue_id(queue), ktime_get_real_ns(), time);
+	trace_nvme_tcp_handle_r2t(rq, nvme_tcp_queue_id(queue), ktime_get_real_ns(), time, pdu);
 
 	req = blk_mq_rq_to_pdu(rq);
 
