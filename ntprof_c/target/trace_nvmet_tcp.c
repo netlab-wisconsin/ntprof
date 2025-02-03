@@ -170,10 +170,17 @@ void on_try_recv_data(void *ignore, u16 cmd_id, int qid, int cp_len, unsigned lo
 
 void on_handle_h2c_data_pdu(void *ignore, u16 cmd_id, int qid, int datalen, unsigned long long time,
                             long long recv_time) {
-    struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
-    if (record) {
-        append_event(record, time, NVMET_TCP_HANDLE_H2C_DATA_PDU);
+
+    struct profile_record *record = kmalloc(sizeof(struct profile_record), GFP_KERNEL);
+    if (!record) {
+        pr_err("Failed to allocate memory for profile_record");
+        return;
     }
+    init_profile_record(record, datalen, true, "", cmd_id);
+    append_event(record, recv_time, NVMET_TCP_TRY_RECV_PDU);
+    append_event(record, time, NVMET_TCP_HANDLE_H2C_DATA_PDU);
+    append_record(&stat[qid], record);
+    
 }
 
 void on_io_work(void *ignore, int qid, long long recv, long long send) {
