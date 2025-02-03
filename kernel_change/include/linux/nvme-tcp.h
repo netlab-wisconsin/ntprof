@@ -85,6 +85,12 @@ struct nvme_tcp_hdr {
 	__le32	plen;
 };
 
+struct ntprof_stat{
+	int cnt;
+	s64 ts[16];
+	int event[16];
+};
+
 /**
  * struct nvme_tcp_icreq_pdu - nvme tcp initialize connection request pdu
  *
@@ -101,13 +107,7 @@ struct nvme_tcp_icreq_pdu {
 	__u8			digest;
 	__le32			maxr2t;
 	__u8			rsvd2[112];
-};
-
-
-struct ntprof_stat{
-	int cnt;
-	s64 ts[16];
-	int event[16];
+	struct ntprof_stat stat;
 };
 
 /**
@@ -208,7 +208,6 @@ struct nvme_tcp_data_pdu {
 	__le32			data_length;
 	__u8			rsvd[4];
 	struct ntprof_stat stat;
-	bool tag; // to record this request or not
 };
 
 union nvme_tcp_pdu {
