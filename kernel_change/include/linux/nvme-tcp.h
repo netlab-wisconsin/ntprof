@@ -103,6 +103,13 @@ struct nvme_tcp_icreq_pdu {
 	__u8			rsvd2[112];
 };
 
+
+struct ntprof_stat{
+	int cnt;
+	s64 ts[16];
+	int event[16];
+};
+
 /**
  * struct nvme_tcp_icresp_pdu - nvme tcp initialize connection response pdu
  *
@@ -119,6 +126,7 @@ struct nvme_tcp_icresp_pdu {
 	__u8			digest;
 	__le32			maxdata;
 	__u8			rsvd[112];
+	struct ntprof_stat stat;
 };
 
 /**
@@ -134,6 +142,7 @@ struct nvme_tcp_term_pdu {
 	__le16			feil;
 	__le16			feiu;
 	__u8			rsvd[10];
+	struct ntprof_stat stat;
 };
 
 /**
@@ -145,14 +154,10 @@ struct nvme_tcp_term_pdu {
 struct nvme_tcp_cmd_pdu {
 	struct nvme_tcp_hdr	hdr;
 	struct nvme_command	cmd;
-	bool tag; // to record this request or not
+	struct ntprof_stat stat;
 };
 
-struct ntprof_stat{
-	int cnt;
-	s64 ts[16];
-	int event[16];
-};
+
 
 /**
  * struct nvme_tcp_rsp_pdu - nvme tcp response capsule pdu
@@ -203,6 +208,7 @@ struct nvme_tcp_data_pdu {
 	__le32			data_length;
 	__u8			rsvd[4];
 	struct ntprof_stat stat;
+	bool tag; // to record this request or not
 };
 
 union nvme_tcp_pdu {

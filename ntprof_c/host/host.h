@@ -6,10 +6,11 @@
 #include <linux/types.h>
 #include <linux/blkdev.h>
 
-#define MAX_CORE_NUM 64
+#define MAX_CORE_NUM 32
 
 struct per_core_statistics {
     unsigned long long sampler;
+    int is_cleared;
     struct list_head incomplete_records;
     struct list_head completed_records;
 };

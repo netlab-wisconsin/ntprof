@@ -1067,9 +1067,9 @@ static int nvmet_tcp_done_recv_pdu(struct nvmet_tcp_queue *queue, long long recv
 
 	// if the request is to record
 	u64 t1 = ktime_get_real_ns();
-	if(queue->pdu.cmd.tag){
+	// if(queue->pdu.cmd.tag){
 		trace_nvmet_tcp_done_recv_pdu(queue->pdu.cmd.cmd.common.command_id, queue->idx, queue->pdu.cmd.cmd.common.opcode, le32_to_cpu(req->cmd->common.dptr.sgl.length), t1, recv_time);
-	} 
+	// } 
 	
 	if (unlikely(!nvmet_req_init(req, &queue->nvme_cq,
 			&queue->nvme_sq, &nvmet_tcp_ops))) {
