@@ -80,7 +80,7 @@ enum nvme_tcp_pdu_flags {
 struct nvme_tcp_hdr {
 	__u8	type;
 	__u8	flags;
-	__u8	hlen;
+	__u16	hlen;
 	__u8	pdo;
 	__le32	plen;
 };

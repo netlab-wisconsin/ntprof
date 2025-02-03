@@ -1407,6 +1407,16 @@ static int nvme_tcp_init_connection(struct nvme_tcp_queue *queue)
 
 	icreq->hdr.type = nvme_tcp_icreq;
 	icreq->hdr.hlen = sizeof(*icreq);
+	pr_info("set icreq->hdr.hlen to %d\n", icreq->hdr.hlen);
+	pr_info("sizeof(struct nvme_tcp_icreq_pdu) = %d\n", sizeof(struct nvme_tcp_icreq_pdu));
+	pr_info("sizeof(*icreq) = %d\n", sizeof(*icreq));
+	pr_info("sizeof(struct nvme_tcp_icresp_pdu) = %d\n", sizeof(struct nvme_tcp_icresp_pdu));
+	pr_info("sizeof(struct nvme_tcp_cmd_pdu) = %d\n", sizeof(struct nvme_tcp_cmd_pdu));
+	pr_info("sizeof(struct nvme_tcp_rsp_pdu) = %d\n", sizeof(struct nvme_tcp_rsp_pdu));
+	pr_info("sizeof(struct nvme_tcp_r2t_pdu) = %d\n", sizeof(struct nvme_tcp_r2t_pdu));
+	pr_info("sizeof(struct nvme_tcp_data_pdu) = %d\n", sizeof(struct nvme_tcp_data_pdu));
+
+
 	icreq->hdr.pdo = 0;
 	icreq->hdr.plen = cpu_to_le32(icreq->hdr.hlen);
 	icreq->pfv = cpu_to_le16(NVME_TCP_PFV_1_0);
