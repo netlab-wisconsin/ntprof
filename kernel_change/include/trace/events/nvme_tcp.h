@@ -116,8 +116,8 @@ TRACE_EVENT(nvme_tcp_try_send_cmd_pdu,
 
 
 TRACE_EVENT(nvme_tcp_try_send_data_pdu,
-    TP_PROTO(struct request *rq, int qid, int len, unsigned long long time),
-    TP_ARGS(rq, qid, len, time),
+    TP_PROTO(struct request *rq, int qid, int len, unsigned long long time, void *pdu),
+    TP_ARGS(rq, qid, len, time, pdu),
     TP_STRUCT__entry(
         __array(char, disk, DISK_NAME_LEN)
         __field(int, ctrl_id)
@@ -145,9 +145,10 @@ TRACE_EVENT(nvme_tcp_try_send_data_pdu,
         __entry->qid, __entry->rtag, __entry->cid, __entry->slba, __entry->length, __entry->len, __entry->is_write)
 );
 
+// TODO: remove the last parameter
 DEFINE_EVENT(nvme_tcp_try_send_data_pdu, nvme_tcp_try_send_data,
-    TP_PROTO(struct request *rq, int qid, int len, unsigned long long time),
-    TP_ARGS(rq, qid, len, time)
+    TP_PROTO(struct request *rq, int qid, int len, unsigned long long time, void *pdu),
+    TP_ARGS(rq, qid, len, time, pdu)
 );
 
 TRACE_EVENT(nvme_tcp_done_send_req,

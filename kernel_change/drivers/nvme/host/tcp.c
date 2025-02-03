@@ -1080,7 +1080,7 @@ static int nvme_tcp_try_send_data(struct nvme_tcp_request *req)
 		if (ret <= 0)
 			return ret;
 
-		trace_nvme_tcp_try_send_data(blk_mq_rq_from_pdu(req), nvme_tcp_queue_id(queue), ret, ktime_get_real_ns());
+		trace_nvme_tcp_try_send_data(blk_mq_rq_from_pdu(req), nvme_tcp_queue_id(queue), ret, ktime_get_real_ns(), NULL);
 
 		if (queue->data_digest)
 			nvme_tcp_ddgst_update(queue->snd_hash, page,
@@ -1163,12 +1163,14 @@ static int nvme_tcp_try_send_data_pdu(struct nvme_tcp_request *req)
 	if (queue->hdr_digest && !req->offset)
 		nvme_tcp_hdgst(queue->snd_hash, pdu, sizeof(*pdu));
 
+	trace_nvme_tcp_try_send_data_pdu(blk_mq_rq_from_pdu(req), nvme_tcp_queue_id(queue), ret, ktime_get_real_ns(), pdu);
+	
 	ret = kernel_sendpage(queue->sock, virt_to_page(pdu),
 			offset_in_page(pdu) + req->offset, len,
 			MSG_DONTWAIT | MSG_MORE | MSG_SENDPAGE_NOTLAST);
 	
 	// pr_info("nvme_tcp_try_send_data_pdu: ret = %d, len = %d\n", ret, len);
-	trace_nvme_tcp_try_send_data_pdu(blk_mq_rq_from_pdu(req), nvme_tcp_queue_id(queue), ret, ktime_get_real_ns());
+
 
 	if (unlikely(ret <= 0))
 		return ret;

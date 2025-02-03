@@ -58,7 +58,10 @@ void on_nvme_tcp_queue_request(void *ignore, struct request *req, int qid, int c
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
     if (rec) {
         append_event(rec, time, NVME_TCP_QUEUE_REQUEST);
-        rec->metadata.req_tag = cmdid;
+        rec->metadata.cmdid = cmdid;
+        if (cmdid == 0) {
+            pr_warn("update the cmdid to 0, cid=%d, tag=%d\n", cid, req->tag);
+        }
     }
 }
 
@@ -79,15 +82,17 @@ void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int qid, in
     }
 }
 
-void on_nvme_tcp_try_send_data_pdu(void *ignore, struct request *req, int qid, int len, long long unsigned int time) {
+void on_nvme_tcp_try_send_data_pdu(void *ignore, struct request *req, int qid, int len, long long unsigned int time, void *pdu) {
     int cid = smp_processor_id();
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
     if (rec) {
         append_event(rec, time, NVME_TCP_TRY_SEND_DATA_PDU);
+        struct nvme_tcp_data_pdu *data_pdu = (struct nvme_tcp_data_pdu *) pdu;
+        data_pdu->stat.tag = true;
     }
 }
 
-void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int qid, int len, long long unsigned int time) {
+void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int qid, int len, long long unsigned int time, void * nul) {
     int cid = smp_processor_id();
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
     if (rec) {
@@ -108,7 +113,7 @@ void on_nvme_tcp_handle_c2h_data(void *ignore, struct request *rq, int qid, int 
     int cid = smp_processor_id();
     struct profile_record *rec = get_profile_record(&stat[cid], rq->tag);
     if (rec) {
-        rec->metadata.contains_c2h=1;
+        rec->metadata.contains_c2h = 1;
         append_event(rec, time, NVME_TCP_HANDLE_C2H_DATA);
     }
 }
@@ -139,14 +144,14 @@ void on_nvme_tcp_handle_r2t(void *ignore, struct request *req, int qid, unsigned
     int cid = smp_processor_id();
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
     if (rec) {
-        if (((struct nvme_tcp_r2t_pdu *) pdu)->stat.id != (unsigned long long)rec->metadata.req_tag) {
-            pr_warn("stat.id=%llu, metadata.req_tag=%d\n", ((struct nvme_tcp_r2t_pdu *) pdu)->stat.id, rec->metadata.req_tag);
+        if (((struct nvme_tcp_r2t_pdu *) pdu)->stat.id != (unsigned long long) rec->metadata.cmdid) {
+            pr_warn("stat.id=%llu, metadata.cmdid=%d\n", ((struct nvme_tcp_r2t_pdu *) pdu)->stat.id,
+                    rec->metadata.cmdid);
         } else {
             rec->metadata.contains_r2t = 1;
             cpy_ntprof_stat_to_record(rec, &((struct nvme_tcp_r2t_pdu *) pdu)->stat);
-            append_event(rec, time, NVME_TCP_HANDLE_R2T);
         }
-
+        append_event(rec, time, NVME_TCP_HANDLE_R2T);
     }
 }
 
@@ -155,13 +160,13 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req, int qid, un
     int cid = smp_processor_id();
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
     if (rec) {
-        if (((struct nvme_tcp_rsp_pdu *) pdu)->stat.id != (unsigned long long)rec->metadata.req_tag) {
-            pr_warn("stat.id=%llu, metadata.req_tag=%d\n", ((struct nvme_tcp_rsp_pdu *) pdu)->stat.id, rec->metadata.req_tag);
+        if (((struct nvme_tcp_rsp_pdu *) pdu)->stat.id != (unsigned long long) rec->metadata.cmdid) {
+            pr_warn("stat.id=%llu, metadata.cmdid=%d\n", ((struct nvme_tcp_rsp_pdu *) pdu)->stat.id,
+                    rec->metadata.cmdid);
         } else {
             cpy_ntprof_stat_to_record(rec, &((struct nvme_tcp_rsp_pdu *) pdu)->stat);
             append_event(rec, time, NVME_TCP_PROCESS_NVME_CQE);
         }
-
     }
 }
 

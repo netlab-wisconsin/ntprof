@@ -48,10 +48,10 @@ fi
 echo "$NAME Running for $DURATION seconds..."
 sleep $DURATION
 
-if ! sudo $CLI_PATH analyze; then
-    echo "Error: Experiment failed to analyze!"
-    exit 1
-fi
+# if ! sudo $CLI_PATH analyze; then
+#     echo "Error: Experiment failed to analyze!"
+#     exit 1
+# fi
 
 sleep $DURATION
 echo "$NAME Experiment completed successfully!"
