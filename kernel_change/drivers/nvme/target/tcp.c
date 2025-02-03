@@ -930,7 +930,7 @@ static int nvmet_tcp_handle_icreq(struct nvmet_tcp_queue *queue)
 	memset(icresp, 0, sizeof(*icresp));
 	icresp->hdr.type = nvme_tcp_icresp;
 	icresp->hdr.hlen = sizeof(*icresp);
-	pr_info("set the hdr->hlen be %d", icresp->hdr.hlen); 
+	// pr_info("set the hdr->hlen be %d", icresp->hdr.hlen); 
 	icresp->hdr.pdo = 0;
 	icresp->hdr.plen = cpu_to_le32(icresp->hdr.hlen);
 	icresp->pfv = cpu_to_le16(NVME_TCP_PFV_1_0);
