@@ -854,8 +854,8 @@ static void nvmet_prepare_receive_pdu(struct nvmet_tcp_queue *queue)
 {
 	queue->offset = 0;
 	queue->left = sizeof(struct nvme_tcp_hdr);
-	pr_info("nvmet_prepare_receive_pdu, sizeof(struct nvme_tcp_hdr)=%d\n", sizeof(struct nvme_tcp_hdr));
-	pr_info("nvmet_prepare_receive_pdu, queue->left is updated to %d\n", queue->left);
+	// pr_info("nvmet_prepare_receive_pdu, sizeof(struct nvme_tcp_hdr)=%d\n", sizeof(struct nvme_tcp_hdr));
+	// pr_info("nvmet_prepare_receive_pdu, queue->left is updated to %d\n", queue->left);
 	queue->cmd = NULL;
 	queue->rcv_state = NVMET_TCP_RECV_PDU;
 }
@@ -1058,7 +1058,7 @@ static int nvmet_tcp_done_recv_pdu(struct nvmet_tcp_queue *queue, long long recv
 	int ret;
 
 
-	pr_info("nvmet_tcp_done_recv_pdu, current queue state is %s\n", get_q_stat_str(queue->rcv_state));
+	// pr_info("nvmet_tcp_done_recv_pdu, current queue state is %s\n", get_q_stat_str(queue->rcv_state));
 
 	if (unlikely(queue->state == NVMET_TCP_Q_CONNECTING)) {
 		if (hdr->type != nvme_tcp_icreq) {
@@ -1188,7 +1188,7 @@ recv:
 	if (unlikely(len < 0))
 		return len;
 
-	pr_info("nvmet_tcp_try_recv_pdu, len=%d, iov.iov_len=%d\n", len, iov.iov_len);
+	// pr_info("nvmet_tcp_try_recv_pdu, len=%d, iov.iov_len=%d\n", len, iov.iov_len);
 
 	if(cmsg == NULL) {
 		pr_err("cmsg is NULL\n");
@@ -1201,13 +1201,13 @@ recv:
 
 	queue->offset += len;
 	queue->left -= len;
-	pr_info("nvmet_tcp_try_recv_pdu1, queue->left is updated to %d\n", queue->left);
+	// pr_info("nvmet_tcp_try_recv_pdu1, queue->left is updated to %d\n", queue->left);
 	if (queue->left)
 		return -EAGAIN;
 
 	if (queue->offset == sizeof(struct nvme_tcp_hdr)) {
 		u8 hdgst = nvmet_tcp_hdgst_len(queue);
-		pr_info("nvmet_tcp_try_recv_pdu, queue->offset == sizeof(struct nvme_tcp_hdr)\n");
+		// pr_info("nvmet_tcp_try_recv_pdu, queue->offset == sizeof(struct nvme_tcp_hdr)\n");
 
 		if (unlikely(!nvmet_tcp_pdu_valid(hdr->type))) {
 			pr_err("unexpected pdu type %d\n", hdr->type);
@@ -1221,7 +1221,7 @@ recv:
 		}
 
 		queue->left = hdr->hlen - queue->offset + hdgst;
-		pr_info("nvmet_tcp_try_recv_pdu2, queue->left is updated to %d\n", queue->left);
+		// pr_info("nvmet_tcp_try_recv_pdu2, queue->left is updated to %d\n", queue->left);
 
 		int remote_port = ntohs((tcp_sk(queue->sock->sk))->inet_conn.icsk_inet.inet_dport);
 		trace_nvmet_tcp_try_recv_pdu(hdr->type,hdr->hlen, queue->left, queue->idx, remote_port, ktime_get_real_ns());
@@ -1251,7 +1251,7 @@ static void nvmet_tcp_prep_recv_ddgst(struct nvmet_tcp_cmd *cmd)
 	nvmet_tcp_recv_ddgst(queue->rcv_hash, cmd);
 	queue->offset = 0;
 	queue->left = NVME_TCP_DIGEST_LENGTH;
-	pr_info("nvmet_tcp_prep_recv_ddgst, queue->left is updated to %d\n", queue->left);
+	// pr_info("nvmet_tcp_prep_recv_ddgst, queue->left is updated to %d\n", queue->left);
 	queue->rcv_state = NVMET_TCP_RECV_DDGST;
 }
 
