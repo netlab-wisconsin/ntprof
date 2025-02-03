@@ -96,8 +96,8 @@ void on_setup_response_pdu(void *ignore, u16 cmd_id, int qid, unsigned long long
 
 void cpy_stat(struct profile_record *record, struct ntprof_stat *s) {
     s->cnt = 0;
-    pr_info("copy stat to record: %d\n", record->metadata.cmdid);
-    s->id = record->metadata.cmdid;
+    pr_info("copy stat to record: %d\n", record->metadata.req_tag);
+    s->id = record->metadata.req_tag;
     // taverse record->ts
     struct ts_entry *entry;
     list_for_each_entry(entry, &record->ts->list, list) {
