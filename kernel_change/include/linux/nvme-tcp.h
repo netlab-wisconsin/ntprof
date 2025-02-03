@@ -86,9 +86,9 @@ struct nvme_tcp_hdr {
 };
 
 struct ntprof_stat{
-	__u8 cnt;    // 1 bytes
-	__u64 ts[16]; // 4 x 8 = 32 bytes
-	__u8 event[16]; // 4 x 16 = 64 bytes
+	__u8 cnt;    
+	__u8 event[7]; 
+	__u64 ts[7]; 
 };
 
 /**
