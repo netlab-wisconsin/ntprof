@@ -854,6 +854,7 @@ static void nvmet_prepare_receive_pdu(struct nvmet_tcp_queue *queue)
 {
 	queue->offset = 0;
 	queue->left = sizeof(struct nvme_tcp_hdr);
+	pr_info("nvmet_prepare_receive_pdu, sizeof(struct nvme_tcp_hdr)=%d\n", sizeof(struct nvme_tcp_hdr));
 	pr_info("nvmet_prepare_receive_pdu, queue->left is updated to %d\n", queue->left);
 	queue->cmd = NULL;
 	queue->rcv_state = NVMET_TCP_RECV_PDU;
