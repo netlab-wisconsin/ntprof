@@ -141,10 +141,12 @@ void on_nvme_tcp_handle_r2t(void *ignore, struct request *req, int qid, unsigned
     if (rec) {
         if (((struct nvme_tcp_r2t_pdu *) pdu)->stat.id != (unsigned long long)rec->metadata.cmdid) {
             pr_warn("stat.id=%llu, metadata.cmdid=%d\n", ((struct nvme_tcp_r2t_pdu *) pdu)->stat.id, rec->metadata.cmdid);
+        } else {
+            rec->metadata.contains_r2t = 1;
+            cpy_ntprof_stat_to_record(rec, &((struct nvme_tcp_r2t_pdu *) pdu)->stat);
+            append_event(rec, time, NVME_TCP_HANDLE_R2T);
         }
-        rec->metadata.contains_r2t = 1;
-        cpy_ntprof_stat_to_record(rec, &((struct nvme_tcp_r2t_pdu *) pdu)->stat);
-        append_event(rec, time, NVME_TCP_HANDLE_R2T);
+
     }
 }
 
@@ -155,9 +157,11 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req, int qid, un
     if (rec) {
         if (((struct nvme_tcp_rsp_pdu *) pdu)->stat.id != (unsigned long long)rec->metadata.cmdid) {
             pr_warn("stat.id=%llu, metadata.cmdid=%d\n", ((struct nvme_tcp_rsp_pdu *) pdu)->stat.id, rec->metadata.cmdid);
+        } else {
+            cpy_ntprof_stat_to_record(rec, &((struct nvme_tcp_rsp_pdu *) pdu)->stat);
+            append_event(rec, time, NVME_TCP_PROCESS_NVME_CQE);
         }
-        cpy_ntprof_stat_to_record(rec, &((struct nvme_tcp_rsp_pdu *) pdu)->stat);
-        append_event(rec, time, NVME_TCP_PROCESS_NVME_CQE);
+
     }
 }
 
