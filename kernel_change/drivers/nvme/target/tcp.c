@@ -854,7 +854,7 @@ static void nvmet_prepare_receive_pdu(struct nvmet_tcp_queue *queue)
 {
 	queue->offset = 0;
 	queue->left = sizeof(struct nvme_tcp_hdr);
-	pr_info("nvmet_prepare_receive_pdu, queue->left is updated to \n", queue->left);
+	pr_info("nvmet_prepare_receive_pdu, queue->left is updated to %d\n", queue->left);
 	queue->cmd = NULL;
 	queue->rcv_state = NVMET_TCP_RECV_PDU;
 }
@@ -1031,12 +1031,34 @@ static int nvmet_tcp_handle_h2c_data_pdu(struct nvmet_tcp_queue *queue, long lon
 	return 0;
 }
 
+char* get_q_stat_str(int state){
+	switch(state){
+		case NVMET_TCP_RECV_PDU:
+			return "NVMET_TCP_RECV_PDU";
+		case NVMET_TCP_RECV_DATA:
+			return "NVMET_TCP_RECV_DATA";
+		case NVMET_TCP_RECV_ERR:
+			return "NVMET_TCP_RECV_ERR";
+		case NVMET_TCP_Q_LIVE:
+			return "NVMET_TCP_Q_LIVE";
+		case NVMET_TCP_Q_CONNECTING:
+			return "NVMET_TCP_Q_CONNECTING";
+		case NVMET_TCP_Q_DISCONNECTING:
+			return "NVMET_TCP_Q_DISCONNECTING";
+		default:
+			return "UNKNOWN";
+	}
+}
+
 static int nvmet_tcp_done_recv_pdu(struct nvmet_tcp_queue *queue, long long recv_time)
 {
 	struct nvme_tcp_hdr *hdr = &queue->pdu.cmd.hdr;
 	struct nvme_command *nvme_cmd = &queue->pdu.cmd.cmd;
 	struct nvmet_req *req;
 	int ret;
+
+
+	pr_info("nvmet_tcp_done_recv_pdu, current queue state is %s\n", get_q_stat_str(queue->rcv_state));
 
 	if (unlikely(queue->state == NVMET_TCP_Q_CONNECTING)) {
 		if (hdr->type != nvme_tcp_icreq) {
@@ -1203,15 +1225,6 @@ recv:
 
 		int remote_port = ntohs((tcp_sk(queue->sock->sk))->inet_conn.icsk_inet.inet_dport);
 		trace_nvmet_tcp_try_recv_pdu(hdr->type,hdr->hlen, queue->left, queue->idx, remote_port, ktime_get_real_ns());
-		// if(recv_time == queue->resp_set.skb_ts){
-		// 	add_resp(hdr->type, &queue->resp_set);
-		// }else {
-		// 	trace_nvmet_tcp_recv_msg_types(queue->resp_set.cnt, queue->idx, recv_time);
-		// 	init_resp_set(&queue->resp_set);
-		// 	queue->resp_set.skb_ts = recv_time;
-		// 	queue->resp_set.cnt[hdr->type]=1;
-		// 	// add_resp(hdr->type, &queue->resp_set);
-		// }
 		
 		goto recv;
 	}
