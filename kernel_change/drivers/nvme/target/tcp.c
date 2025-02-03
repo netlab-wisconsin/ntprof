@@ -1165,6 +1165,8 @@ recv:
 	if (unlikely(len < 0))
 		return len;
 
+	pr_info("nvmet_tcp_try_recv_pdu, len=%d, iov.iov_len=%d\n", len, iov.iov_len);
+
 	if(cmsg == NULL) {
 		pr_err("cmsg is NULL\n");
 	} else {
