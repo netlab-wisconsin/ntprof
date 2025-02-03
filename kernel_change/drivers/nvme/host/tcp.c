@@ -2516,7 +2516,7 @@ static blk_status_t nvme_tcp_setup_cmd_pdu(struct nvme_ns *ns,
 	pdu->hdr.plen =
 		cpu_to_le32(pdu->hdr.hlen + hdgst + req->pdu_len + ddgst);
 
-	// pdu->tag = false;
+	pdu->stat.tag = false;
 
 	ret = nvme_tcp_map_data(queue, rq);
 	if (unlikely(ret)) {
@@ -2573,8 +2573,7 @@ static blk_status_t nvme_tcp_queue_rq(struct blk_mq_hw_ctx *hctx,
 
 	// pr_info("reqtag: %d, cmdid: %d, to_trace=%d", rq->tag, req->req.cmd->common.command_id, to_trace);
 	
-	// ((struct nvme_tcp_cmd_pdu *)req->pdu)->tag = to_trace;
-
+	((struct nvme_tcp_cmd_pdu *)req->pdu)->stat.tag = to_trace;
 	blk_mq_start_request(rq);
 
 	nvme_tcp_queue_request(req, true, bd->last);
