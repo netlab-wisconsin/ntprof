@@ -80,15 +80,15 @@ enum nvme_tcp_pdu_flags {
 struct nvme_tcp_hdr {
 	__u8	type;
 	__u8	flags;
-	__u16	hlen;
+	__u8	hlen;
 	__u8	pdo;
 	__le32	plen;
 };
 
 struct ntprof_stat{
-	int cnt;
-	s64 ts[16];
-	int event[16];
+	__u8 cnt;    // 1 bytes
+	__u64 ts[16]; // 4 x 8 = 32 bytes
+	__u8 event[16]; // 4 x 16 = 64 bytes
 };
 
 /**
