@@ -573,7 +573,7 @@ static void nvmet_tcp_queue_response(struct nvmet_req *req)
 	u32 len;
 
 	if (unlikely(cmd == queue->cmd)) {
-		sgl = &cmd->req.cmd->common.dptr.sgl;
+		sgl = &cmd->req.cmd->common.dptr.sgl;bad nvme-tcp pdu length
 		len = le32_to_cpu(sgl->length);
 
 		/*
@@ -903,6 +903,8 @@ static int nvmet_tcp_handle_icreq(struct nvmet_tcp_queue *queue)
 	int ret;
 
 	if (le32_to_cpu(icreq->hdr.plen) != sizeof(struct nvme_tcp_icreq_pdu)) {
+		pr_info("le32_to_cpu(icreq->hdr.plen)=%d, sizeof(struct nvme_tcp_icreq_pdu)=%d\n", 
+			le32_to_cpu(icreq->hdr.plen), sizeof(struct nvme_tcp_icreq_pdu));
 		pr_err("bad nvme-tcp pdu length (%d)\n",
 			le32_to_cpu(icreq->hdr.plen));
 		nvmet_tcp_fatal_error(queue);

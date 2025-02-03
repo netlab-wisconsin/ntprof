@@ -1433,6 +1433,7 @@ static int nvme_tcp_init_connection(struct nvme_tcp_queue *queue)
 
 	ret = -EINVAL;
 	if (icresp->hdr.type != nvme_tcp_icresp) {
+		pr_info("icresp->hdr.type=%d, nvme_tcp_icresp=%d\n", icresp->hdr.type, nvme_tcp_icresp);
 		pr_err("queue %d: bad type returned %d\n",
 			nvme_tcp_queue_id(queue), icresp->hdr.type);
 		goto free_icresp;
