@@ -1031,18 +1031,17 @@ static int nvmet_tcp_handle_h2c_data_pdu(struct nvmet_tcp_queue *queue, long lon
 	return 0;
 }
 
+/**
+	NVMET_TCP_Q_CONNECTING,
+	NVMET_TCP_Q_LIVE,
+	NVMET_TCP_Q_DISCONNECTING,
+ */
 char* get_q_stat_str(int state){
 	switch(state){
-		case NVMET_TCP_RECV_PDU:
-			return "NVMET_TCP_RECV_PDU";
-		case NVMET_TCP_RECV_DATA:
-			return "NVMET_TCP_RECV_DATA";
-		case NVMET_TCP_RECV_ERR:
-			return "NVMET_TCP_RECV_ERR";
-		case NVMET_TCP_Q_LIVE:
-			return "NVMET_TCP_Q_LIVE";
 		case NVMET_TCP_Q_CONNECTING:
 			return "NVMET_TCP_Q_CONNECTING";
+		case NVMET_TCP_Q_LIVE:
+			return "NVMET_TCP_Q_LIVE";
 		case NVMET_TCP_Q_DISCONNECTING:
 			return "NVMET_TCP_Q_DISCONNECTING";
 		default:
