@@ -58,9 +58,8 @@ void on_nvme_tcp_queue_request(void *ignore, struct request *req, int qid, int c
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
     if (rec) {
         append_event(rec, time, NVME_TCP_QUEUE_REQUEST);
-        rec->metadata.cmdid = cmdid;
-        if (cmdid == 0) {
-            pr_warn("update the cmdid to 0, cid=%d, tag=%d\n", cid, req->tag);
+        if (rec->metadata.cmdid == -1) {
+            rec->metadata.cmdid = cmdid;
         }
     }
 }

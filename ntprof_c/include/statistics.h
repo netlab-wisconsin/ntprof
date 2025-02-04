@@ -159,6 +159,7 @@ static inline void init_profile_record(struct profile_record *record, int size, 
 
     record->metadata.contains_c2h = 0;
     record->metadata.contains_r2t = 0;
+    record->metadata.cmdid = -1;
 
     record->ts = kmalloc(sizeof(struct ts_entry), GFP_KERNEL);
     if (unlikely(!record->ts)) {
