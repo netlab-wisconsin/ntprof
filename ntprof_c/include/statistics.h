@@ -25,7 +25,7 @@ enum EEvent {
     NVME_TCP_TRY_SEND_DATA_PDU,
     NVME_TCP_TRY_SEND_DATA,
     NVME_TCP_DONE_SEND_REQ,
-    NVME_TCP_TRY_RECV,
+    NVME_TCP_RECV_SKB,
     NVME_TCP_HANDLE_C2H_DATA,
     NVME_TCP_RECV_DATA,
     NVME_TCP_HANDLE_R2T,
@@ -72,8 +72,8 @@ static inline char *event_to_string(enum EEvent event) {
             return "NVME_TCP_TRY_SEND_DATA";
         case NVME_TCP_DONE_SEND_REQ:
             return "NVME_TCP_DONE_SEND_REQ";
-        case NVME_TCP_TRY_RECV:
-            return "NVME_TCP_TRY_RECV";
+        case NVME_TCP_RECV_SKB:
+            return "NVME_TCP_RECV_SKB";
         case NVME_TCP_HANDLE_C2H_DATA:
             return "NVME_TCP_HANDLE_C2H_DATA";
         case NVME_TCP_RECV_DATA:

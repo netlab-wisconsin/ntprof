@@ -8,7 +8,7 @@ HOST_DIR_NAME="host"
 CLI_DIR_NAME="cli"
 MODULE_PATH="$HOST_DIR_NAME/$MODULE_NAME.ko"
 CLI_PATH="$CLI_DIR_NAME/ntprof_cli"
-DURATION=5
+DURATION=10
 
 # check if ini config file is specified
 if [ $# -gt 0 ]; then

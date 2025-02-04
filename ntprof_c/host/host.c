@@ -144,7 +144,6 @@ bool is_same_dev_name(const char *name1, const char *name2) {
 bool match_config(struct request *req, struct ntprof_config *config) {
     // check type
     if (config->io_type != BOTH && config->io_type != rq_data_dir(req)) {
-        pr_info("type is not matched\n");
         return false;
     }
 
@@ -160,14 +159,11 @@ bool match_config(struct request *req, struct ntprof_config *config) {
                     break;
                 }
             }
-            pr_info("size is not matched 1");
             if (!is_found) return false;
         }
     } else if (config->min_io_size != -1 && io_size < config->min_io_size) {
-        pr_info("size is not matched 2");
         return false;
     } else if (config->max_io_size != -1 && io_size > config->max_io_size) {
-        pr_info("size is not matched 3");
         return false;
     }
 
@@ -178,10 +174,8 @@ bool match_config(struct request *req, struct ntprof_config *config) {
     if (strcmp(config->session_name, "all")) {
         if (!req->rq_disk || !req->rq_disk->disk_name ||
             !is_same_dev_name(req->rq_disk->disk_name, config->session_name)) {
-            pr_info("disk is not matched, %s, %s\n", req->rq_disk->disk_name, config->session_name);
             return false;
         }
     }
-    pr_info("passing checking!");
     return true;
 }
