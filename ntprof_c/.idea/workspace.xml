@@ -132,7 +132,7 @@
       <window_info anchor="bottom" id="Version Control" order="0" />
       <window_info anchor="bottom" id="Problems" order="1" />
       <window_info anchor="bottom" id="Problems View" order="2" />
-      <window_info active="true" anchor="bottom" id="Terminal" order="3" visible="true" weight="0.033152174" />
+      <window_info active="true" anchor="bottom" id="Terminal" order="3" visible="true" weight="0.3048913" />
       <window_info anchor="bottom" id="Services" order="4" />
       <window_info anchor="bottom" id="CMake" order="5" />
       <window_info anchor="bottom" id="Build" order="6" visible="true" weight="0.31358695" />
@@ -186,7 +186,7 @@
       <workItem from="1738997328862" duration="300000" />
       <workItem from="1738998271167" duration="346000" />
       <workItem from="1738999921606" duration="1047000" />
-      <workItem from="1739002013685" duration="177000" />
+      <workItem from="1739002013685" duration="658000" />
     </task>
     <servers />
   </component>

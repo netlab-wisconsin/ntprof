@@ -103,6 +103,11 @@ static long ntprof_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 pr_info("ntprof: Profiling temporarily stopped for analysis\n");
             }
 
+            while (atomic_read(&op_cnt) != 0) {
+                // wait for all call back functions to finish
+                cpu_relax(); 
+            }
+
 
             struct profile_result ret = {
                 .total_io = 0
