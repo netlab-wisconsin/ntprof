@@ -6,9 +6,16 @@
 #include <linux/types.h>
 #include <linux/blkdev.h>
 
+
 #define MAX_CORE_NUM 32
 
 struct per_core_statistics {
+    // mutex to protect
+    // (1) working thread that is appending record
+    // (2) analyzation thread that is reading record
+
+    struct mutex lock;
+
     unsigned long long sampler;
     int is_cleared;
     struct list_head incomplete_records;

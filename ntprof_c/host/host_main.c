@@ -13,6 +13,7 @@
 #include "trace_blk.h"
 #include "host.h"
 #include "host_logging.h"
+#include "analyzer.h"
 
 #define DEVICE_NAME "ntprof"
 #define CLASS_NAME "ntprof_class"
@@ -99,8 +100,16 @@ static long ntprof_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 pr_info("ntprof: Profiling temporarily stopped for analysis\n");
             }
 
-            memset(&aarg, 0, sizeof(aarg));  // Initialize structure
-            aarg.result.total_io = 100;  // TODO: Implement analysis
+
+            struct profile_result ret = {
+                .total_io = 0
+            };
+
+        // call the analyze function to assign value to ret
+            analyze(&global_config, &ret);
+
+            memset(&aarg, 0, sizeof(aarg)); // Initialize structure
+            aarg.result.total_io = ret.total_io; // TODO: Implement analysis
 
             if (copy_to_user(uarg, &aarg, sizeof(aarg))) {
                 pr_err("ntprof: Failed to copy analysis result to user\n");

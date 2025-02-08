@@ -1,5 +1,5 @@
 obj-m += ntprof_host.o
-ntprof_host-y := config.o trace_blk.o trace_nvme_tcp.o host.o analyzer.o host_main.o
+ntprof_host-y := config.o trace_blk.o trace_nvme_tcp.o host.o breakdown.o analyzer.o host_main.o
 
 all: ntprof_host
 

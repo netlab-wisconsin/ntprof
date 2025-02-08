@@ -258,6 +258,26 @@ bool is_valid_read(struct nvmet_io_instance* io_instance) {
   return ret;
 }
 
+void update_atomic_read_breakdown(
+    struct atomic_nvmet_tcp_read_breakdown* breakdown,
+    struct nvmet_io_instance* io_instance) {
+  u64 cmd_caps_q = io_instance->ts[0] - io_instance->recv_ts[0];
+  u64 cmd_proc = io_instance->ts[1] - io_instance->ts[0];
+  u64 sub_and_exec = io_instance->ts[2] - io_instance->ts[1];
+  u64 comp_q = io_instance->ts[3] - io_instance->ts[2];
+  u64 resp_proc = io_instance->ts[io_instance->cnt - 1] - io_instance->ts[3];
+
+  atomic64_add(cmd_caps_q, &breakdown->cmd_caps_q);
+  atomic64_add(cmd_proc, &breakdown->cmd_proc);
+  atomic64_add(sub_and_exec, &breakdown->sub_and_exec);
+  atomic64_add(comp_q, &breakdown->comp_q);
+  atomic64_add(resp_proc, &breakdown->resp_proc);
+  atomic64_add(io_instance->ts[io_instance->cnt - 1] - io_instance->recv_ts[0],
+               &breakdown->end2end);
+  atomic_inc(&breakdown->cnt);
+  atomic64_add(io_instance->estimated_rtt[0], &breakdown->trans);
+}
+
 bool is_valid_write(struct nvmet_io_instance* io_instance, bool contain_rt2) {
   if (contain_rt2) {
     bool ret;
@@ -307,25 +327,7 @@ void update_atomic_flush_breakdown(struct atomic_nvmet_tcp_flush_breakdown* fb,
   atomic_inc(&fb->cnt);
 }
 
-void update_atomic_read_breakdown(
-    struct atomic_nvmet_tcp_read_breakdown* breakdown,
-    struct nvmet_io_instance* io_instance) {
-  u64 cmd_caps_q = io_instance->ts[0] - io_instance->recv_ts[0];
-  u64 cmd_proc = io_instance->ts[1] - io_instance->ts[0];
-  u64 sub_and_exec = io_instance->ts[2] - io_instance->ts[1];
-  u64 comp_q = io_instance->ts[3] - io_instance->ts[2];
-  u64 resp_proc = io_instance->ts[io_instance->cnt - 1] - io_instance->ts[3];
 
-  atomic64_add(cmd_caps_q, &breakdown->cmd_caps_q);
-  atomic64_add(cmd_proc, &breakdown->cmd_proc);
-  atomic64_add(sub_and_exec, &breakdown->sub_and_exec);
-  atomic64_add(comp_q, &breakdown->comp_q);
-  atomic64_add(resp_proc, &breakdown->resp_proc);
-  atomic64_add(io_instance->ts[io_instance->cnt - 1] - io_instance->recv_ts[0],
-               &breakdown->end2end);
-  atomic_inc(&breakdown->cnt);
-  atomic64_add(io_instance->estimated_rtt[0], &breakdown->trans);
-}
 
 void update_atomic_write_breakdown(
     struct atomic_nvmet_tcp_write_breakdown* breakdown,

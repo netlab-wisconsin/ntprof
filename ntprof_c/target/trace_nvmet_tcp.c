@@ -130,8 +130,8 @@ void on_try_send_data_pdu(void *ignore, u16 cmd_id, int qid, int size, unsigned 
 void on_try_send_r2t(void *ignore, u16 cmd_id, int qid, int size, unsigned long long time, void *pdu) {
     struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
     if (record) {
-        pr_info("on_try_send_r2t is called -> ");
-        print_profile_record(record);
+        // pr_info("on_try_send_r2t is called -> ");
+        // print_profile_record(record);
         // (struct nvme_tcp_r2t_pdu *)pdu;
         append_event(record, time, NVMET_TCP_TRY_SEND_R2T);
         cpy_stat(record, &((struct nvme_tcp_data_pdu *)pdu)->stat);
@@ -144,8 +144,8 @@ void on_try_send_response(void *ignore, u16 cmd_id, int qid, int size, int is_wr
                           void *pdu) {
     struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
     if (record) {
-        pr_info("on_try_send_response is called -> ");
-        print_profile_record(record);
+        // pr_info("on_try_send_response is called -> ");
+        // print_profile_record(record);
         // (struct nvme_tcp_rsp_pdu *)pdu;
         append_event(record, time, NVMET_TCP_TRY_SEND_RESPONSE);
         cpy_stat(record, &((struct nvme_tcp_data_pdu *)pdu)->stat);
