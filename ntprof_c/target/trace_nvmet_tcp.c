@@ -16,7 +16,7 @@ void on_try_recv_pdu(void *ignore, u8 pdu_type, u8 hdr_len, int queue_left, int 
 
 void on_done_recv_pdu(void *ignore, u16 cmdid, int qid, u8 opcode, int size, unsigned long long time,
                       long long recv_time) {
-    pr_info("on_done_recv_pdu is called!");
+    // pr_info("on_done_recv_pdu is called!");
     if (unlikely(get_profile_record(&stat[qid], cmdid))) {
         pr_err("Duplicated cmdid %d in the record list %d\n", cmdid, qid);
         return;
