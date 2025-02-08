@@ -10,6 +10,7 @@ void on_block_rq_complete(void *ignore, struct request *rq, int err, unsigned in
     int cid = smp_processor_id();
     // pr_info("on_block_rq_complete is called on core %d\n", cid);
     unsigned long flags;
+    update_op_cnt(true);
     struct profile_record * rec = get_profile_record(&stat[cid], rq->tag);
     if (rec) {
         // u64 _start = bio_issue_time(&bio->bi_issue);
@@ -18,6 +19,7 @@ void on_block_rq_complete(void *ignore, struct request *rq, int err, unsigned in
         append_event(rec, time, BLK_RQ_COMPLETE);
         complete_record(&stat[cid], rec);
     }
+    update_op_cnt(false);
 }
 
 

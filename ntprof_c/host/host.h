@@ -42,4 +42,6 @@ extern struct ntprof_config global_config;
 
 extern atomic_t op_cnt;
 
+void update_op_cnt(bool inc);
+
 #endif //HOST_H

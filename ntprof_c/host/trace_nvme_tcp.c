@@ -15,15 +15,6 @@
 #include "host.h"
 #include "host_logging.h"
 
-void print_lock_op(int cid, char *name, bool isLock) {
-    if (isLock) {
-        atomic_inc(&op_cnt);
-    } else {
-        atomic_dec(&op_cnt);
-    }
-    // pr_info("cid: %d, %s, %s", cid, name, isLock ? "lock" : "unlock");
-}
-
 void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid, bool *to_trace, int len1, int len2,
                           long long unsigned int time) {
     if (qid == 0) {
@@ -46,11 +37,11 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid, bool *to_t
             *to_trace = true;
             // pr_info("sample request %d", req->tag);
             unsigned long flags;
-            print_lock_op(cid, "on_nvme_tcp_queue_rq", true);
+            update_op_cnt(true);
             struct profile_record *record = kmalloc(sizeof(struct profile_record), GFP_KERNEL);
             if (!record) {
                 pr_err("Failed to allocate memory for profile_record");
-                print_lock_op(cid, "on_nvme_tcp_queue_rq", false);
+                update_op_cnt(false);
                 return;
             }
             long diff = ktime_get_real_ns() - ktime_get_ns();
@@ -60,7 +51,7 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid, bool *to_t
             append_event(record, req->start_time_ns + diff, BLK_SUBMIT);
             append_event(record, time + diff, NVME_TCP_QUEUE_RQ);
             append_record(&stat[cid], record);
-            print_lock_op(cid, "on_nvme_tcp_queue_rq", false);
+            update_op_cnt(false);
         }
     }
 }
@@ -69,7 +60,7 @@ void on_nvme_tcp_queue_request(void *ignore, struct request *req, int qid, int c
                                long long unsigned int time) {
     int cid = smp_processor_id();
     unsigned long flags;
-    print_lock_op(cid, "on_nvme_tcp_queue_request", true);
+    update_op_cnt(true);
 
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
     if (rec) {
@@ -78,74 +69,74 @@ void on_nvme_tcp_queue_request(void *ignore, struct request *req, int qid, int c
             rec->metadata.cmdid = cmdid;
         }
     }
-    print_lock_op(cid, "on_nvme_tcp_queue_request", false);
+    update_op_cnt(false);
 }
 
 void on_nvme_tcp_try_send(void *ignore, struct request *req, int qid, long long unsigned int time) {
     int cid = smp_processor_id();
     unsigned long flags;
-    print_lock_op(cid, "on_nvme_tcp_try_send", true);
+    update_op_cnt(true);
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
     if (rec) {
         append_event(rec, time, NVME_TCP_TRY_SEND);
     }
-    print_lock_op(cid, "on_nvme_tcp_try_send", false);
+    update_op_cnt(false);
 }
 
 void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int qid, int len, int local_port,
                                   long long unsigned int time) {
     int cid = smp_processor_id();
-    print_lock_op(cid, "on_nvme_tcp_try_send_cmd_pdu", true);
+    update_op_cnt(true);
     unsigned long flags;
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
     if (rec) {
         append_event(rec, time, NVME_TCP_TRY_SEND_CMD_PDU);
     }
-    print_lock_op(cid, "on_nvme_tcp_try_send_cmd_pdu", false);
+    update_op_cnt(false);
 }
 
 void on_nvme_tcp_try_send_data_pdu(void *ignore, struct request *req, int qid, int len, long long unsigned int time,
                                    void *pdu) {
     int cid = smp_processor_id();
     unsigned long flags;
-    print_lock_op(cid, "on_nvme_tcp_try_send_data_pdu", true);
+    update_op_cnt(true);
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
     if (rec) {
         append_event(rec, time, NVME_TCP_TRY_SEND_DATA_PDU);
         struct nvme_tcp_data_pdu *data_pdu = (struct nvme_tcp_data_pdu *) pdu;
         data_pdu->stat.tag = true;
     }
-    print_lock_op(cid, "on_nvme_tcp_try_send_data_pdu", false);
+    update_op_cnt(false);
 }
 
 void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int qid, int len, long long unsigned int time,
                                void *nul) {
     int cid = smp_processor_id();
     unsigned long flags;
-    print_lock_op(cid, "on_nvme_tcp_try_send_data", true);
+    update_op_cnt(true);
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
     if (rec) {
         append_event(rec, time, NVME_TCP_TRY_SEND_DATA);
     }
-    print_lock_op(cid, "on_nvme_tcp_try_send_data", false);
+    update_op_cnt(false);
 }
 
 void on_nvme_tcp_done_send_req(void *ignore, struct request *req, int qid, long long unsigned int time) {
     int cid = smp_processor_id();
     unsigned long flags;
-    print_lock_op(cid, "on_nvme_tcp_done_send_req", true);
+    update_op_cnt(true);
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
     if (rec) {
         append_event(rec, time, NVME_TCP_DONE_SEND_REQ);
     }
-    print_lock_op(cid, "on_nvme_tcp_done_send_req", false);
+    update_op_cnt(false);
 }
 
 void on_nvme_tcp_handle_c2h_data(void *ignore, struct request *rq, int qid, int data_remain, unsigned long long time,
                                  long long recv_time) {
     int cid = smp_processor_id();
     unsigned long flags;
-    print_lock_op(cid, "on_nvme_tcp_handle_c2h_data", true);
+    update_op_cnt(true);
     struct profile_record *rec = get_profile_record(&stat[cid], rq->tag);
     if (rec) {
         rec->metadata.contains_c2h = 1;
@@ -153,19 +144,19 @@ void on_nvme_tcp_handle_c2h_data(void *ignore, struct request *rq, int qid, int 
         append_event(rec, recv_time, NVME_TCP_RECV_SKB);
         append_event(rec, time, NVME_TCP_HANDLE_C2H_DATA);
     }
-    print_lock_op(cid, "on_nvme_tcp_handle_c2h_data", false);
+    update_op_cnt(false);
 }
 
 void on_nvme_tcp_recv_data(void *ignore, struct request *rq, int qid, int cp_len, unsigned long long time,
                            long long recv_time) {
     int cid = smp_processor_id();
-    print_lock_op(cid, "on_nvme_tcp_recv_data", true);
+    update_op_cnt(true);
     unsigned long flags;
     struct profile_record *rec = get_profile_record(&stat[cid], rq->tag);
     if (rec) {
         append_event(rec, time, NVME_TCP_RECV_DATA);
     }
-    print_lock_op(cid, "on_nvme_tcp_recv_data", false);
+    update_op_cnt(false);
 }
 
 void cpy_ntprof_stat_to_record(struct profile_record *record, struct ntprof_stat *pdu_stat) {
@@ -184,7 +175,7 @@ void on_nvme_tcp_handle_r2t(void *ignore, struct request *req, int qid, unsigned
                             void *pdu) {
     int cid = smp_processor_id();
     unsigned long flags;
-    print_lock_op(cid, "on_nvme_tcp_handle_r2t", true);
+    update_op_cnt(true);
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
     if (rec) {
         if (((struct nvme_tcp_r2t_pdu *) pdu)->stat.id != (unsigned long long) rec->metadata.cmdid) {
@@ -197,13 +188,13 @@ void on_nvme_tcp_handle_r2t(void *ignore, struct request *req, int qid, unsigned
         append_event(rec, recv_time, NVME_TCP_RECV_SKB);
         append_event(rec, time, NVME_TCP_HANDLE_R2T);
     }
-    print_lock_op(cid, "on_nvme_tcp_handle_r2t", false);
+    update_op_cnt(false);
 }
 
 void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req, int qid, unsigned long long time,
                                   long long recv_time, void *pdu) {
     int cid = smp_processor_id();
-    print_lock_op(cid, "on_nvme_tcp_process_nvme_cqe", true);
+    update_op_cnt(true);
     unsigned long flags;
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
     if (rec) {
@@ -216,7 +207,7 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req, int qid, un
             append_event(rec, time, NVME_TCP_PROCESS_NVME_CQE);
         }
     }
-    print_lock_op(cid, "on_nvme_tcp_process_nvme_cqe", false);
+    update_op_cnt(false);
 }
 
 int register_nvme_tcp_tracepoints(void) {
