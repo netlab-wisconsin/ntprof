@@ -45,6 +45,9 @@ void on_done_recv_pdu(void *ignore, u16 cmdid, int qid, u8 opcode, int size, uns
 
 void on_exec_read_req(void *ignore, u16 cmdid, int qid, u8 opcode, int size, unsigned long long time) {
     if (opcode != nvme_cmd_read) {
+        if (opcode == 24) {
+            return;
+        }
         pr_warn("Invalid opcode in on_exec_read_req: %d\n", opcode);
         return;
     }

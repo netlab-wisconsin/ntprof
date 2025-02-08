@@ -29,7 +29,6 @@
     <list default="true" id="44532195-5cfd-4d9e-bf7a-55abf402d641" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ntprof_config.ini" beforeDir="false" afterPath="$PROJECT_DIR$/ntprof_config.ini" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/run_exp_host.sh" beforeDir="false" afterPath="$PROJECT_DIR$/run_exp_host.sh" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/target/trace_nvmet_tcp.c" beforeDir="false" afterPath="$PROJECT_DIR$/target/trace_nvmet_tcp.c" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -187,7 +186,7 @@
       <workItem from="1738936473982" duration="1160000" />
       <workItem from="1738945869203" duration="2522000" />
       <workItem from="1738977630927" duration="3236000" />
-      <workItem from="1738981364807" duration="1037000" />
+      <workItem from="1738981364807" duration="1962000" />
     </task>
     <servers />
   </component>
