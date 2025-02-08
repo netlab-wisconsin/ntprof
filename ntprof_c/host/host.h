@@ -5,6 +5,7 @@
 #include "../include/statistics.h"
 #include <linux/types.h>
 #include <linux/blkdev.h>
+#include <linux/spinlock.h>
 
 
 #define MAX_CORE_NUM 32
@@ -14,12 +15,13 @@ struct per_core_statistics {
     // (1) working thread that is appending record
     // (2) analyzation thread that is reading record
 
-    struct mutex lock;
+    spinlock_t lock;
 
     unsigned long long sampler;
     int is_cleared;
     struct list_head incomplete_records;
     struct list_head completed_records;
+    // struct list_head records;
 };
 
 void init_per_core_statistics(struct per_core_statistics *stats);
@@ -37,5 +39,7 @@ bool match_config(struct request *req, struct ntprof_config *config);
 extern struct per_core_statistics stat[MAX_CORE_NUM];
 
 extern struct ntprof_config global_config;
+
+extern atomic_t op_cnt;
 
 #endif //HOST_H

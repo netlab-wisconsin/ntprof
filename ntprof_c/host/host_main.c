@@ -26,6 +26,9 @@ static DEFINE_MUTEX(ntprof_mutex);
 struct ntprof_config global_config;
 struct per_core_statistics stat[MAX_CORE_NUM];
 
+// atomic counter 
+atomic_t op_cnt = ATOMIC_INIT(0);
+
 static int is_profiling = 0;
 
 // Function declarations

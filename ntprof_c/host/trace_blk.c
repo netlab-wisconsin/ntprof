@@ -9,6 +9,7 @@
 void on_block_rq_complete(void *ignore, struct request *rq, int err, unsigned int nr_bytes) {
     int cid = smp_processor_id();
     // pr_info("on_block_rq_complete is called on core %d\n", cid);
+    unsigned long flags;
     struct profile_record * rec = get_profile_record(&stat[cid], rq->tag);
     if (rec) {
         // u64 _start = bio_issue_time(&bio->bi_issue);

@@ -4,10 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="BackendCodeEditorMiscSettings">
-    <option name="/Default/RiderDebugger/RiderRestoreDecompile/RestoreDecompileSetting/@EntryValue" value="false" type="bool" />
-    <option name="/Default/Housekeeping/GlobalSettingsUpgraded/IsUpgraded/@EntryValue" value="true" type="bool" />
-    <option name="/Default/Housekeeping/FeatureSuggestion/FeatureSuggestionManager/DisabledSuggesters/=SwitchToGoToActionSuggester/@EntryIndexedValue" value="true" type="bool" />
     <option name="/Default/Environment/Hierarchy/GeneratedFilesCacheKey/Timestamp/@EntryValue" value="3" type="long" />
+    <option name="/Default/Housekeeping/FeatureSuggestion/FeatureSuggestionManager/DisabledSuggesters/=SwitchToGoToActionSuggester/@EntryIndexedValue" value="true" type="bool" />
+    <option name="/Default/Housekeeping/GlobalSettingsUpgraded/IsUpgraded/@EntryValue" value="true" type="bool" />
+    <option name="/Default/RiderDebugger/RiderRestoreDecompile/RestoreDecompileSetting/@EntryValue" value="false" type="bool" />
   </component>
   <component name="CMakeProjectFlavorService">
     <option name="flavorId" value="CMakePlainProjectFlavor" />
@@ -26,10 +26,14 @@
     </configurations>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="44532195-5cfd-4d9e-bf7a-55abf402d641" name="Changes" comment="">
+    <list default="true" id="24a53313-28c2-42be-af8f-98200db021da" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/editor.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/editor.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ntprof_config.ini" beforeDir="false" afterPath="$PROJECT_DIR$/ntprof_config.ini" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/target/trace_nvmet_tcp.c" beforeDir="false" afterPath="$PROJECT_DIR$/target/trace_nvmet_tcp.c" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/host/host.c" beforeDir="false" afterPath="$PROJECT_DIR$/host/host.c" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/host/host.h" beforeDir="false" afterPath="$PROJECT_DIR$/host/host.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/host/host_main.c" beforeDir="false" afterPath="$PROJECT_DIR$/host/host_main.c" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/host/trace_blk.c" beforeDir="false" afterPath="$PROJECT_DIR$/host/trace_blk.c" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/host/trace_nvme_tcp.c" beforeDir="false" afterPath="$PROJECT_DIR$/host/trace_nvme_tcp.c" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -76,21 +80,22 @@
   </component>
   <component name="ProjectApplicationVersion">
     <option name="ide" value="CLion" />
-    <option name="majorVersion" value="2024" />
-    <option name="minorVersion" value="3.2" />
+    <option name="majorVersion" value="2025" />
+    <option name="minorVersion" value="1" />
     <option name="productBranch" value="Classic" />
   </component>
   <component name="ProjectColorInfo">{
   &quot;customColor&quot;: &quot;&quot;,
   &quot;associatedIndex&quot;: 5
 }</component>
-  <component name="ProjectId" id="2si4yrjoUReMFQPi4aJsSGbVxE8" />
+  <component name="ProjectId" id="2skLld80mF0BodFVAv9A9YnufT9" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
   <component name="PropertiesComponent">{
   &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.RadMigrateCodeStyle&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.cidr.known.project.marker&quot;: &quot;true&quot;,
@@ -98,7 +103,7 @@
     &quot;RunOnceActivity.readMode.enableVisualFormatting&quot;: &quot;true&quot;,
     &quot;cf.first.check.clang-format&quot;: &quot;false&quot;,
     &quot;cidr.known.project.marker&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;analyzer&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;one__queue&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
@@ -114,25 +119,23 @@
       <window_info id="Commit_Guest" show_stripe_button="false" />
       <window_info id="Pull Requests" />
       <window_info id="Learn" />
-      <window_info active="true" content_ui="combo" id="Project" order="0" visible="true" weight="0.17721148" />
+      <window_info active="true" content_ui="combo" id="Project" order="0" visible="true" weight="0.2029877" />
       <window_info id="Commit" order="1" weight="0.25" />
-      <window_info id="Welcome to GitHub Copilot" order="2" weight="0.33033141" />
-      <window_info id="Structure" order="3" side_tool="true" weight="0.25" />
+      <window_info id="Structure" order="2" side_tool="true" weight="0.25" />
       <window_info anchor="bottom" id="Database Changes" />
       <window_info anchor="bottom" id="TypeScript" />
       <window_info anchor="bottom" id="Python Packages" />
       <window_info anchor="bottom" id="TODO" />
       <window_info anchor="bottom" id="File Transfer" />
       <window_info anchor="bottom" id="Vcpkg" />
-      <window_info anchor="bottom" id="Find" />
       <window_info anchor="bottom" id="clangd" />
       <window_info anchor="bottom" id="Version Control" order="0" />
       <window_info anchor="bottom" id="Problems" order="1" />
       <window_info anchor="bottom" id="Problems View" order="2" />
-      <window_info active="true" anchor="bottom" id="Terminal" order="3" visible="true" weight="0.20597826" />
+      <window_info active="true" anchor="bottom" id="Terminal" order="3" visible="true" weight="0.033152174" />
       <window_info anchor="bottom" id="Services" order="4" />
       <window_info anchor="bottom" id="CMake" order="5" />
-      <window_info anchor="bottom" id="Build" order="6" weight="0.42489034" />
+      <window_info anchor="bottom" id="Build" order="6" visible="true" weight="0.31358695" />
       <window_info anchor="right" id="make" side_tool="true" />
       <window_info anchor="right" id="Coverage" side_tool="true" />
       <window_info anchor="right" id="Python Console" />
@@ -141,9 +144,7 @@
       <window_info anchor="right" id="Database" order="2" weight="0.25" />
       <window_info anchor="right" id="Gradle" order="3" weight="0.25" />
       <window_info anchor="right" id="Maven" order="4" weight="0.25" />
-      <window_info anchor="right" id="github.copilotToolWindow" order="5" />
-      <window_info anchor="right" id="GitHub Copilot Chat" order="6" />
-      <window_info anchor="right" id="Meson" order="7" />
+      <window_info anchor="right" id="Meson" order="5" />
     </layout>
   </component>
   <component name="RunManager" selected="Native Application.all">
@@ -174,19 +175,18 @@
       <item itemvalue="Native Application.target" />
     </list>
   </component>
-  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
-      <changelist id="44532195-5cfd-4d9e-bf7a-55abf402d641" name="Changes" comment="" />
-      <created>1738925320078</created>
+      <changelist id="24a53313-28c2-42be-af8f-98200db021da" name="Changes" comment="" />
+      <created>1738994778820</created>
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
-      <updated>1738925320078</updated>
-      <workItem from="1738925321838" duration="6797000" />
-      <workItem from="1738936473982" duration="1160000" />
-      <workItem from="1738945869203" duration="2522000" />
-      <workItem from="1738977630927" duration="3236000" />
-      <workItem from="1738981364807" duration="1962000" />
+      <updated>1738994778820</updated>
+      <workItem from="1738994780472" duration="144000" />
+      <workItem from="1738997328862" duration="300000" />
+      <workItem from="1738998271167" duration="346000" />
+      <workItem from="1738999921606" duration="1047000" />
+      <workItem from="1739002013685" duration="177000" />
     </task>
     <servers />
   </component>

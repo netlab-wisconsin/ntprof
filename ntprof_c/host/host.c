@@ -12,6 +12,7 @@ void init_per_core_statistics(struct per_core_statistics *stats) {
     stats->sampler = 0;
     INIT_LIST_HEAD(&stats->incomplete_records);
     INIT_LIST_HEAD(&stats->completed_records);
+    spin_lock_init(&stats->lock);
 }
 
 void free_per_core_statistics(struct per_core_statistics *stats) {
@@ -37,12 +38,26 @@ void free_per_core_statistics(struct per_core_statistics *stats) {
 
 void append_record(struct per_core_statistics *stats, struct profile_record *record) {
     // pr_info("append a record to the incomplete list, %d\n", record->metadata.req_tag);
+    unsigned long flags;
+    local_irq_save(flags);
+    // local_bh_disable();
+    spin_lock(&stats->lock);
     list_add_tail(&record->list, &stats->incomplete_records);
+    spin_unlock(&stats->lock);
+    // local_bh_enable();
+    local_irq_restore(flags);
 }
 
 void complete_record(struct per_core_statistics *stats, struct profile_record *record) {
+    unsigned long flags;
+    local_irq_save(flags);
+    // local_bh_disable();
+    spin_lock(&stats->lock);
     list_del(&record->list);
     list_add_tail(&record->list, &stats->completed_records);
+    spin_unlock(&stats->lock);
+    // local_bh_enable();
+    local_irq_restore(flags);
 }
 
 /**
@@ -51,12 +66,22 @@ void complete_record(struct per_core_statistics *stats, struct profile_record *r
 struct profile_record *get_profile_record(struct per_core_statistics *stats, int req_tag) {
     struct list_head *pos;
     struct profile_record *record;
+    unsigned long flags;
+    local_irq_save(flags);
+    // local_bh_disable();
+    spin_lock(&stats->lock);
     list_for_each(pos, &stats->incomplete_records) {
         record = list_entry(pos, struct profile_record, list);
         if (record->metadata.req_tag == req_tag) {
+            spin_unlock(&stats->lock);
+            // local_bh_enable();
+            local_irq_restore(flags);
             return record;
         }
     }
+    spin_unlock(&stats->lock);
+    // local_bh_enable();
+    local_irq_restore(flags);
     return NULL;
 }
 
