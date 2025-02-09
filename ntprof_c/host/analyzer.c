@@ -46,28 +46,6 @@ struct categorized_records {
 
 // given a profiling record and the configuration, insert it to the hashtable
 static int categorize_record(struct profile_record *record, struct ntprof_config *config) {
-    // if core id is 16
-    int cid = smp_processor_id();
-    if (cid == 16) {
-        pr_info("categorize_record is called!");
-        print_profile_record(record);
-        if (!record->metadata.is_write) {
-            struct read_breakdown rb;
-            init_read_breakdown(&rb);
-            break_latency_read(record, &rb);
-            print_read_breakdown(&rb);
-        } else if (record->metadata.contains_r2t) {
-            struct write_breakdown_l wb;
-            init_write_breakdown_l(&wb);
-            break_latency_write_l(record, &wb);
-            print_write_breakdown_l(&wb);
-        } else {
-            struct write_breakdown_s wb;
-            init_write_breakdown_s(&wb);
-            break_latency_write_s(record, &wb);
-            print_write_breakdown_s(&wb);
-        }
-    }
     // generate the category key
     struct category_key key = {
         .io_size = config->enable_group_by_size ? record->metadata.size : -1,
@@ -269,6 +247,7 @@ static void start_phase_2(struct report *result) {
         queue_work(wq, &sw->work);
     }
 
+    pr_info("assign the count to be %d", cnt);
     result->cnt=cnt;
 
     mutex_unlock(&category_mutex);

@@ -72,8 +72,8 @@ void clear_up(void) {
     }
 }
 
-char* print_cmd(unsigned int cmd){
-    switch(cmd){
+char *print_cmd(unsigned int cmd) {
+    switch (cmd) {
         case NTPROF_IOCTL_START:
             return "NTPROF_IOCTL_START";
         case NTPROF_IOCTL_STOP:
@@ -87,7 +87,6 @@ char* print_cmd(unsigned int cmd){
 
 static long ntprof_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
     pr_info("!ntprof: IOCTL command received: %s\n", print_cmd(cmd));
-    msleep(2000);
     int previous_stat;
     struct analyze_arg aarg;
     struct analyze_arg __user *uarg = (struct analyze_arg __user *) arg;
@@ -128,11 +127,9 @@ static long ntprof_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 .total_io = 0
             };
 
-            // call the analyze function to assign value to ret
-            analyze(&global_config, &rpt);
-
-            memset(&aarg, 0, sizeof(aarg)); // Initialize structure
-            aarg.rpt.total_io = rpt.total_io;
+        // call the analyze function to assign value to ret
+            memset(&aarg, 0, sizeof(aarg));
+            analyze(&global_config, &aarg.rpt);
 
             if (copy_to_user(uarg, &aarg, sizeof(aarg))) {
                 pr_err("ntprof: Failed to copy analysis result to user\n");
