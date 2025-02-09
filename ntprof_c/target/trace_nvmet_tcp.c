@@ -131,10 +131,9 @@ void on_try_send_data_pdu(void *ignore, u16 cmd_id, int qid, int size, unsigned 
 }
 
 void complete_target_record(struct profile_record *record, unsigned long long timestamp, enum EEvent event
-              // struct ntprof_stat *s) {
-    ){
+                            struct ntprof_stat *s) {
     append_event(record, timestamp, event);
-    // cpy_stat(record, s);
+    cpy_stat(record, s);
 }
 
 void on_try_send_r2t(void *ignore, u16 cmd_id, int qid, int size, unsigned long long time, void *pdu) {

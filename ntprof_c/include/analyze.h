@@ -105,7 +105,7 @@ struct breakdown {
 };
 
 
-#define MAX_CATEGORIES 64
+#define MAX_CATEGORIES 8
 
 struct report {
     unsigned int cnt;
