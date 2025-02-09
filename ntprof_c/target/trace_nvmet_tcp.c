@@ -130,31 +130,23 @@ void on_try_send_data_pdu(void *ignore, u16 cmd_id, int qid, int size, unsigned 
     }
 }
 
-void on_try_send_r2t(void *ignore, u16 cmd_id, int qid, int size, unsigned long long time, void *pdu) {
-    struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
-    if (record) {
-        // pr_info("on_try_send_r2t is called -> ");
-        // print_profile_record(record);
-        // (struct nvme_tcp_r2t_pdu *)pdu;
-        append_event(record, time, NVMET_TCP_TRY_SEND_R2T);
-        cpy_stat(record, &((struct nvme_tcp_data_pdu *)pdu)->stat);
-        list_del_init(&record->list);
-        free_profile_record(record);
-    }
+void complete_target_record(struct profile_record *record, unsigned long long timestamp, enum EEvent event
+              // struct ntprof_stat *s) {
+    ){
+    append_event(record, timestamp, event);
+    // cpy_stat(record, s);
 }
+
+void on_try_send_r2t(void *ignore, u16 cmd_id, int qid, int size, unsigned long long time, void *pdu) {
+    try_remove_record(&stat[qid], cmd_id, (void *) complete_target_record, time, NVMET_TCP_TRY_SEND_R2T,
+                      &((struct nvme_tcp_data_pdu *) pdu)->stat);
+}
+
 
 void on_try_send_response(void *ignore, u16 cmd_id, int qid, int size, int is_write, unsigned long long time,
                           void *pdu) {
-    struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
-    if (record) {
-        // pr_info("on_try_send_response is called -> ");
-        // print_profile_record(record);
-        // (struct nvme_tcp_rsp_pdu *)pdu;
-        append_event(record, time, NVMET_TCP_TRY_SEND_RESPONSE);
-        cpy_stat(record, &((struct nvme_tcp_data_pdu *)pdu)->stat);
-        list_del_init(&record->list);
-        free_profile_record(record);
-    }
+    try_remove_record(&stat[qid], cmd_id, (void *) complete_target_record, time, NVMET_TCP_TRY_SEND_RESPONSE,
+                      &((struct nvme_tcp_data_pdu *) pdu)->stat);
 }
 
 void on_try_send_data(void *ignore, u16 cmd_id, int qid, int cp_len, unsigned long long time) {
@@ -173,7 +165,6 @@ void on_try_recv_data(void *ignore, u16 cmd_id, int qid, int cp_len, unsigned lo
 
 void on_handle_h2c_data_pdu(void *ignore, u16 cmd_id, int qid, int datalen, unsigned long long time,
                             long long recv_time) {
-
     struct profile_record *record = kmalloc(sizeof(struct profile_record), GFP_KERNEL);
     if (!record) {
         pr_err("Failed to allocate memory for profile_record");
@@ -183,7 +174,6 @@ void on_handle_h2c_data_pdu(void *ignore, u16 cmd_id, int qid, int datalen, unsi
     append_event(record, recv_time, NVMET_TCP_TRY_RECV_PDU);
     append_event(record, time, NVMET_TCP_HANDLE_H2C_DATA_PDU);
     append_record(&stat[qid], record);
-    
 }
 
 void on_io_work(void *ignore, int qid, long long recv, long long send) {

@@ -5,7 +5,7 @@ NAME="[run_exp_target]"
 DIR_NAME="target"
 MODULE_NAME="ntprof_target"
 MODULE_PATH="$DIR_NAME/$MODULE_NAME.ko"
-DURATION=10
+DURATION=1000
 
 echo "$NAME Cleaning up old build..."
 make clean && make target
