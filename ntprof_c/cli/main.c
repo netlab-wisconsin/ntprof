@@ -68,7 +68,7 @@ int analyze(struct ntprof_config *config) {
     if (ret != EXIT_SUCCESS) return EXIT_FAILURE;
 
     printf("Analyze result:\n");
-    printf("  - Total number of probes: %llu\n", arg.result.total_io);
+    printf("  - Total number of probes: %llu\n", arg.rpt.total_io);
 
     return EXIT_SUCCESS;
 }

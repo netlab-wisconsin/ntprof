@@ -3,14 +3,7 @@
 
 #include "config.h"
 
-struct profile_result {
-    unsigned long long total_io;
-};
 
-struct analyze_arg {
-    struct ntprof_config config;
-    struct profile_result result;
-};
 
 #define READ_BREAKDOWN_FIELDS(X)                 \
 X(blk_submission_queueing)                   \
@@ -109,6 +102,20 @@ struct breakdown {
         struct write_breakdown_s writes;
         struct write_breakdown_l writel;
     };
+};
+
+
+#define MAX_CATEGORIES 256
+
+struct report {
+    int cnt;
+    unsigned long long total_io;
+    struct breakdown breakdown[MAX_CATEGORIES];
+};
+
+struct analyze_arg {
+    struct ntprof_config config;
+    struct report rpt;
 };
 
 #endif //ANALYZE_H

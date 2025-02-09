@@ -6,7 +6,7 @@
 #include "breakdown.h"
 
 
-void analyze(struct ntprof_config *conf, struct profile_result *result);
+void analyze(struct ntprof_config *conf, struct report *rpt);
 
 
 // struct read_breakdown {

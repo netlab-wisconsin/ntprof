@@ -33,8 +33,11 @@ static int is_profiling = 0;
 
 // Function declarations
 void register_tracepoints(void);
+
 void unregister_tracepoints(void);
+
 void init_variables(void);
+
 void clear_up(void);
 
 void register_tracepoints(void) {
@@ -103,21 +106,15 @@ static long ntprof_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 pr_info("ntprof: Profiling temporarily stopped for analysis\n");
             }
 
-            while (atomic_read(&op_cnt) != 0) {
-                // wait for all call back functions to finish
-                cpu_relax(); 
-            }
-
-
-            struct profile_result ret = {
+            struct report rpt = {
                 .total_io = 0
             };
 
-        // call the analyze function to assign value to ret
-            analyze(&global_config, &ret);
+            // call the analyze function to assign value to ret
+            analyze(&global_config, &rpt);
 
             memset(&aarg, 0, sizeof(aarg)); // Initialize structure
-            aarg.result.total_io = ret.total_io; // TODO: Implement analysis
+            aarg.rpt.total_io = rpt.total_io;
 
             if (copy_to_user(uarg, &aarg, sizeof(aarg))) {
                 pr_err("ntprof: Failed to copy analysis result to user\n");
@@ -161,7 +158,7 @@ static struct file_operations fops = {
 
 static int __init ntprof_host_module_init(void) {
     pr_info("ntprof_host: Module loading...\n");
-    
+
     if (alloc_chrdev_region(&dev_num, 0, 1, DEVICE_NAME) < 0) {
         pr_alert("ntprof_host: Failed to allocate char device region\n");
         return -1;

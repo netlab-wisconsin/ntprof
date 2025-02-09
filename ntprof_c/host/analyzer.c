@@ -7,14 +7,14 @@
 #include <linux/delay.h>
 #include <linux/workqueue.h>
 #include <linux/jhash.h>
+#include <linux/bitops.h>
 
 #include "../include/analyze.h"
 #include "analyzer.h"
 #include "statistics.h"
+#include "breakdown.h"
 
-#define MAX_CATEGORIES 256
-#define CATEGORY_HASH_BITS 8 // 32 buckets
-
+#define CATEGORY_HASH_BITS (ilog2(MAX_CATEGORIES - 1) + 1)
 
 // hash table to store categorized profiling records
 static DEFINE_HASHTABLE(categories_hash, CATEGORY_HASH_BITS);
@@ -186,24 +186,33 @@ void start_phase_1(struct per_core_statistics *stat, struct ntprof_config *confi
 //  Phase 2 - summarize each category and generate report
 // *******************************************************
 
-void summarize_category(struct categorized_records *cat, struct profile_result *rpt)
+void summarize_category(struct categorized_records *cat, struct report *rpt, int idx)
 {
     struct profile_record *record, *tmp;
     list_for_each_entry_safe(record, tmp, &cat->records, list) {
         list_del(&record->list);  // Remove from list
         rpt->total_io++;                // Update the report count
-        kfree(record);             // Free the record memory
+        if (!record->metadata.is_write) {
+            break_latency_read(record, &rpt->breakdown->read);
+        } else if (!record->metadata.contains_r2t) {
+           break_latency_write_s(record, &rpt->breakdown->writes);
+        } else {
+            break_latency_write_l(record, &rpt->breakdown->writel);
+        }
+        kfree(record);
     }
 }
 
 struct summarize_work {
     struct work_struct work;
     struct categorized_records *cat;
-    struct profile_result local_result;
-    struct profile_result *global_result;
+    struct report local_result;
+    struct report *global_result;
+    int id;
 };
 
-static void merge_result(struct profile_result *global, struct profile_result *local) {
+// this whole function is protected by the category_mutex
+static void merge_result(struct report *global, struct report *local) {
     global->total_io += local->total_io;
 }
 
@@ -213,7 +222,7 @@ static void summarize_work_fn(struct work_struct *work)
     struct summarize_work *sw = container_of(work, struct summarize_work, work);
     struct categorized_records *cat = sw->cat;
 
-    summarize_category(cat, &sw->local_result);
+    summarize_category(cat, &sw->local_result, sw->id);
 
     pr_info("Category => size=%d, type=%d, session=%s, total_cnt=%llu\n",
             cat->key.io_size,
@@ -231,7 +240,7 @@ static void summarize_work_fn(struct work_struct *work)
     kfree(sw);
 }
 
-static void start_phase_2(struct profile_result *result) {
+static void start_phase_2(struct report *result) {
     struct workqueue_struct *wq = alloc_workqueue("summary_wq", WQ_UNBOUND, 0);
 
     if (!wq) {
@@ -245,6 +254,7 @@ static void start_phase_2(struct profile_result *result) {
     struct hlist_node *tmp;
     struct categorized_records *cat;
 
+    int cnt = 0;
     hash_for_each_safe(categories_hash, bkt, tmp, cat, hash_node) {
         struct summarize_work *sw = kmalloc(sizeof(*sw), GFP_KERNEL);
         if (!sw) {
@@ -255,8 +265,11 @@ static void start_phase_2(struct profile_result *result) {
         INIT_WORK(&sw->work, summarize_work_fn);
         sw->cat = cat;
         sw->global_result = result;
+        sw->id = cnt++;
         queue_work(wq, &sw->work);
     }
+
+    result->cnt=cnt;
 
     mutex_unlock(&category_mutex);
 
@@ -283,7 +296,7 @@ static void finish_analyzation(void) {
     mutex_unlock(&category_mutex);
 }
 
-void analyze(struct ntprof_config *conf, struct profile_result *result) {
+void analyze(struct ntprof_config *conf, struct report *rpt) {
     pr_info("start preparing analysis phase!");
     preparing_analyzation();
 
@@ -291,7 +304,7 @@ void analyze(struct ntprof_config *conf, struct profile_result *result) {
     start_phase_1(stat, conf);
 
     pr_info("start phase 2: summarize the profile records in each category");
-    start_phase_2(result);
+    start_phase_2(rpt);
 
     pr_info("finish analysis, clean up the hashmap");
     finish_analyzation();
