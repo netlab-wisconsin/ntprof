@@ -96,7 +96,10 @@ int run_analyze(struct ntprof_config *config) {
 int execute_command(unsigned long ioctl_cmd, void *arg) {
     int fd = open_device();
     if (fd < 0) return EXIT_FAILURE;
-    return send_ioctl(fd, ioctl_cmd, arg);
+    printf("before send command, ioctl_cmd: %lu\n", ioctl_cmd);
+    int ret =  send_ioctl(fd, ioctl_cmd, arg);
+    printf("after send command, return is %d\n", ret);
+    return ret;
 }
 
 int main(int argc, char *argv[]) {
@@ -115,6 +118,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (cmd == CMD_STOP) {
+        printf("Stopping profiling...\n");
         return execute_command(NTPROF_IOCTL_STOP, NULL);
     }
 

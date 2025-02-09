@@ -6,6 +6,7 @@
 #include <linux/uaccess.h>
 #include <linux/cdev.h>
 #include <linux/mutex.h>
+#include <linux/delay.h>
 
 #include "../include/config.h"
 #include "../include/ntprof_ctl.h"
@@ -71,17 +72,34 @@ void clear_up(void) {
     }
 }
 
+char* print_cmd(unsigned int cmd){
+    switch(cmd){
+        case NTPROF_IOCTL_START:
+            return "NTPROF_IOCTL_START";
+        case NTPROF_IOCTL_STOP:
+            return "NTPROF_IOCTL_STOP";
+        case NTPROF_IOCTL_ANALYZE:
+            return "NTPROF_IOCTL_ANALYZE";
+        default:
+            return "UNKNOWN";
+    }
+}
+
 static long ntprof_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
+    pr_info("!ntprof: IOCTL command received: %s\n", print_cmd(cmd));
+    msleep(2000);
     int previous_stat;
     struct analyze_arg aarg;
     struct analyze_arg __user *uarg = (struct analyze_arg __user *) arg;
 
     switch (cmd) {
         case NTPROF_IOCTL_START:
+            pr_info("NTPROF_IOCTL_START: try to copy from user, size is %d\n", sizeof(struct ntprof_config));
             if (copy_from_user(&global_config, (struct ntprof_config __user *) arg, sizeof(struct ntprof_config))) {
                 pr_err("ntprof: Failed to copy config from user\n");
                 return -EFAULT;
             }
+            pr_info("after copy from user\n");
             is_profiling = 1;
             register_tracepoints();
             pr_info("ntprof: Profiling started: %s\n", global_config.session_name);
@@ -91,7 +109,7 @@ static long ntprof_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         case NTPROF_IOCTL_STOP:
             if (!is_profiling) {
                 pr_warn("ntprof: Profiling is not active\n");
-                return -EINVAL;
+                return 0;
             }
             is_profiling = 0;
             unregister_tracepoints();
