@@ -24,10 +24,6 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid, bool *to_t
     }
     int cid = smp_processor_id();
 
-    if (cid == 16) {
-        pr_warn("on_nvme_tcp_queue_rq is called! req->tag = %d", req->tag);
-    }
-
     if (unlikely(global_config.frequency == 0)) {
         pr_err("on_block_rq_complete: frequency is 0, no sampling");
         return;
@@ -67,10 +63,6 @@ void on_nvme_tcp_queue_request(void *ignore, struct request *req, int qid, int c
     int cid = smp_processor_id();
     unsigned long flags;
     update_op_cnt(true);
-
-    if (cid == 16) {
-        pr_info("on_nvme_tcp_queue_request is called! req->tag = %d, cmdid = %d", req->tag, cmdid);
-    }
 
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
     if (rec) {
@@ -145,9 +137,6 @@ void on_nvme_tcp_done_send_req(void *ignore, struct request *req, int qid, long 
 void on_nvme_tcp_handle_c2h_data(void *ignore, struct request *rq, int qid, int data_remain, unsigned long long time,
                                  long long recv_time) {
     int cid = smp_processor_id();
-    if (cid == 16) {
-        pr_info("on_nvme_tcp_handle_c2h_data is called! req->tag = %d", rq->tag);
-    }
     unsigned long flags;
     update_op_cnt(true);
     struct profile_record *rec = get_profile_record(&stat[cid], rq->tag);
@@ -208,9 +197,6 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req, int qid, un
                                   long long recv_time, void *pdu) {
 
     int cid = smp_processor_id();
-    if (cid == 16) {
-        pr_info("on_nvme_tcp_process_nvme_cqe is called! req->tag = %d", req->tag);
-    }
     update_op_cnt(true);
     unsigned long flags;
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
@@ -223,8 +209,6 @@ void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req, int qid, un
             append_event(rec, recv_time, NVME_TCP_RECV_SKB);
             append_event(rec, time, NVME_TCP_PROCESS_NVME_CQE);
         }
-    } else {
-        pr_info("cannot found profile record for tag=%d", req->tag);
     }
     update_op_cnt(false);
 }

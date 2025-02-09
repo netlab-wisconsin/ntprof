@@ -360,7 +360,5 @@ void break_latency_write_l(struct profile_record *record, struct write_breakdown
 
     // End-to-end latencies
     breakdown->blk_e2e += blk_rq_complete - blk_submit;
-    breakdown->networking += breakdown->nvme_tcp_wait_for_r2t + breakdown->nvme_tcp_wait_for_resp -
-            (nvmet_tcp_try_send_r2t - nvmet_tcp_try_recv_pdu1) - (
-                nvmet_tcp_try_send_response - nvmet_tcp_try_recv_pdu2);
+    breakdown->networking += 0; // TODO
 }
