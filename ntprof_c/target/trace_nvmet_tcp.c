@@ -99,7 +99,6 @@ void on_setup_response_pdu(void *ignore, u16 cmd_id, int qid, unsigned long long
 
 void cpy_stat(struct profile_record *record, struct ntprof_stat *s) {
     s->cnt = 0;
-    // pr_info("copy stat to record: %d\n", record->metadata.req_tag);
     s->id = record->metadata.req_tag;
     if (s->id == 0) {
         pr_warn("making s->id 0!!!!!!!!!");
