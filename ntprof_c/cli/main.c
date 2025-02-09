@@ -69,6 +69,7 @@ int analyze(struct ntprof_config *config) {
 
     printf("Analyze result:\n");
     printf("  - Total number of probes: %llu\n", arg.rpt.total_io);
+    printf("  - Total number of categories: %u\n", arg.rpt.cnt);
 
     return EXIT_SUCCESS;
 }

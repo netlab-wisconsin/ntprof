@@ -3,10 +3,12 @@
 
 #define MAX_QUEUE_NUM 64
 
+#include <linux/spinlock.h>
 #include "../include/statistics.h"
 
 struct per_queue_statistics {
     struct list_head records;
+    struct spinlock lock;
 };
 
 void init_per_queue_statistics(struct per_queue_statistics *pqs);

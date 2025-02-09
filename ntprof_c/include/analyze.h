@@ -105,10 +105,10 @@ struct breakdown {
 };
 
 
-#define MAX_CATEGORIES 256
+#define MAX_CATEGORIES 64
 
 struct report {
-    int cnt;
+    unsigned int cnt;
     unsigned long long total_io;
     struct breakdown breakdown[MAX_CATEGORIES];
 };
