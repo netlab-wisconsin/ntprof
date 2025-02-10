@@ -14,6 +14,7 @@
 #include "../include/statistics.h"
 #include "host.h"
 #include "host_logging.h"
+#include <linux/delay.h>
 
 #include "breakdown.h"
 
@@ -80,7 +81,10 @@ void on_nvme_tcp_try_send(void *ignore, struct request *req, int qid, long long 
     update_op_cnt(true);
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
     if (rec) {
-        append_event(rec, time, NVME_TCP_TRY_SEND);
+        struct ts_entry *last_entry = list_last_entry(&rec->ts->list, struct ts_entry, list);
+        if (last_entry->event != NVME_TCP_TRY_SEND_DATA) {
+            append_event(rec, time, NVME_TCP_TRY_SEND);
+        }
     }
     update_op_cnt(false);
 }
@@ -88,6 +92,7 @@ void on_nvme_tcp_try_send(void *ignore, struct request *req, int qid, long long 
 void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int qid, int len, int local_port,
                                   long long unsigned int time) {
     int cid = smp_processor_id();
+    pr_info("cid: %d, try send cmd pdu: req->tag=%d", cid, req->tag);
     update_op_cnt(true);
     unsigned long flags;
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
@@ -99,7 +104,9 @@ void on_nvme_tcp_try_send_cmd_pdu(void *ignore, struct request *req, int qid, in
 
 void on_nvme_tcp_try_send_data_pdu(void *ignore, struct request *req, int qid, int len, long long unsigned int time,
                                    void *pdu) {
+
     int cid = smp_processor_id();
+    pr_info("cid: %d, try send data pdu: req->tag=%d", cid, req->tag);
     unsigned long flags;
     update_op_cnt(true);
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
@@ -118,7 +125,11 @@ void on_nvme_tcp_try_send_data(void *ignore, struct request *req, int qid, int l
     update_op_cnt(true);
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
     if (rec) {
-        append_event(rec, time, NVME_TCP_TRY_SEND_DATA);
+        // get last event
+        struct ts_entry *last_entry = list_last_entry(&rec->ts->list, struct ts_entry, list);
+        if (last_entry->event != NVME_TCP_TRY_SEND) {
+            append_event(rec, time, NVME_TCP_TRY_SEND_DATA);
+        }
     }
     update_op_cnt(false);
 }
@@ -137,12 +148,26 @@ void on_nvme_tcp_done_send_req(void *ignore, struct request *req, int qid, long 
 void on_nvme_tcp_handle_c2h_data(void *ignore, struct request *rq, int qid, int data_remain, unsigned long long time,
                                  long long recv_time) {
     int cid = smp_processor_id();
+    pr_info("cid: %d, handle c2h data: req->tag=%d", cid, rq->tag);
     unsigned long flags;
     update_op_cnt(true);
     struct profile_record *rec = get_profile_record(&stat[cid], rq->tag);
+    // pr_info("on_nvme_tcp_handle_c2h_data is called: current incomplete list length on core %d is %d", cid,
+    //         get_list_len(&stat[cid]));
+
     if (rec) {
         rec->metadata.contains_c2h = 1;
-        // TODO: utilize the skb time
+        // check the last timestamp
+        struct ts_entry *last_entry = list_last_entry(&rec->ts->list, struct ts_entry, list);
+        unsigned long long lasttime = last_entry->timestamp;
+        if (recv_time < lasttime) {
+            pr_info("on_nvme_tcp_handle_c2h_data is called: current incomplete list length on core %d is %d", cid,
+                    get_list_len(&stat[cid]));
+            pr_err("on_nvme_tcp_handle_c2h_data: to append time %llu is less than last time %llu\n", recv_time,
+                   lasttime);
+            print_profile_record(rec);
+        }
+
         append_event(rec, recv_time, NVME_TCP_RECV_SKB);
         append_event(rec, time, NVME_TCP_HANDLE_C2H_DATA);
     }
@@ -176,6 +201,7 @@ void cpy_ntprof_stat_to_record(struct profile_record *record, struct ntprof_stat
 void on_nvme_tcp_handle_r2t(void *ignore, struct request *req, int qid, unsigned long long time, long long recv_time,
                             void *pdu) {
     int cid = smp_processor_id();
+    pr_info("cid: %d, handle r2t: req->tag=%d", cid, req->tag);
     unsigned long flags;
     update_op_cnt(true);
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
@@ -185,26 +211,53 @@ void on_nvme_tcp_handle_r2t(void *ignore, struct request *req, int qid, unsigned
                     rec->metadata.cmdid);
         } else {
             rec->metadata.contains_r2t = 1;
+
+            struct ts_entry *last_entry = list_last_entry(&rec->ts->list, struct ts_entry, list);
+            unsigned long long lasttime = last_entry->timestamp;
+            if (recv_time < lasttime) {
+                pr_info("on_nvme_tcp_handle_r2t is called: current incomplete list length on core %d is %d", cid,
+                        get_list_len(&stat[cid]));
+                pr_err("on_nvme_tcp_handle_r2t: to append time %llu is less than last time %llu\n", recv_time,
+                       lasttime);
+                print_profile_record(rec);
+            }
             cpy_ntprof_stat_to_record(rec, &((struct nvme_tcp_r2t_pdu *) pdu)->stat);
         }
+
         append_event(rec, recv_time, NVME_TCP_RECV_SKB);
         append_event(rec, time, NVME_TCP_HANDLE_R2T);
+    } else {
+        pr_cont(
+            "!!! on_nvme_tcp_handle_r2t: rec [tag=%d] is not found or it is NULL, stat->cmdid=%llu, the incomplete queue is: ",
+            req->tag, ((struct nvme_tcp_r2t_pdu *) pdu)->stat.id);
+        print_incomplete_queue(&stat[cid]);
+        msleep(20000);
     }
     update_op_cnt(false);
 }
 
 void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req, int qid, unsigned long long time,
                                   long long recv_time, void *pdu) {
-
     int cid = smp_processor_id();
+    pr_info("cid: %d, process nvme cqe: req->tag=%d", cid, req->tag);
     update_op_cnt(true);
     unsigned long flags;
     struct profile_record *rec = get_profile_record(&stat[cid], req->tag);
+    // pr_info("on_nvme_tcp_process_nvme_cqe is called: current incomplete list length on core %d is %d", cid,
+    //         get_list_len(&stat[cid]));
     if (rec) {
         if (((struct nvme_tcp_rsp_pdu *) pdu)->stat.id != (unsigned long long) rec->metadata.cmdid) {
             pr_warn("stat.id=%llu, metadata.cmdid=%d\n", ((struct nvme_tcp_rsp_pdu *) pdu)->stat.id,
                     rec->metadata.cmdid);
         } else {
+            // if the new timestamp is less than the last timestamp
+            // print an error message
+            struct ts_entry *last_entry = list_last_entry(&rec->ts->list, struct ts_entry, list);
+            unsigned long long lasttime = last_entry->timestamp;
+            // if (recv_time < lasttime) {
+            //     pr_err("to append time %llu is less than last time %llu\n", time, lasttime);
+            //     print_profile_record(rec);
+            // }
             cpy_ntprof_stat_to_record(rec, &((struct nvme_tcp_rsp_pdu *) pdu)->stat);
             append_event(rec, recv_time, NVME_TCP_RECV_SKB);
             append_event(rec, time, NVME_TCP_PROCESS_NVME_CQE);

@@ -40,6 +40,13 @@ extern struct per_core_statistics stat[MAX_CORE_NUM];
 
 extern struct ntprof_config global_config;
 
+
+// TODO: to remove
+int get_list_len(struct per_core_statistics *stats);
+
+// TODO: to remove
+int print_incomplete_queue(struct per_core_statistics *stats);
+
 extern atomic_t op_cnt;
 
 void update_op_cnt(bool inc);

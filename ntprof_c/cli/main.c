@@ -8,6 +8,7 @@
 #include "../include/config.h"
 #include "../include/ntprof_ctl.h"
 #include "../include/analyze.h"
+#include "report.h"
 
 #define DEVICE_FILE "/dev/ntprof"
 #define DEFAULT_CONFIG_FILE "ntprof_config.ini"
@@ -68,8 +69,10 @@ int analyze(struct ntprof_config *config) {
     if (ret != EXIT_SUCCESS) return EXIT_FAILURE;
 
     printf("Analyze result:\n");
-    printf("  - Total number of probes: %llu\n", arg.rpt.total_io);
-    printf("  - Total number of categories: %u\n", arg.rpt.cnt);
+    // printf("  - Total number of probes: %llu\n", arg.rpt.total_io);
+    // printf("  - Total number of categories: %u\n", arg.rpt.cnt);
+
+    print_report(&arg.rpt);
 
     return EXIT_SUCCESS;
 }

@@ -95,6 +95,14 @@ enum EBreakdownType {
     BREAKDOWN_WRITEL
 };
 
+// we maintain a hashtable, (category_key --> categorized_records)
+
+struct category_key {
+    int io_size;
+    int io_type;
+    char session_name[MAX_SESSION_NAME_LEN];
+};
+
 struct breakdown {
     enum EBreakdownType type;
     union {
@@ -104,13 +112,16 @@ struct breakdown {
     };
 };
 
+struct category_summary {
+    struct category_key key;
+    struct breakdown bd;
+};
 
 #define MAX_CATEGORIES 8
 
 struct report {
-    unsigned int cnt;
-    unsigned long long total_io;
-    struct breakdown breakdown[MAX_CATEGORIES];
+    unsigned int category_num;
+    struct category_summary summary[MAX_CATEGORIES];
 };
 
 struct analyze_arg {

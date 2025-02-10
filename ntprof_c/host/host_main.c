@@ -44,25 +44,25 @@ void clear_up(void);
 void register_tracepoints(void) {
     register_blk_tracepoints();
     register_nvme_tcp_tracepoints();
-    pr_info("ntprof: Tracepoints registered successfully\n");
+    pr_debug("ntprof: Tracepoints registered successfully\n");
 }
 
 void unregister_tracepoints(void) {
     unregister_blk_tracepoints();
     unregister_nvme_tcp_tracepoints();
-    pr_info("ntprof: Tracepoints unregistered successfully\n");
+    pr_debug("ntprof: Tracepoints unregistered successfully\n");
 }
 
 void init_variables(void) {
     int i;
-    pr_info("ntprof: Initializing per-core statistics\n");
+    pr_debug("ntprof: Initializing per-core statistics\n");
     for (i = 0; i < MAX_CORE_NUM; i++) {
         init_per_core_statistics(&stat[i]);
     }
 }
 
 void clear_up(void) {
-    pr_info("ntprof: Clearing up resources\n");
+    pr_debug("ntprof: Clearing up resources\n");
     if (is_profiling) {
         unregister_tracepoints();
     }
@@ -86,14 +86,14 @@ char *print_cmd(unsigned int cmd) {
 }
 
 static long ntprof_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
-    pr_info("!ntprof: IOCTL command received: %s\n", print_cmd(cmd));
+    pr_debug("!ntprof: IOCTL command received: %s\n", print_cmd(cmd));
     int previous_stat;
     struct analyze_arg aarg;
     struct analyze_arg __user *uarg = (struct analyze_arg __user *) arg;
 
     switch (cmd) {
         case NTPROF_IOCTL_START:
-            pr_info("NTPROF_IOCTL_START: try to copy from user, size is %d\n", sizeof(struct ntprof_config));
+            pr_debug("NTPROF_IOCTL_START: try to copy from user, size is %d\n", sizeof(struct ntprof_config));
             if (copy_from_user(&global_config, (struct ntprof_config __user *) arg, sizeof(struct ntprof_config))) {
                 pr_err("ntprof: Failed to copy config from user\n");
                 return -EFAULT;
@@ -112,7 +112,6 @@ static long ntprof_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             }
             is_profiling = 0;
             unregister_tracepoints();
-            pr_info("ntprof: Profiling stopped\n");
             break;
 
         case NTPROF_IOCTL_ANALYZE:
@@ -120,16 +119,16 @@ static long ntprof_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             if (is_profiling) {
                 is_profiling = 0;
                 unregister_tracepoints();
-                pr_info("ntprof: Profiling temporarily stopped for analysis\n");
+                pr_debug("ntprof: Profiling temporarily stopped for analysis\n");
             }
-
-            struct report rpt = {
-                .total_io = 0
-            };
 
         // call the analyze function to assign value to ret
             memset(&aarg, 0, sizeof(aarg));
             analyze(&global_config, &aarg.rpt);
+
+            // if (aarg.rpt.cnt > 0) {
+            //     print_breakdown(&aarg.rpt.breakdown[0]);
+            // }
 
             if (copy_to_user(uarg, &aarg, sizeof(aarg))) {
                 pr_err("ntprof: Failed to copy analysis result to user\n");
@@ -139,7 +138,7 @@ static long ntprof_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             if (previous_stat) {
                 is_profiling = 1;
                 register_tracepoints();
-                pr_info("ntprof: Profiling resumed: %s\n", global_config.session_name);
+                pr_debug("ntprof: Profiling resumed: %s\n", global_config.session_name);
             }
             break;
 
@@ -155,13 +154,13 @@ static int ntprof_open(struct inode *inode, struct file *file) {
         pr_alert("ntprof: Device is busy\n");
         return -EBUSY;
     }
-    pr_info("ntprof: Device opened\n");
+    pr_debug("ntprof: Device opened\n");
     return 0;
 }
 
 static int ntprof_release(struct inode *inode, struct file *file) {
     mutex_unlock(&ntprof_mutex);
-    pr_info("ntprof: Device released\n");
+    pr_debug("ntprof: Device released\n");
     return 0;
 }
 
@@ -172,7 +171,7 @@ static struct file_operations fops = {
 };
 
 static int __init ntprof_host_module_init(void) {
-    pr_info("ntprof_host: Module loading...\n");
+    pr_debug("ntprof_host: Module loading...\n");
 
     if (alloc_chrdev_region(&dev_num, 0, 1, DEVICE_NAME) < 0) {
         pr_alert("ntprof_host: Failed to allocate char device region\n");
@@ -206,7 +205,7 @@ static int __init ntprof_host_module_init(void) {
 }
 
 static void __exit ntprof_host_module_exit(void) {
-    pr_info("ntprof_host: Module unloading...\n");
+    pr_debug("ntprof_host: Module unloading...\n");
     clear_up();
 
     if (ntprof_class) {
@@ -216,7 +215,7 @@ static void __exit ntprof_host_module_exit(void) {
 
     cdev_del(&ntprof_cdev);
     unregister_chrdev_region(dev_num, 1);
-    pr_info("ntprof_host: Module unloaded successfully\n");
+    pr_debug("ntprof_host: Module unloaded successfully\n");
 }
 
 module_init(ntprof_host_module_init);

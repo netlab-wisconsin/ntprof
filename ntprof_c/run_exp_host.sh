@@ -8,7 +8,7 @@ HOST_DIR_NAME="host"
 CLI_DIR_NAME="cli"
 MODULE_PATH="$HOST_DIR_NAME/$MODULE_NAME.ko"
 CLI_PATH="$CLI_DIR_NAME/ntprof_cli"
-DURATION=100
+DURATION=1000
 
 # check if ini config file is specified
 if [ $# -gt 0 ]; then
@@ -45,13 +45,13 @@ if ! sudo $CLI_PATH start "$CONFIG_FILE"; then
 fi
 
 # wait for the experiment to finish
-#echo "$NAME Running for $DURATION seconds..."
-#sleep $DURATION
+echo "$NAME Running for $DURATION seconds..."
+sleep $DURATION
 
- if ! sudo $CLI_PATH analyze; then
-     echo "Error: Experiment failed to analyze!"
-     exit 1
- fi
+# if ! sudo $CLI_PATH analyze; then
+#     echo "Error: Experiment failed to analyze!"
+#     exit 1
+# fi
 
 # sleep $DURATION
 echo "$NAME Experiment completed successfully!"

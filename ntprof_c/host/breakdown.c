@@ -350,6 +350,7 @@ void break_latency_write_l(struct profile_record *record, struct write_breakdown
     breakdown->nvmet_tcp_write_cmd_queueing += nvmet_tcp_handle_h2c_data_pdu - nvmet_tcp_try_recv_pdu2;
     breakdown->nvmet_tcp_write_cmd_processing += nvmet_tcp_exec_write_req - nvmet_tcp_handle_h2c_data_pdu;
     breakdown->nvmet_tcp_submit_to_blk += nvmet_tcp_queue_response2 - nvmet_tcp_exec_write_req;
+    // pr_info("nvmet_tcp_submit_to_blk=%llu-%llu=%llu", nvmet_tcp_queue_response2, nvmet_tcp_exec_write_req, nvmet_tcp_queue_response2 - nvmet_tcp_exec_write_req);
     breakdown->nvmet_tcp_completion_queueing += nvmet_tcp_setup_response_pdu - nvmet_tcp_queue_response2;
     breakdown->nvmet_tcp_response_processing += nvmet_tcp_try_send_response - nvmet_tcp_setup_response_pdu;
 
