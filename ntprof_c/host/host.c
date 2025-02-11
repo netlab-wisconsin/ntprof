@@ -8,14 +8,6 @@
 #include <linux/slab.h>
 #include "host_logging.h"
 
-void update_op_cnt(bool isInc) {
-    if (isInc) {
-        atomic_inc(&op_cnt);
-    } else {
-        atomic_dec(&op_cnt);
-    }
-}
-
 void init_per_core_statistics(struct per_core_statistics *stats) {
     stats->sampler = 0;
     INIT_LIST_HEAD(&stats->incomplete_records);
@@ -28,9 +20,6 @@ void free_per_core_statistics(struct per_core_statistics *stats) {
         pr_err("Try to free a per_core_statistics but it is NULL\n");
         return;
     }
-    unsigned long flags;
-    spin_lock_irqsave(&stats->lock, flags);
-    // use free_profile_record to free all records
     struct list_head *pos, *q;
     struct profile_record *record;
     list_for_each_safe(pos, q, &stats->incomplete_records) {
@@ -44,46 +33,34 @@ void free_per_core_statistics(struct per_core_statistics *stats) {
         list_del_init(pos);
         free_profile_record(record);
     }
-    spin_unlock_irqrestore(&stats->lock, flags);
 }
 
 void append_record(struct per_core_statistics *stats, struct profile_record *record) {
     // pr_info("append a record to the incomplete list, %d\n", record->metadata.req_tag);
-    unsigned long flags;
-    spin_lock_irqsave(&stats->lock, flags);
     // pr_cont("append a record [req=%d] to the incomplete list", record->metadata.req_tag);
     // print_incomplete_queue(stats);
     list_add_tail(&record->list, &stats->incomplete_records);
-    pr_info("add [req=%d, cmdid=%d]", record->metadata.req_tag, record->metadata.cmdid);
-
-    spin_unlock_irqrestore(&stats->lock, flags);
+    pr_debug("add [req=%d, cmdid=%d]", record->metadata.req_tag, record->metadata.cmdid);
 }
 
 void complete_record(struct per_core_statistics *stats, struct profile_record *record) {
-    unsigned long flags;
-    spin_lock_irqsave(&stats->lock, flags);
     list_move_tail(&record->list, &stats->completed_records);
-    pr_cont("move [req=%d, cmdid=%d] to completed list", record->metadata.req_tag, record->metadata.cmdid);
-    print_incomplete_queue(stats);
-    spin_unlock_irqrestore(&stats->lock, flags);
+    pr_debug("move [req=%d, cmdid=%d] to completed list", record->metadata.req_tag, record->metadata.cmdid);
+    //print_incomplete_queue(stats);
 }
 
 /**
  * get the profile record with the given request tag from the incomplete list
  */
-struct profile_record *get_profile_record(struct per_core_statistics *stats, int req_tag) {
+struct profile_record *get_profile_record(struct per_core_statistics *stats, struct request *req) {
     struct list_head *pos;
     struct profile_record *record;
-    unsigned long flags;
-    spin_lock_irqsave(&stats->lock, flags);
     list_for_each(pos, &stats->incomplete_records) {
         record = list_entry(pos, struct profile_record, list);
-        if (record->metadata.req_tag == req_tag) {
-            spin_unlock_irqrestore(&stats->lock, flags);
+        if (record->metadata.req == req) {
             return record;
         }
     }
-    spin_unlock_irqrestore(&stats->lock, flags);
     return NULL;
 }
 
@@ -92,12 +69,10 @@ int get_list_len(struct per_core_statistics *stats) {
     struct list_head *pos;
     struct profile_record *record;
     unsigned long flags;
-    spin_lock_irqsave(&stats->lock, flags);
     list_for_each(pos, &stats->incomplete_records) {
         record = list_entry(pos, struct profile_record, list);
         l++;
     }
-    spin_unlock_irqrestore(&stats->lock, flags);
     return l;
 }
 

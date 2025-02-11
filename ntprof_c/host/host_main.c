@@ -28,7 +28,7 @@ struct ntprof_config global_config;
 struct per_core_statistics stat[MAX_CORE_NUM];
 
 // atomic counter 
-atomic_t op_cnt = ATOMIC_INIT(0);
+atomic_t trace_on = ATOMIC_INIT(0);
 
 static int is_profiling = 0;
 
@@ -44,12 +44,16 @@ void clear_up(void);
 void register_tracepoints(void) {
     register_blk_tracepoints();
     register_nvme_tcp_tracepoints();
+    // set trace on to 1
+    atomic_set(&trace_on, 1);
     pr_debug("ntprof: Tracepoints registered successfully\n");
 }
 
 void unregister_tracepoints(void) {
     unregister_blk_tracepoints();
     unregister_nvme_tcp_tracepoints();
+    // set trace on to 0
+    atomic_set(&trace_on, 0);
     pr_debug("ntprof: Tracepoints unregistered successfully\n");
 }
 
@@ -68,7 +72,9 @@ void clear_up(void) {
     }
     int i;
     for (i = 0; i < MAX_CORE_NUM; i++) {
+        SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[i].lock, "clear_up");
         free_per_core_statistics(&stat[i]);
+        SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[i].lock, "clear_up");
     }
 }
 
@@ -122,13 +128,15 @@ static long ntprof_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 pr_debug("ntprof: Profiling temporarily stopped for analysis\n");
             }
 
+            msleep(1000);
+
         // call the analyze function to assign value to ret
             memset(&aarg, 0, sizeof(aarg));
             analyze(&global_config, &aarg.rpt);
 
-            // if (aarg.rpt.cnt > 0) {
-            //     print_breakdown(&aarg.rpt.breakdown[0]);
-            // }
+        // if (aarg.rpt.cnt > 0) {
+        //     print_breakdown(&aarg.rpt.breakdown[0]);
+        // }
 
             if (copy_to_user(uarg, &aarg, sizeof(aarg))) {
                 pr_err("ntprof: Failed to copy analysis result to user\n");

@@ -126,6 +126,7 @@ struct ts_entry {
 
 struct profile_record {
     struct {
+        struct request * req;
         char disk[MAX_SESSION_NAME_LEN];
         int req_tag;
         int cmdid;

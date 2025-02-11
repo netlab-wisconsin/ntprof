@@ -291,15 +291,36 @@ static void finish_analyzation(void) {
 }
 
 void analyze(struct ntprof_config *conf, struct report *rpt) {
-    pr_debug("start preparing analysis phase!");
-    preparing_analyzation();
+    // pr_debug("start preparing analysis phase!");
+    // preparing_analyzation();
+    //
+    // pr_debug("start phase 1: categorize the profile records");
+    // start_phase_1(stat, conf);
+    //
+    // pr_debug("start phase 2: summarize the profile records in each category");
+    // start_phase_2(rpt);
+    //
+    // pr_debug("finish analysis, clean up the hashmap");
+    // finish_analyzation();
 
-    pr_debug("start phase 1: categorize the profile records");
-    start_phase_1(stat, conf);
 
-    pr_debug("start phase 2: summarize the profile records in each category");
-    start_phase_2(rpt);
+    pr_warn("start removing!");
+    int i;
+    for (i = 0; i < MAX_CORE_NUM; i++) {
+        struct per_core_statistics *s = &stat[i];
+        struct profile_record *rec, *tmp;
+        SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[i].lock,"analyze");
 
-    pr_debug("finish analysis, clean up the hashmap");
-    finish_analyzation();
+        list_for_each_entry_safe(rec, tmp, &s->completed_records, list) {
+            // remove all elements
+            list_del(&rec->list);
+            kfree(rec);
+        }
+        list_for_each_entry_safe(rec, tmp, &s->incomplete_records, list) {
+            // remove all elements
+            list_del(&rec->list);
+            kfree(rec);
+        }
+        SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[i].lock, "analyze");
+    }
 }

@@ -7,6 +7,15 @@
 #include <linux/blkdev.h>
 #include <linux/spinlock.h>
 
+#define SPINLOCK_IRQSAVE_DISABLEPREEMPT(x, name) \
+    unsigned long __flags; \
+    preempt_disable(); \
+    spin_lock_irqsave(x, __flags);
+
+#define SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(x, name) \
+    spin_unlock_irqrestore(x, __flags); \
+    preempt_enable(); \
+
 
 #define MAX_CORE_NUM 32
 
@@ -32,7 +41,7 @@ void append_record(struct per_core_statistics *stats, struct profile_record *rec
 
 void complete_record(struct per_core_statistics *stats, struct profile_record *record);
 
-struct profile_record *get_profile_record(struct per_core_statistics *stats, int req_tag);
+struct profile_record *get_profile_record(struct per_core_statistics *stats, struct request *req_tag);
 
 bool match_config(struct request *req, struct ntprof_config *config);
 
@@ -41,14 +50,15 @@ extern struct per_core_statistics stat[MAX_CORE_NUM];
 extern struct ntprof_config global_config;
 
 
+
 // TODO: to remove
 int get_list_len(struct per_core_statistics *stats);
 
 // TODO: to remove
 int print_incomplete_queue(struct per_core_statistics *stats);
 
-extern atomic_t op_cnt;
+extern atomic_t trace_on;
 
-void update_op_cnt(bool inc);
+// void update_op_cnt(bool inc);
 
 #endif //HOST_H
