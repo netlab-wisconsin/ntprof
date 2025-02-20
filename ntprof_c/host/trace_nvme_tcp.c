@@ -24,7 +24,7 @@ void print_current_event(int cid, int tag, int cmdid, char *event) {
 
 void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid, bool *to_trace, int len1, int len2,
                           long long unsigned int time) {
-
+    // dump_stack();
     if (atomic_read(&trace_on) == 0 || qid == 0) {
         return;
     }
@@ -276,6 +276,7 @@ void on_nvme_tcp_handle_r2t(void *ignore, struct request *req, int qid, unsigned
 
 void on_nvme_tcp_process_nvme_cqe(void *ignore, struct request *req, int qid, unsigned long long time,
                                   long long recv_time, void *pdu) {
+    // dump_stack();
     if (atomic_read(&trace_on) == 0 || qid == 0) return;
     int cid = smp_processor_id();
     print_current_event(cid, req->tag, -1,"on_nvme_tcp_process_nvme_cqe");
