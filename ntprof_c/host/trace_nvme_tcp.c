@@ -41,6 +41,7 @@ void on_nvme_tcp_queue_rq(void *ignore, struct request *req, int qid, bool *to_t
         stat[cid].sampler = 0;
         if (match_config(req, &global_config)) {
             SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[cid].lock, "on_nvme_tcp_queue_rq");
+            // pr_info("on_nvme_tcp_queue_rq, PID:%d, core_id:%d, queue_id:%d, tag:%d, time:%llu\n", current->pid, cid, qid, req->tag, time);
             if (unlikely(get_profile_record(&stat[cid], req))) {
                 pr_err("Duplicated tag in incomplete list, cid=%d, tag=%d\n", cid, req->tag);
                 SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[cid].lock, "on_nvme_tcp_queue_rq");

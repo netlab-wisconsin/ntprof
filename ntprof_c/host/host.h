@@ -24,7 +24,6 @@
     } else { \
     local_bh_disable();\
     preempt_disable(); \
-    pr_info("cpuid: %d, %s, lock, %s\n", smp_processor_id(), name, check_irq()); \
     spin_lock_irqsave(x, __flags); \
     }
 
@@ -33,7 +32,6 @@
     spin_unlock_irqrestore(x, __flags); \
     local_bh_enable();\
     preempt_enable();\
-    pr_info("cpuid: %d, %s, unlock\n", smp_processor_id(), name);\
     } else { \
     pr_err("WARNING: CPU %d does not hold lock %s!, %s\n", smp_processor_id(), name, check_irq()); \
     }
