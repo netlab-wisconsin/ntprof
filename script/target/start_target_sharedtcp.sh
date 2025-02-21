@@ -26,7 +26,7 @@ create_namespace 7 /dev/nvme0n1
 # 创建 NVMe over TCP 端口
 sudo mkdir -p /sys/kernel/config/nvmet/ports/1
 sudo sh -c "echo ipv4 > /sys/kernel/config/nvmet/ports/1/addr_adrfam"
-sudo sh -c "echo 10.10.1.3 > /sys/kernel/config/nvmet/ports/1/addr_traddr"
+sudo sh -c "echo 10.10.1.2 > /sys/kernel/config/nvmet/ports/1/addr_traddr"
 sudo sh -c "echo tcp > /sys/kernel/config/nvmet/ports/1/addr_trtype"
 sudo sh -c "echo 4420 > /sys/kernel/config/nvmet/ports/1/addr_trsvcid"
 

@@ -29,13 +29,13 @@ fi
 
 # Download and extract the specific kernel version from kernel.org
 cd /usr/src || { echo "Failed to change directory to /usr/src"; exit 1; }
-sudo apt install -y linux-source-5.15.0
-# sudo wget https://www.kernel.org/pub/linux/kernel/v5.x/linux-5.15.143.tar.gz || { echo "Failed to download linux-$KERNEL_VERSION.tar.xz"; exit 1; }
-# sudo tar -xzf linux-5.15.143.tar.gz
-# sudo mv linux-5.15.143 linux-source-5.15.0
+# sudo apt install -y linux-source-5.15.0
+sudo wget https://www.kernel.org/pub/linux/kernel/v5.x/linux-5.15.143.tar.gz || { echo "Failed to download linux-$KERNEL_VERSION.tar.xz"; exit 1; }
+sudo tar -xzf linux-5.15.143.tar.gz
+sudo mv linux-5.15.143 linux-source-5.15.0
 # sudo wget https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-$KERNEL_VERSION.tar.xz || { echo "Failed to download linux-$KERNEL_VERSION.tar.xz"; exit 1; }
 # sudo tar -xvf linux-$KERNEL_VERSION.tar.xz || { echo "Failed to extract linux-$KERNEL_VERSION.tar.xz"; exit 1; }
-sudo tar -xvf linux-source-5.15.0.tar.bz2 || { echo "Failed to extract linux-$KERNEL_VERSION.tar.bz2"; exit 1; }
+# sudo tar -xvf linux-source-5.15.0.tar.bz2 || { echo "Failed to extract linux-$KERNEL_VERSION.tar.bz2"; exit 1; }
 cd linux-$KERNEL_VERSION || { echo "Failed to change directory to linux-$KERNEL_VERSION"; exit 1; }
 
 # The config file might vary by installed kernel versions; finding the latest
