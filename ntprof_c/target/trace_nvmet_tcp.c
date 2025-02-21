@@ -17,8 +17,10 @@ void on_try_recv_pdu(void *ignore, u8 pdu_type, u8 hdr_len, int queue_left, int 
 void on_done_recv_pdu(void *ignore, u16 cmdid, int qid, u8 opcode, int size, unsigned long long time,
                       long long recv_time) {
     // pr_info("on_done_recv_pdu is called!");
+    SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[qid].lock, "on_done_recv_pdu")
     if (unlikely(get_profile_record(&stat[qid], cmdid))) {
         pr_err("Duplicated cmdid %d in the record list %d\n", cmdid, qid);
+        SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[qid].lock, "on_done_recv_pdu");
         return;
     }
     int is_write;
@@ -28,12 +30,14 @@ void on_done_recv_pdu(void *ignore, u16 cmdid, int qid, u8 opcode, int size, uns
         is_write = 1;
     } else {
         pr_err("Unknown opcode in on_done_recv_pdu: %d\n", opcode);
+        SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[qid].lock, "on_done_recv_pdu");
         return;
     }
     //TODO: manually release the memory
     struct profile_record *record = kmalloc(sizeof(struct profile_record), GFP_KERNEL);
     if (!record) {
         pr_err("Failed to allocate memory for profile_record");
+        SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[qid].lock, "on_done_recv_pdu");
         return;
     }
 
@@ -41,6 +45,7 @@ void on_done_recv_pdu(void *ignore, u16 cmdid, int qid, u8 opcode, int size, uns
     append_event(record, recv_time, NVMET_TCP_TRY_RECV_PDU);
     append_event(record, time, NVMET_TCP_DONE_RECV_PDU);
     append_record(&stat[qid], record);
+    SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[qid].lock, "on_done_recv_pdu");
 }
 
 void on_exec_read_req(void *ignore, u16 cmdid, int qid, u8 opcode, int size, unsigned long long time) {
@@ -51,10 +56,12 @@ void on_exec_read_req(void *ignore, u16 cmdid, int qid, u8 opcode, int size, uns
         pr_warn("Invalid opcode in on_exec_read_req: %d\n", opcode);
         return;
     }
+    SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[qid].lock, "on_exec_read_req")
     struct profile_record *record = get_profile_record(&stat[qid], cmdid);
     if (record) {
         append_event(record, time, NVMET_TCP_EXEC_READ_REQ);
     }
+    SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[qid].lock, "on_exec_read_req");
 }
 
 void on_exec_write_req(void *ignore, u16 cmd_id, int qid, u8 opcode, int size, unsigned long long time) {
@@ -62,39 +69,49 @@ void on_exec_write_req(void *ignore, u16 cmd_id, int qid, u8 opcode, int size, u
         pr_err("Invalid opcode in on_exec_write_req: %d\n", opcode);
         return;
     }
+    SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[qid].lock, "on_exec_write_req");
     struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
     if (record) {
         append_event(record, time, NVMET_TCP_EXEC_WRITE_REQ);
     }
+    SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[qid].lock, "on_exec_write_req");
 }
 
 // TODO: use opcode instead
 void on_queue_response(void *ignore, u16 cmd_id, int qid, bool is_write, unsigned long long time) {
+    SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[qid].lock, "on_queue_response");
     struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
     if (record) {
         append_event(record, time, NVMET_TCP_QUEUE_RESPONSE);
     }
+    SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[qid].lock, "on_queue_response");
 }
 
 void on_setup_c2h_data_pdu(void *ignore, u16 cmd_id, int qid, unsigned long long time) {
+    SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[qid].lock, "on_setup_c2h_data_pdu");
     struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
     if (record) {
         append_event(record, time, NVMET_TCP_SETUP_C2H_DATA_PDU);
     }
+    SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[qid].lock, "on_setup_c2h_data_pdu");
 }
 
 void on_setup_r2t_pdu(void *ignore, u16 cmd_id, int qid, unsigned long long time) {
+    SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[qid].lock, "on_setup_r2t_pdu");
     struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
     if (record) {
         append_event(record, time, NVMET_TCP_SETUP_R2T_PDU);
     }
+    SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[qid].lock, "on_setup_r2t_pdu");
 }
 
 void on_setup_response_pdu(void *ignore, u16 cmd_id, int qid, unsigned long long time) {
+    SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[qid].lock, "on_setup_response_pdu");
     struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
     if (record) {
         append_event(record, time, NVMET_TCP_SETUP_RESPONSE_PDU);
     }
+    SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[qid].lock, "on_setup_response_pdu");
 }
 
 void cpy_stat(struct profile_record *record, struct ntprof_stat *s) {
@@ -117,6 +134,7 @@ void cpy_stat(struct profile_record *record, struct ntprof_stat *s) {
 }
 
 void on_try_send_data_pdu(void *ignore, u16 cmd_id, int qid, int size, unsigned long long time, void *pdu) {
+    SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[qid].lock, "on_try_send_data_pdu");
     struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
     if (record) {
         // pr_info("on_try_send_data_pdu is called -> ");
@@ -127,6 +145,7 @@ void on_try_send_data_pdu(void *ignore, u16 cmd_id, int qid, int size, unsigned 
         // list_del_init(&record->list);
         // free_profile_record(record);
     }
+    SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[qid].lock, "on_try_send_data_pdu");
 }
 
 void complete_target_record(struct profile_record *record, unsigned long long timestamp, enum EEvent event,
@@ -136,29 +155,37 @@ void complete_target_record(struct profile_record *record, unsigned long long ti
 }
 
 void on_try_send_r2t(void *ignore, u16 cmd_id, int qid, int size, unsigned long long time, void *pdu) {
+    SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[qid].lock, "on_try_send_r2t");
     try_remove_record(&stat[qid], cmd_id, (void *) complete_target_record, time, NVMET_TCP_TRY_SEND_R2T,
                       &((struct nvme_tcp_data_pdu *) pdu)->stat);
+    SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[qid].lock, "on_try_send_r2t");
 }
 
 
 void on_try_send_response(void *ignore, u16 cmd_id, int qid, int size, int is_write, unsigned long long time,
                           void *pdu) {
+    SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[qid].lock, "on_try_send_response");
     try_remove_record(&stat[qid], cmd_id, (void *) complete_target_record, time, NVMET_TCP_TRY_SEND_RESPONSE,
                       &((struct nvme_tcp_data_pdu *) pdu)->stat);
+    SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[qid].lock, "on_try_send_response");
 }
 
 void on_try_send_data(void *ignore, u16 cmd_id, int qid, int cp_len, unsigned long long time) {
+    SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[qid].lock, "on_try_send_data");
     struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
     if (record) {
         append_event(record, time, NVMET_TCP_TRY_SEND_DATA);
     }
+    SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[qid].lock, "on_try_send_data");
 }
 
 void on_try_recv_data(void *ignore, u16 cmd_id, int qid, int cp_len, unsigned long long time, long long recv_time) {
+    SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[qid].lock, "on_try_recv_data");
     struct profile_record *record = get_profile_record(&stat[qid], cmd_id);
     if (record) {
         append_event(record, time, NVMET_TCP_TRY_RECV_DATA);
     }
+    SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[qid].lock, "on_try_recv_data");
 }
 
 void on_handle_h2c_data_pdu(void *ignore, u16 cmd_id, int qid, int datalen, unsigned long long time,
@@ -171,7 +198,9 @@ void on_handle_h2c_data_pdu(void *ignore, u16 cmd_id, int qid, int datalen, unsi
     init_profile_record(record, datalen, true, "", cmd_id);
     append_event(record, recv_time, NVMET_TCP_TRY_RECV_PDU);
     append_event(record, time, NVMET_TCP_HANDLE_H2C_DATA_PDU);
+    SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[qid].lock, "on_handle_h2c_data_pdu");
     append_record(&stat[qid], record);
+    SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[qid].lock, "on_handle_h2c_data_pdu");
 }
 
 void on_io_work(void *ignore, int qid, long long recv, long long send) {
