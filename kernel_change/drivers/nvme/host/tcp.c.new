@@ -128,6 +128,7 @@ enum nvme_tcp_recv_state {
 struct nvme_tcp_ctrl;
 struct nvme_tcp_queue {
 	struct socket		*sock;
+	u64 recv_time;
 	struct work_struct	io_work;
 	int			io_cpu;
 
@@ -558,7 +559,7 @@ static int nvme_tcp_process_nvme_cqe(struct nvme_tcp_queue *queue,
 		return -EINVAL;
 	}
 
-	trace_nvme_tcp_process_nvme_cqe(rq, (void *)queue->pdu, queue->sock, nvme_tcp_queue_id(queue));
+	trace_nvme_tcp_process_nvme_cqe(rq, (void *)queue->pdu, nvme_tcp_queue_id(queue), queue->recv_time);
 
 	req = blk_mq_rq_to_pdu(rq);
 	if (req->status == cpu_to_le16(NVME_SC_SUCCESS))
@@ -592,8 +593,7 @@ static int nvme_tcp_handle_c2h_data(struct nvme_tcp_queue *queue,
 	}
 
 	queue->data_remaining = le32_to_cpu(pdu->data_length);
-	trace_nvme_tcp_handle_c2h_data(rq, queue->sock, nvme_tcp_queue_id(queue),
-			queue->data_remaining);
+	trace_nvme_tcp_handle_c2h_data(rq, nvme_tcp_queue_id(queue), queue->data_remaining, queue->recv_time);
 
 	if (pdu->hdr.flags & NVME_TCP_F_DATA_SUCCESS &&
 	    unlikely(!(pdu->hdr.flags & NVME_TCP_F_DATA_LAST))) {
@@ -696,7 +696,7 @@ static int nvme_tcp_handle_r2t(struct nvme_tcp_queue *queue,
 			pdu->command_id, nvme_tcp_queue_id(queue));
 		return -ENOENT;
 	}
-	trace_nvme_tcp_handle_r2t(rq, pdu, queue->sock, nvme_tcp_queue_id(queue));
+	trace_nvme_tcp_handle_r2t(rq, pdu, nvme_tcp_queue_id(queue), queue->recv_time);
 	req = blk_mq_rq_to_pdu(rq);
 
 	ret = nvme_tcp_setup_h2c_data_pdu(req, pdu);
@@ -891,6 +891,8 @@ static int nvme_tcp_recv_skb(read_descriptor_t *desc, struct sk_buff *skb,
 	struct nvme_tcp_queue *queue = desc->arg.data;
 	size_t consumed = len;
 	int result;
+
+	queue->recv_time = skb->tstamp;
 
 	while (len) {
 		switch (nvme_tcp_recv_state(queue)) {
