@@ -952,6 +952,7 @@ static int nvme_tcp_recv_skb(read_descriptor_t *desc, struct sk_buff *skb,
 	s64 recv_time = (s64)skb->tstamp;
 	s64 now = ktime_get_real_ns();
 
+	//TODO: this tracepoint is moved to nvme_tcp_recv_pdu and nvme_txp_recv_data
 	trace_nvme_tcp_try_recv(offset, len, nvme_tcp_recv_state(queue), nvme_tcp_queue_id(queue), now, recv_time);
 	// pr_info("%lld, %lld,nvme_tcp_recv_skb is called, comsumed: %d\n", now, recv_time, consumed);
 

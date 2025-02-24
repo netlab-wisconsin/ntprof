@@ -29,6 +29,7 @@ void on_block_rq_complete(void *ignore, struct request *rq, int err, unsigned in
     }
     SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[cid].lock, "on_block_rq_complete");
     // update_op_cnt(false);
+
 }
 
 
