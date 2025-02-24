@@ -28,8 +28,8 @@ static inline const char *nvme_tcp_trace_disk_name(struct trace_seq *p, char *na
 #endif
 
 TRACE_EVENT(nvme_tcp_queue_rq,
-    TP_PROTO(struct request *req, int qid, bool *to_trace, struct llist_head *req_list, struct list_head *send_list, struct mutex *send_mutex),
-    TP_ARGS(req, qid, to_trace, req_list, send_list, send_mutex),
+    TP_PROTO(struct request *req, void *pdu, int qid, struct llist_head *req_list, struct list_head *send_list, struct mutex *send_mutex),
+    TP_ARGS(req, pdu, qid, req_list, send_list, send_mutex),
     TP_STRUCT__entry(
         __array(char, disk, DISK_NAME_LEN)
         __field(int, ctrl_id)
@@ -112,8 +112,8 @@ TRACE_EVENT(nvme_tcp_try_send_cmd_pdu,
 
 
 TRACE_EVENT(nvme_tcp_try_send_data_pdu,
-    TP_PROTO(struct request *rq, void *pdu, int qid, int len),
-    TP_ARGS(rq, pdu, qid, len),
+    TP_PROTO(struct request *rq, void *pdu, int qid),
+    TP_ARGS(rq, pdu, qid),
     TP_STRUCT__entry(
         __array(char, disk, DISK_NAME_LEN)
         __field(int, ctrl_id)
@@ -134,8 +134,8 @@ TRACE_EVENT(nvme_tcp_try_send_data_pdu,
 );
 
 DEFINE_EVENT(nvme_tcp_try_send_data_pdu, nvme_tcp_try_send_data,
-    TP_PROTO(struct request *rq, void *pdu, int qid, int len),
-    TP_ARGS(rq, pdu, qid, len)
+    TP_PROTO(struct request *rq, void *pdu, int qid),
+    TP_ARGS(rq, pdu, qid)
 );
 
 TRACE_EVENT(nvme_tcp_done_send_req,
@@ -160,27 +160,27 @@ TRACE_EVENT(nvme_tcp_done_send_req,
         __entry->qid, __entry->req_tag, __entry->cid)
 );
 
-TRACE_EVENT(nvme_tcp_recv_skb,
-    TP_PROTO(struct request *rq, struct sk_buff *skb, int qid, int offset, size_t len),
-    TP_ARGS(rq, skb, qid, offset, len),
-    TP_STRUCT__entry(
-        __array(char, disk, DISK_NAME_LEN)
-        __field(int, ctrl_id)
-        __field(int, qid)
-        __field(int, cid)
-        __field(int, req_tag)
-    ),
-    TP_fast_assign(
-        __entry->ctrl_id = nvme_req(rq)->ctrl->instance;
-        __entry->qid = nvme_req_qid(rq);
-        __entry->cid = nvme_req(rq)->cmd->common.command_id;
-        __assign_disk_name(__entry->disk, rq->rq_disk);
-        __entry->req_tag = rq->tag;
-    ),
-    TP_printk("nvme%d: %sqid=%d, rtag=%d, cmdid=%u",
-        __entry->ctrl_id, __nvme_tcp_print_disk_name(__entry->disk),
-        __entry->qid, __entry->req_tag, __entry->cid)
-);    
+// TRACE_EVENT(nvme_tcp_recv_skb,
+//     TP_PROTO(struct request *rq, struct sk_buff *skb, int qid, int offset, size_t len),
+//     TP_ARGS(rq, skb, qid, offset, len),
+//     TP_STRUCT__entry(
+//         __array(char, disk, DISK_NAME_LEN)
+//         __field(int, ctrl_id)
+//         __field(int, qid)
+//         __field(int, cid)
+//         __field(int, req_tag)
+//     ),
+//     TP_fast_assign(
+//         __entry->ctrl_id = nvme_req(rq)->ctrl->instance;
+//         __entry->qid = nvme_req_qid(rq);
+//         __entry->cid = nvme_req(rq)->cmd->common.command_id;
+//         __assign_disk_name(__entry->disk, rq->rq_disk);
+//         __entry->req_tag = rq->tag;
+//     ),
+//     TP_printk("nvme%d: %sqid=%d, rtag=%d, cmdid=%u",
+//         __entry->ctrl_id, __nvme_tcp_print_disk_name(__entry->disk),
+//         __entry->qid, __entry->req_tag, __entry->cid)
+// );    
 
 // TRACE_EVENT(nvme_tcp_recv_pdu,
 //     TP_PROTO(int consumed, unsigned char pdu_type, int qid, unsigned long long time),
@@ -201,8 +201,8 @@ TRACE_EVENT(nvme_tcp_recv_skb,
 // );
 
 TRACE_EVENT(nvme_tcp_handle_c2h_data, 
-    TP_PROTO(struct request* rq, int qid, int data_remain),
-    TP_ARGS(rq, qid, data_remain),
+    TP_PROTO(struct request* rq, int qid, int data_remain, u64 recv_time),
+    TP_ARGS(rq, qid, data_remain, recv_time),
     TP_STRUCT__entry(
         __array(char, disk, DISK_NAME_LEN)
         __field(int, ctrl_id)
@@ -245,8 +245,8 @@ TRACE_EVENT(nvme_tcp_recv_data,
 );
 
 TRACE_EVENT(nvme_tcp_process_nvme_cqe,
-    TP_PROTO(struct request *rq, void* pdu, int qid),
-    TP_ARGS(rq, pdu, qid),
+    TP_PROTO(struct request *rq, void* pdu, int qid, u64 recv_time),
+    TP_ARGS(rq, pdu, qid, recv_time),
     TP_STRUCT__entry(
         __array(char, disk, DISK_NAME_LEN)
         __field(int, ctrl_id)
@@ -268,8 +268,8 @@ TRACE_EVENT(nvme_tcp_process_nvme_cqe,
 );
 
 DEFINE_EVENT(nvme_tcp_process_nvme_cqe, nvme_tcp_handle_r2t,
-    TP_PROTO(struct request *rq, void* pdu, int qid),
-    TP_ARGS(rq, pdu, qid)
+    TP_PROTO(struct request *rq, void* pdu, int qid, u64 recv_time),
+    TP_ARGS(rq, pdu, qid, recv_time)
 );
 
 DEFINE_EVENT(nvme_tcp_done_send_req, nvme_tcp_try_send,
