@@ -16,7 +16,7 @@ if [ $# -gt 0 ]; then
 fi
 
 echo "$NAME Cleaning up old build..."
-make clean && make
+make clean && make host && make cli
 
 
 cleanup() {

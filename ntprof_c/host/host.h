@@ -37,7 +37,7 @@
     }
 
 
-static inline char * check_irq(void) {
+static inline char *check_irq(void) {
     if (in_interrupt()) {
         if (in_softirq()) {
             return "softirq";
@@ -81,7 +81,6 @@ bool match_config(struct request *req, struct ntprof_config *config);
 extern struct per_core_statistics stat[MAX_CORE_NUM];
 
 extern struct ntprof_config global_config;
-
 
 
 // TODO: to remove

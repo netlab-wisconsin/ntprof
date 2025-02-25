@@ -38,15 +38,15 @@ void free_per_core_statistics(struct per_core_statistics *stats) {
 void append_record(struct per_core_statistics *stats, struct profile_record *record) {
     // pr_info("append a record to the incomplete list, %d\n", record->metadata.req_tag);
     // pr_cont("append a record [req=%d] to the incomplete list", record->metadata.req_tag);
-    // print_incomplete_queue(stats);
     list_add_tail(&record->list, &stats->incomplete_records);
+    // print_incomplete_queue(stats);
     pr_debug("add [req=%d, cmdid=%d]", record->metadata.req_tag, record->metadata.cmdid);
 }
 
 void complete_record(struct per_core_statistics *stats, struct profile_record *record) {
     list_move_tail(&record->list, &stats->completed_records);
     pr_debug("move [req=%d, cmdid=%d] to completed list", record->metadata.req_tag, record->metadata.cmdid);
-    //print_incomplete_queue(stats);
+    // print_incomplete_queue(stats);
 }
 
 /**
@@ -57,7 +57,10 @@ struct profile_record *get_profile_record(struct per_core_statistics *stats, str
     struct profile_record *record;
     list_for_each(pos, &stats->incomplete_records) {
         record = list_entry(pos, struct profile_record, list);
-        if (record->metadata.req == req) {
+        // if (record->metadata.req == req) {
+        //     return record;
+        // }
+        if (record->metadata.req_tag == req->tag) {
             return record;
         }
     }

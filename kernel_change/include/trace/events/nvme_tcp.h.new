@@ -7,6 +7,7 @@
 #include <linux/tracepoint.h>
 #include <linux/nvme.h>
 #include <linux/trace_seq.h>
+#include <linux/net.h>
 
 #ifndef __nvme_tcp_print_disk_name
 #define __nvme_tcp_print_disk_name(name) nvme_tcp_trace_disk_name(p, name)

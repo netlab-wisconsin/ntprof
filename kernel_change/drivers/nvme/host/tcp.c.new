@@ -1162,6 +1162,8 @@ static int nvme_tcp_try_send(struct nvme_tcp_queue *queue)
 	}
 	req = queue->request;
 
+	trace_nvme_tcp_try_send(blk_mq_rq_from_pdu(req), nvme_tcp_queue_id(queue));
+
 	if (req->state == NVME_TCP_SEND_CMD_PDU) {
 		ret = nvme_tcp_try_send_cmd_pdu(req);
 		if (ret <= 0)
