@@ -8,25 +8,6 @@
 #include <linux/nvme.h>
 #include <linux/nvme-tcp.h>
 
-// TRACE_EVENT(nvmet_tcp_try_recv_pdu,
-//     TP_PROTO(struct nvme_tcp_hdr *hdr, struct socket *sock, int qid),
-//     TP_ARGS(hdr, sock, qid),
-//     TP_STRUCT__entry(
-//         __field(u8, pdu_type)
-//         __field(u8, hdr_len)
-//         __field(int, queue_left)
-//         __field(int, qid)
-//     ),
-//     TP_fast_assign(
-//         __entry->pdu_type = hdr->type;
-//         __entry->hdr_len = hdr->len;
-//         __entry->queue_left = queue_left;
-//         __entry->qid = qid;
-//     ),
-//     TP_printk("pdu_type=%d, hdr_len=%d, queue_left=%d, qid=%d",
-//         __entry->pdu_type, __entry->hdr_len, __entry->queue_left, __entry->qid)
-// );
-
 TRACE_EVENT(nvmet_tcp_done_recv_pdu,
     TP_PROTO(struct nvme_tcp_cmd_pdu *pdu, int qid, long long recv_time),
     TP_ARGS(pdu, qid, recv_time),
@@ -79,7 +60,7 @@ TRACE_EVENT(nvmet_tcp_exec_write_req,
 );
 
 TRACE_EVENT(nvmet_tcp_queue_response,
-    TP_PROTO(struct nvme_command	*cmd, int qid),
+    TP_PROTO(struct nvme_command *cmd, int qid),
     TP_ARGS(cmd, qid),
     TP_STRUCT__entry(
         __field(u16, cmd_id)
@@ -111,7 +92,7 @@ TRACE_EVENT(nvmet_tcp_setup_c2h_data_pdu,
 );
 
 DEFINE_EVENT(nvmet_tcp_queue_response, nvmet_tcp_setup_r2t_pdu,
-    TP_PROTO(struct nvme_command	*cmd, int qid),
+    TP_PROTO(struct nvme_command *cmd, int qid),
     TP_ARGS(cmd, qid)
 );
 
@@ -183,8 +164,8 @@ TRACE_EVENT(nvmet_tcp_try_send_data,
 );
 
 TRACE_EVENT(nvmet_tcp_handle_h2c_data_pdu,
-    TP_PROTO(struct nvme_command	*cmd, int qid, int size, long long recv_time),
-    TP_ARGS(cmd, qid, size, recv_time),
+    TP_PROTO(struct nvme_tcp_data_pdu *pdu, struct nvme_command *cmd, int qid, int size, long long recv_time),
+    TP_ARGS(pdu, cmd, qid, size, recv_time),
     TP_STRUCT__entry(
         __field(u16, cmd_id)
         __field(int, qid)
@@ -199,9 +180,21 @@ TRACE_EVENT(nvmet_tcp_handle_h2c_data_pdu,
         __entry->cmd_id, __entry->qid, __entry->size)
 );
 
-DEFINE_EVENT(nvmet_tcp_handle_h2c_data_pdu, nvmet_tcp_try_recv_data,
-    TP_PROTO(struct nvme_command	*cmd, int qid, int size, long long recv_time),
-    TP_ARGS(cmd, qid, size, recv_time)
+TRACE_EVENT(nvmet_tcp_try_recv_data,
+    TP_PROTO(struct nvme_command *cmd, int qid, int size, long long recv_time),
+    TP_ARGS(cmd, qid, size, recv_time),
+    TP_STRUCT__entry(
+        __field(u16, cmd_id)
+        __field(int, qid)
+        __field(int, size)
+    ),
+    TP_fast_assign(
+        __entry->cmd_id = cmd->common.command_id;
+        __entry->qid = qid;
+        __entry->size = size;
+    ),
+    TP_printk("cmd_id=%u, qid=%d, size=%d",
+        __entry->cmd_id, __entry->qid, __entry->size)
 );
 
 #endif /* _TRACE_NVMET_TCP_H */

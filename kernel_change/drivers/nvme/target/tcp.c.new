@@ -1000,7 +1000,7 @@ static int nvmet_tcp_handle_h2c_data_pdu(struct nvmet_tcp_queue *queue)
 			nvmet_tcp_ddgst_len(queue) -
 			sizeof(*data);
 
-	trace_nvmet_tcp_handle_h2c_data_pdu(cmd->req.cmd, queue->idx, exp_data_len, queue->recv_time);
+	trace_nvmet_tcp_handle_h2c_data_pdu(data, cmd->req.cmd, queue->idx, exp_data_len, queue->recv_time);
 
 	cmd->pdu_len = le32_to_cpu(data->data_length);
 	if (unlikely(cmd->pdu_len != exp_data_len ||
