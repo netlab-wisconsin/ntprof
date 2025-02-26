@@ -310,7 +310,7 @@ static struct nvmf_tracepoint tracepoints[] = {
     TRACEPOINT_ENTRY(nvme_tcp_process_nvme_cqe),
 };
 
-int register_nvmet_tcp_tracepoints(void) {
+int register_nvme_tcp_tracepoints(void) {
   int ret;
   int registered = 0;
 
@@ -334,7 +334,7 @@ unregister:
   return ret;
 }
 
-void unregister_nvmet_tcp_tracepoints(void) {
+void unregister_nvme_tcp_tracepoints(void) {
   int i;
 
   for (i = ARRAY_SIZE(tracepoints) - 1; i >= 0; i--) {

@@ -38,7 +38,7 @@ create_record(u16 cmdid, int size, bool is_write) {
         UNLOCK_QUEUE(qid); \
     } while (0)
 
-void on_done_recv_pdu(void* ignore, struct nvme_tcp_cmd_pdu* pdu, int qid,
+void on_nvmet_tcp_done_recv_pdu(void* ignore, struct nvme_tcp_cmd_pdu* pdu, int qid,
                       long long recv_time) {
   if (!pdu->stat.tag)
     return;
@@ -76,33 +76,33 @@ void on_done_recv_pdu(void* ignore, struct nvme_tcp_cmd_pdu* pdu, int qid,
   UNLOCK_QUEUE(qid);
 }
 
-void on_exec_read_req(void* ignore, struct nvme_command* cmd, int qid) {
+void on_nvmet_tcp_exec_read_req(void* ignore, struct nvme_command* cmd, int qid) {
   u16 cmdid = cmd->common.command_id;
   u8 opcode = cmd->common.opcode;
   u64 now = ktime_get_real_ns();
 
   if (opcode != nvme_cmd_read && opcode != 24) {
-    pr_warn("Invalid opcode in on_exec_read_req: %d\n", opcode);
+    pr_warn("Invalid opcode in on_nvmet_tcp_exec_read_req: %d\n", opcode);
     return;
   }
   HANDLE_COMMON_EVENT(qid, cmdid, now, NVMET_TCP_EXEC_READ_REQ);
 }
 
 
-void on_exec_write_req(void* ignore, struct nvme_command* cmd, int qid,
+void on_nvmet_tcp_exec_write_req(void* ignore, struct nvme_command* cmd, int qid,
                        int size) {
   u16 cmdid = cmd->common.command_id;
   u8 opcode = cmd->common.opcode;
   u64 now = ktime_get_real_ns();
 
   if (opcode != nvme_cmd_write) {
-    pr_err("Invalid opcode in on_exec_write_req: %d\n", opcode);
+    pr_err("Invalid opcode in on_nvmet_tcp_exec_write_req: %d\n", opcode);
     return;
   }
   HANDLE_COMMON_EVENT(qid, cmdid, now, NVMET_TCP_EXEC_WRITE_REQ);
 }
 
-void on_queue_response(void* ignore, struct nvme_command* cmd, int qid) {
+void on_nvmet_tcp_queue_response(void* ignore, struct nvme_command* cmd, int qid) {
   u16 cmdid = cmd->common.command_id;
   u64 now = ktime_get_real_ns();
 
@@ -115,19 +115,19 @@ void on_queue_response(void* ignore, struct nvme_command* cmd, int qid) {
   SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[qid].lock, __func__);
 }
 
-void on_setup_c2h_data_pdu(void* ignore, struct nvme_completion* cqe, int qid) {
+void on_nvmet_tcp_setup_c2h_data_pdu(void* ignore, struct nvme_completion* cqe, int qid) {
   u16 cmdid = cqe->command_id;
   u64 now = ktime_get_real_ns();
   HANDLE_COMMON_EVENT(qid, cmdid, now, NVMET_TCP_SETUP_C2H_DATA_PDU);
 }
 
-void on_setup_r2t_pdu(void* ignore, struct nvme_command* cmd, int qid) {
+void on_nvmet_tcp_setup_r2t_pdu(void* ignore, struct nvme_command* cmd, int qid) {
   u16 cmdid = cmd->common.command_id;
   u64 now = ktime_get_real_ns();
   HANDLE_COMMON_EVENT(qid, cmdid, now, NVMET_TCP_SETUP_R2T_PDU);
 }
 
-void on_setup_response_pdu(void* ignore, struct nvme_completion* cqe, int qid) {
+void on_nvmet_tcp_setup_response_pdu(void* ignore, struct nvme_completion* cqe, int qid) {
   u16 cmdid = cqe->command_id;
   u64 now = ktime_get_real_ns();
   HANDLE_COMMON_EVENT(qid, cmdid, now, NVMET_TCP_SETUP_RESPONSE_PDU);
@@ -152,7 +152,7 @@ void cpy_stat(struct profile_record* record, struct ntprof_stat* s) {
   }
 }
 
-void on_try_send_data_pdu(void* ignore, struct nvme_completion* cqe, void* pdu,
+void on_nvmet_tcp_try_send_data_pdu(void* ignore, struct nvme_completion* cqe, void* pdu,
                           int qid, int size) {
   u16 cmd_id = cqe->command_id;
   u64 now = ktime_get_real_ns();
@@ -179,32 +179,32 @@ static void process_and_remove_record(int qid, u16 cmdid, void* pdu,
   UNLOCK_QUEUE(qid);
 }
 
-void on_try_send_r2t(void* ignore, struct nvme_command* cmd, void* pdu, int qid,
+void on_nvmet_tcp_try_send_r2t(void* ignore, struct nvme_command* cmd, void* pdu, int qid,
                      int size) {
   process_and_remove_record(qid, cmd->common.command_id, pdu,
                             NVMET_TCP_TRY_SEND_R2T);
 }
 
-void on_try_send_response(void* ignore, struct nvme_completion* cqe, void* pdu,
+void on_nvmet_tcp_try_send_response(void* ignore, struct nvme_completion* cqe, void* pdu,
                           int qid, int size) {
   process_and_remove_record(qid, cqe->command_id, pdu,
                             NVMET_TCP_TRY_SEND_RESPONSE);
 }
 
-void on_try_send_data(void* ignore, struct nvme_completion* cqe, int qid,
+void on_nvmet_tcp_try_send_data(void* ignore, struct nvme_completion* cqe, int qid,
                       int size) {
   u16 cmdid = cqe->command_id;
   u64 now = ktime_get_real_ns();
   HANDLE_COMMON_EVENT(qid, cmdid, now, NVMET_TCP_TRY_SEND_DATA);
 }
 
-void on_try_recv_data(void* ignore, struct nvme_command* cmd, int qid, int size,
+void on_nvmet_tcp_try_recv_data(void* ignore, struct nvme_command* cmd, int qid, int size,
                       long long recv_time) {
   u16 cmdid = cmd->common.command_id;
   HANDLE_COMMON_EVENT(qid, cmdid, recv_time, NVMET_TCP_TRY_RECV_DATA);
 }
 
-void on_handle_h2c_data_pdu(void* ignore, struct nvme_tcp_data_pdu* pdu,
+void on_nvmet_tcp_handle_h2c_data_pdu(void* ignore, struct nvme_tcp_data_pdu* pdu,
                             struct nvme_command* cmd, int qid, int size,
                             long long recv_time) {
   if (!pdu->stat.tag) return;
@@ -232,19 +232,19 @@ void on_handle_h2c_data_pdu(void* ignore, struct nvme_tcp_data_pdu* pdu,
 
 
 static struct nvmf_tracepoint tracepoints[] = {
-    TRACEPOINT_ENTRY(done_recv_pdu),
-    TRACEPOINT_ENTRY(exec_read_req),
-    TRACEPOINT_ENTRY(exec_write_req),
-    TRACEPOINT_ENTRY(queue_response),
-    TRACEPOINT_ENTRY(setup_c2h_data_pdu),
-    TRACEPOINT_ENTRY(setup_r2t_pdu),
-    TRACEPOINT_ENTRY(setup_response_pdu),
-    TRACEPOINT_ENTRY(try_send_data_pdu),
-    TRACEPOINT_ENTRY(try_send_r2t),
-    TRACEPOINT_ENTRY(try_send_response),
-    TRACEPOINT_ENTRY(try_send_data),
-    TRACEPOINT_ENTRY(handle_h2c_data_pdu),
-    TRACEPOINT_ENTRY(try_recv_data),
+    TRACEPOINT_ENTRY(nvmet_tcp_done_recv_pdu),
+    TRACEPOINT_ENTRY(nvmet_tcp_exec_read_req),
+    TRACEPOINT_ENTRY(nvmet_tcp_exec_write_req),
+    TRACEPOINT_ENTRY(nvmet_tcp_queue_response),
+    TRACEPOINT_ENTRY(nvmet_tcp_setup_c2h_data_pdu),
+    TRACEPOINT_ENTRY(nvmet_tcp_setup_r2t_pdu),
+    TRACEPOINT_ENTRY(nvmet_tcp_setup_response_pdu),
+    TRACEPOINT_ENTRY(nvmet_tcp_try_send_data_pdu),
+    TRACEPOINT_ENTRY(nvmet_tcp_try_send_r2t),
+    TRACEPOINT_ENTRY(nvmet_tcp_try_send_response),
+    TRACEPOINT_ENTRY(nvmet_tcp_try_send_data),
+    TRACEPOINT_ENTRY(nvmet_tcp_handle_h2c_data_pdu),
+    TRACEPOINT_ENTRY(nvmet_tcp_try_recv_data),
 };
 
 int register_nvmet_tcp_tracepoints(void) {

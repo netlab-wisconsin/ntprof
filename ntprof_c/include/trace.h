@@ -14,8 +14,8 @@ struct nvmf_tracepoint {
 
 #define TRACEPOINT_ENTRY(name) \
 { \
-  .register_fn = (trace_register_fn_t)register_trace_nvmet_tcp_##name, \
-  .unregister_fn = (trace_unregister_fn_t)unregister_trace_nvmet_tcp_##name, \
+  .register_fn = (trace_register_fn_t)register_trace_##name, \
+  .unregister_fn = (trace_unregister_fn_t)unregister_trace_##name, \
   .handler = (ntprof_trace_handler_t)on_##name \
 }
 
