@@ -59,37 +59,40 @@ local_bh_enable();\
 pr_err("WARNING: CPU %d does not hold lock %s!, %s\n", smp_processor_id(), name, check_irq()); \
 }
 
-static inline char * check_irq(void) {
-    if (in_interrupt()) {
-        if (in_softirq()) {
-            return "softirq";
-        }
-        if (in_irq()) {
-            return "irq";
-        }
-        return "unknown";
+static inline char* check_irq(void) {
+  if (in_interrupt()) {
+    if (in_softirq()) {
+      return "softirq";
     }
-    return "process";
+    if (in_irq()) {
+      return "irq";
+    }
+    return "unknown";
+  }
+  return "process";
 }
 
 struct per_queue_statistics {
-    struct list_head records;
-    struct spinlock lock;
+  struct list_head records;
+  struct spinlock lock;
 };
 
-typedef void (*fn)(struct profile_record *record, unsigned long long timestamp, enum EEvent event,
-                  struct ntprof_stat *s);
+typedef void (*fn)(struct profile_record* record, unsigned long long timestamp,
+                   enum EEvent event,
+                   struct ntprof_stat* s);
 
-void init_per_queue_statistics(struct per_queue_statistics *pqs);
+void init_per_queue_statistics(struct per_queue_statistics* pqs);
 
-void free_per_queue_statistics(struct per_queue_statistics *pqs);
+void free_per_queue_statistics(struct per_queue_statistics* pqs);
 
-void append_record(struct per_queue_statistics *pqs, struct profile_record *r);
+void append_record(struct per_queue_statistics* pqs, struct profile_record* r);
 
-struct profile_record *get_profile_record(struct per_queue_statistics *pqs, int cmdid);
+struct profile_record* get_profile_record(struct per_queue_statistics* pqs,
+                                          int cmdid);
 
-int try_remove_record(struct per_queue_statistics *pqs, int cmdid, void *op, unsigned long long timestamp,
-                       enum EEvent event, struct ntprof_stat *s);
+int try_remove_record(struct per_queue_statistics* pqs, int cmdid, void* op,
+                      unsigned long long timestamp,
+                      enum EEvent event, struct ntprof_stat* s);
 
 
 extern struct per_queue_statistics stat[MAX_QUEUE_NUM];

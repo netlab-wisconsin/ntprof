@@ -4,7 +4,6 @@
 #include "config.h"
 
 
-
 #define READ_BREAKDOWN_FIELDS(X)                 \
 X(blk_submission_queueing)                   \
 X(nvme_tcp_submission_queueing)              \
@@ -24,10 +23,10 @@ X(nvmet_tcp_e2e)                             \
 X(networking)
 
 struct read_breakdown {
-    unsigned long long cnt;
+  unsigned long long cnt;
 #define X(field) unsigned long long field;
-    READ_BREAKDOWN_FIELDS(X)
-    #undef X
+  READ_BREAKDOWN_FIELDS(X)
+#undef X
 };
 
 
@@ -49,10 +48,10 @@ X(nvmet_tcp_e2e)                              \
 X(networking)
 
 struct write_breakdown_s {
-    unsigned long long cnt;
+  unsigned long long cnt;
 
 #define X(field) unsigned long long field;
-    WRITE_BREAKDOWN_S_FIELDS(X)
+  WRITE_BREAKDOWN_S_FIELDS(X)
 #undef X
 };
 
@@ -82,51 +81,52 @@ X(networking)
 
 
 struct write_breakdown_l {
-    unsigned long long cnt;
+  unsigned long long cnt;
 
 #define X(field) unsigned long long field;
-    WRITE_BREAKDOWN_L_FIELDS(X)
+  WRITE_BREAKDOWN_L_FIELDS(X)
 #undef X
 };
 
 enum EBreakdownType {
-    BREAKDOWN_READ,
-    BREAKDOWN_WRITES,
-    BREAKDOWN_WRITEL
+  BREAKDOWN_READ,
+  BREAKDOWN_WRITES,
+  BREAKDOWN_WRITEL
 };
 
 // we maintain a hashtable, (category_key --> categorized_records)
 
 struct category_key {
-    int io_size;
-    int io_type;
-    char session_name[MAX_SESSION_NAME_LEN];
+  int io_size;
+  int io_type;
+  char session_name[MAX_SESSION_NAME_LEN];
 };
 
 struct breakdown {
-    enum EBreakdownType type;
-    union {
-        struct read_breakdown read;
-        struct write_breakdown_s writes;
-        struct write_breakdown_l writel;
-    };
+  enum EBreakdownType type;
+
+  union {
+    struct read_breakdown read;
+    struct write_breakdown_s writes;
+    struct write_breakdown_l writel;
+  };
 };
 
 struct category_summary {
-    struct category_key key;
-    struct breakdown bd;
+  struct category_key key;
+  struct breakdown bd;
 };
 
 #define MAX_CATEGORIES 8
 
 struct report {
-    unsigned int category_num;
-    struct category_summary summary[MAX_CATEGORIES];
+  unsigned int category_num;
+  struct category_summary summary[MAX_CATEGORIES];
 };
 
 struct analyze_arg {
-    struct ntprof_config config;
-    struct report rpt;
+  struct ntprof_config config;
+  struct report rpt;
 };
 
 #endif //ANALYZE_H

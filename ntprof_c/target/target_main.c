@@ -10,43 +10,43 @@ struct per_queue_statistics stat[MAX_QUEUE_NUM];
 #include "trace_nvmet_tcp.h"
 
 void register_tracepoints(void) {
-    register_nvmet_tcp_tracepoints();
+  register_nvmet_tcp_tracepoints();
 }
 
 void unregister_tracepoints(void) {
-    unregister_nvmet_tcp_tracepoints();
+  unregister_nvmet_tcp_tracepoints();
 }
 
 void init_variables(void) {
-    int i;
-    for (i = 0; i < MAX_QUEUE_NUM; i++) {
-        init_per_queue_statistics(&stat[i]);
-    }
+  int i;
+  for (i = 0; i < MAX_QUEUE_NUM; i++) {
+    init_per_queue_statistics(&stat[i]);
+  }
 }
 
 void clean_up(void) {
-    // make sure unregister_tracepoints is called
-    // before free_per_queue_statistics
-    unregister_tracepoints();
-    int i;
-    for (i = 0; i < MAX_QUEUE_NUM; i++) {
-        free_per_queue_statistics(&stat[i]);
-    }
+  // make sure unregister_tracepoints is called
+  // before free_per_queue_statistics
+  unregister_tracepoints();
+  int i;
+  for (i = 0; i < MAX_QUEUE_NUM; i++) {
+    free_per_queue_statistics(&stat[i]);
+  }
 }
 
 static int __init ntprof_host_module_init(void) {
-    pr_info("ntprof_target: Module loaded\n");
-    // make sure init variables is called first
-    // otherwise, if register_tracepoints is called first
-    // there can be nullptr exceptions
-    init_variables();
-    register_tracepoints();
-    return 0;
+  pr_info("ntprof_target: Module loaded\n");
+  // make sure init variables is called first
+  // otherwise, if register_tracepoints is called first
+  // there can be nullptr exceptions
+  init_variables();
+  register_tracepoints();
+  return 0;
 }
 
 static void __exit ntprof_host_module_exit(void) {
-    pr_info("ntprof_target: Module unloaded\n");
-    clean_up();
+  pr_info("ntprof_target: Module unloaded\n");
+  clean_up();
 }
 
 module_init(ntprof_host_module_init);
@@ -54,5 +54,6 @@ module_exit(ntprof_host_module_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("yuyuan");
-MODULE_DESCRIPTION("The kernel module that collects I/O statistics on the target side");
+MODULE_DESCRIPTION(
+    "The kernel module that collects I/O statistics on the target side");
 MODULE_VERSION("1.0");
