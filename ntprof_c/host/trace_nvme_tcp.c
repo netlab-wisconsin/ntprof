@@ -203,7 +203,8 @@ void on_nvme_tcp_handle_c2h_data(void* ignore, struct request* rq, int qid,
           cid,
           get_list_len(&stat[cid]));
       pr_err(
-          "on_nvme_tcp_handle_c2h_data: to append time %llu is less than last time %llu\n",
+          "%s: on_nvme_tcp_handle_c2h_data: to append time %llu is less than last time %llu\n",
+          __func__,
           recv_time,
           lasttime);
       print_profile_record(rec);
@@ -283,10 +284,12 @@ void on_nvme_tcp_process_nvme_cqe(void* ignore, struct request* rq, void* pdu,
       struct ts_entry* last_entry = list_last_entry(
           &rec->ts->list, struct ts_entry, list);
       unsigned long long lasttime = last_entry->timestamp;
-      // if (recv_time < lasttime) {
-      //     pr_err("to append time %llu is less than last time %llu\n", time, lasttime);
-      //     print_profile_record(rec);
-      // }
+      // for small read io, recv_time of completion = recv_time of data, so we can skip the check
+      // for larger read io,
+      if (rec->metadata.is_write && recv_time < lasttime) {
+          pr_err("%s: to append time %llu is less than last time %llu\n", __func__, recv_time, lasttime);
+          print_profile_record(rec);
+      }
       cpy_ntprof_stat_to_record(rec, &((struct nvme_tcp_rsp_pdu*)pdu)->stat);
       append_event(rec, recv_time, NVME_TCP_RECV_SKB);
       append_event(rec, now, NVME_TCP_PROCESS_NVME_CQE);

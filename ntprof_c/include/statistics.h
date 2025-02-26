@@ -193,53 +193,47 @@ static inline int is_valid_read(struct profile_record* r) {
   unsigned long long hosttime = 0;
   unsigned long long targettime = 0;
 
-  // 确保 r->ts 是有效的链表头
   list_for_each_entry(entry, &r->ts->list, list) {
-    // 如果事件超过了预期的数量，说明有多余事件
     if (expected_index >= sizeof(expected_event_sequence) / sizeof(
           expected_event_sequence[0])) {
       pr_err("More events than expected in idx [%d]! Extra event found: %s",
              expected_index,
              event_to_string(entry->event));
-      return 0; // 多余的事件
+      return 0;
     }
 
-    // 检查事件类型是否符合预期
     if (entry->event != expected_event_sequence[expected_index]) {
       pr_err("Event order is not expected in idx [%d]! Expected: %s, Found: %s",
              expected_index,
              event_to_string(expected_event_sequence[expected_index]),
              event_to_string(entry->event));
-      return 0; // 事件顺序不匹配
+      return 0;
     }
 
-    // 检查时间戳递增
     if (entry->event >= NVMET_TCP_TRY_RECV_PDU && entry->event <=
         NVMET_TCP_IO_WORK) {
-      // 对于 NVMET 事件，时间戳应该递增
       if (entry->timestamp < targettime) {
         pr_err(
             "Timestamp on target is not increasing on idx[%d]! Previous timestamp: %llu, Current timestamp: %llu",
             expected_index,
             targettime, entry->timestamp);
-        return 0; // 时间戳递减，不符合预期
+        return 0;
       }
       targettime = entry->timestamp;
     } else {
-      // 对于 BLK 事件，时间戳应该递增
       if (entry->timestamp < hosttime) {
         pr_err(
             "Timestamp on host is not increasing on idx[%d! Previous timestamp: %llu, Current timestamp: %llu",
             expected_index,
             hosttime, entry->timestamp);
-        return 0; // 时间戳递减，不符合预期
+        return 0;
       }
       hosttime = entry->timestamp;
     }
 
     expected_index++;
   }
-  return 1; // 所有事件都符合预期
+  return 1;
 }
 
 // [21764.846386]     timestamp=1739105372062063411, event=BLK_SUBMIT
@@ -263,7 +257,6 @@ static inline int is_valid_read(struct profile_record* r) {
 static inline int is_valid_writes(struct profile_record* r) {
   struct ts_entry* entry = r->ts;
 
-  // 定义事件顺序和类型
   enum EEvent expected_event_sequence[] = {
       BLK_SUBMIT,
       NVME_TCP_QUEUE_RQ,
@@ -288,46 +281,40 @@ static inline int is_valid_writes(struct profile_record* r) {
   unsigned long long hosttime = 0;
   unsigned long long targettime = 0;
 
-  // 确保 r->ts 是有效的链表头
   list_for_each_entry(entry, &r->ts->list, list) {
-    // 如果事件超过了预期的数量，说明有多余事件
     if (expected_index >= sizeof(expected_event_sequence) / sizeof(
           expected_event_sequence[0])) {
       pr_err("More events than expected in idx [%d]! Extra event found: %s",
              expected_index,
              event_to_string(entry->event));
-      return 0; // 多余的事件
+      return 0;
     }
 
-    // 检查事件类型是否符合预期
     if (entry->event != expected_event_sequence[expected_index]) {
       pr_err("Event order is not expected in idx [%d]! Expected: %s, Found: %s",
              expected_index,
              event_to_string(expected_event_sequence[expected_index]),
              event_to_string(entry->event));
-      return 0; // 事件顺序不匹配
+      return 0;
     }
 
-    // 检查时间戳递增
     if (entry->event >= NVMET_TCP_TRY_RECV_PDU && entry->event <=
         NVMET_TCP_IO_WORK) {
-      // 对于 NVMET 事件，时间戳应该递增
       if (entry->timestamp < targettime) {
         pr_err(
             "Timestamp on target is not increasing on idx[%d]! Previous timestamp: %llu, Current timestamp: %llu",
             expected_index,
             targettime, entry->timestamp);
-        return 0; // 时间戳递减，不符合预期
+        return 0;
       }
       targettime = entry->timestamp;
     } else {
-      // 对于 BLK 事件，时间戳应该递增
       if (entry->timestamp < hosttime) {
         pr_err(
             "Timestamp on host is not increasing on idx[%d! Previous timestamp: %llu, Current timestamp: %llu",
             expected_index,
             hosttime, entry->timestamp);
-        return 0; // 时间戳递减，不符合预期
+        return 0;
       }
       hosttime = entry->timestamp;
     }
@@ -335,7 +322,7 @@ static inline int is_valid_writes(struct profile_record* r) {
     expected_index++;
   }
 
-  return 1; // 所有事件都符合预期
+  return 1;
 }
 
 // [21639.922280]     timestamp=1739105247137164976, event=BLK_SUBMIT
@@ -369,7 +356,6 @@ static inline int is_valid_writes(struct profile_record* r) {
 static inline int is_valid_writel(struct profile_record* r) {
   struct ts_entry* entry = r->ts;
 
-  // 定义事件顺序和类型
   enum EEvent expected_event_sequence[] = {
       BLK_SUBMIT,
       NVME_TCP_QUEUE_RQ,
@@ -405,46 +391,40 @@ static inline int is_valid_writel(struct profile_record* r) {
   unsigned long long hosttime = 0;
   unsigned long long targettime = 0;
 
-  // 确保 r->ts 是有效的链表头
   list_for_each_entry(entry, &r->ts->list, list) {
-    // 如果事件超过了预期的数量，说明有多余事件
     if (expected_index >= sizeof(expected_event_sequence) / sizeof(
           expected_event_sequence[0])) {
       pr_err("More events than expected in idx [%d]! Extra event found: %s",
              expected_index,
              event_to_string(entry->event));
-      return 0; // 多余的事件
+      return 0;
     }
 
-    // 检查事件类型是否符合预期
     if (entry->event != expected_event_sequence[expected_index]) {
       pr_err("Event order is not expected in idx [%d]! Expected: %s, Found: %s",
              expected_index,
              event_to_string(expected_event_sequence[expected_index]),
              event_to_string(entry->event));
-      return 0; // 事件顺序不匹配
+      return 0;
     }
 
-    // 检查时间戳递增
     if (entry->event >= NVMET_TCP_TRY_RECV_PDU && entry->event <=
         NVMET_TCP_IO_WORK) {
-      // 对于 NVMET 事件，时间戳应该递增
       if (entry->timestamp < targettime) {
         pr_err(
             "Timestamp on target is not increasing on idx[%d]! Previous timestamp: %llu, Current timestamp: %llu",
             expected_index,
             targettime, entry->timestamp);
-        return 0; // 时间戳递减，不符合预期
+        return 0;
       }
       targettime = entry->timestamp;
     } else {
-      // 对于 BLK 事件，时间戳应该递增
       if (entry->timestamp < hosttime) {
         pr_err(
             "Timestamp on host is not increasing on idx[%d! Previous timestamp: %llu, Current timestamp: %llu",
             expected_index,
             hosttime, entry->timestamp);
-        return 0; // 时间戳递减，不符合预期
+        return 0;
       }
       hosttime = entry->timestamp;
     }
@@ -452,7 +432,7 @@ static inline int is_valid_writel(struct profile_record* r) {
     expected_index++;
   }
 
-  return 1; // 所有事件都符合预期
+  return 1;
 }
 
 static inline int is_valid_profile_record(struct profile_record* r) {
