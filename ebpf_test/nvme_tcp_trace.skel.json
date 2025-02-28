@@ -1,0 +1,1 @@
+{"bpf_skel":{"data_sections":[],"maps":[{"ident":"rodata","name":"nvme_tcp.rodata"}],"obj_name":"nvme_tcp_trace_bpf","progs":[{"attach":"tracepoint/nvme_tcp/nvme_tcp_queue_rq","link":true,"name":"tracepoint__nvme_tcp_queue_rq"}]},"eunomia_version":"0.3.4"}
