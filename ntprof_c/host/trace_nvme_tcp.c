@@ -28,11 +28,17 @@
             return; \
     } while (0)
 
-#define LOCK(cid) \
-    SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[cid].lock, __func__)
+// #define LOCK(cid) \
+//     SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[cid].lock, __func__)
+//
+// #define UNLOCK(cid) \
+//     SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[cid].lock, __func__)
 
-#define UNLOCK(cid) \
-    SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[cid].lock, __func__)
+#define LOCKQ(qid) \
+    SPINLOCK_IRQSAVE_DISABLEPREEMPT_Q(&stat[qid].lock, __func__, qid)
+
+#define UNLOCKQ(qid) \
+    SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT_Q(&stat[qid].lock, __func__, qid)
 
 #define CHECK_FREQUENCY(cid) \
     do { \
@@ -62,6 +68,7 @@ static struct profile_record* create_profile_record(
   record->metadata.req = req;
   record->metadata.cmdid = -1;
   return record;
+  // return NULL;
 }
 
 static inline u64 get_start_time(struct request* req) {
@@ -84,31 +91,31 @@ void on_nvme_tcp_queue_rq(void* ignore, struct request* req, void* pdu, int qid,
     return;
   }
 
-  LOCK(cid);
+  LOCKQ(qid);
   struct profile_record* record = create_profile_record(req, cid);
   if (record) {
     append_event(record, get_start_time(req), BLK_SUBMIT);
     append_event(record, now, NVME_TCP_QUEUE_RQ);
-    append_record(&stat[cid], record);
+    append_record(&stat[qid], record);
     ((struct nvme_tcp_cmd_pdu*)pdu)->stat.tag = true;
   }
-  UNLOCK(cid);
+  UNLOCKQ(qid);
 }
 
 void on_nvme_tcp_queue_request(void* ignore, struct request* req,
                                struct nvme_command* cmd, int qid) {
   CHECK_TRACE_CONDITIONS(qid);
   u64 now = ktime_get_real_ns();
-  int cid = smp_processor_id();
+  
 
-  LOCK(cid)
-  struct profile_record* rec = get_profile_record(&stat[cid], req);
+  LOCKQ(qid);
+  struct profile_record* rec = get_profile_record(&stat[qid], req);
   if (rec) {
     append_event(rec, now, NVME_TCP_QUEUE_REQUEST);
     if (rec->metadata.cmdid == -1)
       rec->metadata.cmdid = cmd->common.command_id;
   }
-  UNLOCK(cid);
+  UNLOCKQ(qid);
 }
 
 #define APPEND_EVENT_IF_VALID(isValidExpr, rec, time, e) \
@@ -122,66 +129,66 @@ void on_nvme_tcp_queue_request(void* ignore, struct request* req,
 void on_nvme_tcp_try_send(void* ignore, struct request* req, int qid) {
   CHECK_TRACE_CONDITIONS(qid);
   u64 now = ktime_get_real_ns();
-  int cid = smp_processor_id();
+  
   if (req == NULL) {
     pr_err("req is NULL");
   }
-  LOCK(cid);
-  struct profile_record* rec = get_profile_record(&stat[cid], req);
+  LOCKQ(qid);
+  struct profile_record* rec = get_profile_record(&stat[qid], req);
   APPEND_EVENT_IF_VALID(
       list_last_entry(&rec->ts->list, struct ts_entry, list)->event !=
       NVME_TCP_TRY_SEND_DATA,
       rec, now, NVME_TCP_TRY_SEND);
-  UNLOCK(cid);
+  UNLOCKQ(qid);
 }
 
 void on_nvme_tcp_try_send_cmd_pdu(void* ignore, struct request* req,
                                   struct socket* sock, int qid, int len) {
   CHECK_TRACE_CONDITIONS(qid);
   u64 now = ktime_get_real_ns();
-  int cid = smp_processor_id();
-  LOCK(cid);
-  struct profile_record* rec = get_profile_record(&stat[cid], req);
+  
+  LOCKQ(qid);
+  struct profile_record* rec = get_profile_record(&stat[qid], req);
   APPEND_EVENT_IF_VALID(true, rec, now, NVME_TCP_TRY_SEND_CMD_PDU);
-  UNLOCK(cid);
+  UNLOCKQ(qid);
 }
 
 void on_nvme_tcp_try_send_data_pdu(void* ignore, struct request* req, void* pdu,
                                    int qid) {
   CHECK_TRACE_CONDITIONS(qid);
   u64 now = ktime_get_real_ns();
-  int cid = smp_processor_id();
-  LOCK(cid);
-  struct profile_record* rec = get_profile_record(&stat[cid], req);
+  
+  LOCKQ(qid);
+  struct profile_record* rec = get_profile_record(&stat[qid], req);
   if (rec) {
     append_event(rec, now, NVME_TCP_TRY_SEND_DATA_PDU);
     ((struct nvme_tcp_data_pdu*)pdu)->stat.tag = true;
   }
-  UNLOCK(cid);
+  UNLOCKQ(qid);
 }
 
 void on_nvme_tcp_try_send_data(void* ignore, struct request* req, void* pdu,
                                int qid) {
   CHECK_TRACE_CONDITIONS(qid);
   u64 now = ktime_get_real_ns();
-  int cid = smp_processor_id();
-  LOCK(cid);
-  struct profile_record* rec = get_profile_record(&stat[cid], req);
+  
+  LOCKQ(qid);
+  struct profile_record* rec = get_profile_record(&stat[qid], req);
   APPEND_EVENT_IF_VALID(
       list_last_entry(&rec->ts->list, struct ts_entry, list)->event !=
       NVME_TCP_TRY_SEND,
       rec, now, NVME_TCP_TRY_SEND_DATA);
-  UNLOCK(cid);
+  UNLOCKQ(qid);
 }
 
 void on_nvme_tcp_done_send_req(void* ignore, struct request* req, int qid) {
   CHECK_TRACE_CONDITIONS(qid);
   u64 now = ktime_get_real_ns();
-  int cid = smp_processor_id();
-  LOCK(cid);
-  struct profile_record* rec = get_profile_record(&stat[cid], req);
+  
+  LOCKQ(qid);
+  struct profile_record* rec = get_profile_record(&stat[qid], req);
   APPEND_EVENT_IF_VALID(true, rec, now, NVME_TCP_DONE_SEND_REQ);
-  UNLOCK(cid);
+  UNLOCKQ(qid);
 }
 
 void on_nvme_tcp_handle_c2h_data(void* ignore, struct request* rq, int qid,
@@ -189,8 +196,8 @@ void on_nvme_tcp_handle_c2h_data(void* ignore, struct request* rq, int qid,
   CHECK_TRACE_CONDITIONS(qid);
   int cid = smp_processor_id();
   u64 now = ktime_get_real_ns();
-  LOCK(cid);
-  struct profile_record* rec = get_profile_record(&stat[cid], rq);
+  LOCKQ(qid);
+  struct profile_record* rec = get_profile_record(&stat[qid], rq);
   if (rec) {
     rec->metadata.contains_c2h = 1;
     // check the last timestamp
@@ -201,7 +208,7 @@ void on_nvme_tcp_handle_c2h_data(void* ignore, struct request* rq, int qid,
       pr_info(
           "on_nvme_tcp_handle_c2h_data is called: current incomplete list length on core %d is %d",
           cid,
-          get_list_len(&stat[cid]));
+          get_list_len(&stat[qid]));
       pr_err(
           "%s: on_nvme_tcp_handle_c2h_data: to append time %llu is less than last time %llu\n",
           __func__,
@@ -213,17 +220,17 @@ void on_nvme_tcp_handle_c2h_data(void* ignore, struct request* rq, int qid,
     append_event(rec, recv_time, NVME_TCP_RECV_SKB);
     append_event(rec, now, NVME_TCP_HANDLE_C2H_DATA);
   }
-  UNLOCK(cid);
+  UNLOCKQ(qid);
 }
 
-void on_nvme_tcp_recv_data(void* ignore, struct request* rq, int qid, int len) {
+void on_nvme_tcp_recv_data(void* ignore, struct request* req, int qid, int len) {
   CHECK_TRACE_CONDITIONS(qid);
   u64 now = ktime_get_real_ns();
-  int cid = smp_processor_id();
-  LOCK(cid);
-  struct profile_record* rec = get_profile_record(&stat[cid], rq);
+  
+  LOCKQ(qid);
+  struct profile_record* rec = get_profile_record(&stat[qid], req);
   APPEND_EVENT_IF_VALID(true, rec, now, NVME_TCP_RECV_DATA);
-  UNLOCK(cid);
+  UNLOCKQ(qid);
 }
 
 void cpy_ntprof_stat_to_record(struct profile_record* record,
@@ -243,9 +250,9 @@ void on_nvme_tcp_handle_r2t(void* ignore, struct request* rq, void* pdu,
                             int qid, u64 recv_time) {
   CHECK_TRACE_CONDITIONS(qid);
   u64 now = ktime_get_real_ns();
-  int cid = smp_processor_id();
-  LOCK(cid);
-  struct profile_record* rec = get_profile_record(&stat[cid], rq);
+  
+  LOCKQ(qid);
+  struct profile_record* rec = get_profile_record(&stat[qid], rq);
   if (rec) {
     if (((struct nvme_tcp_r2t_pdu*)pdu)->stat.id != (unsigned long long)rec->
         metadata.cmdid) {
@@ -263,16 +270,16 @@ void on_nvme_tcp_handle_r2t(void* ignore, struct request* rq, void* pdu,
         "!!! on_nvme_tcp_handle_r2t: rec [tag=%d] is not found or it is NULL, stat->cmdid=%llu, the incomplete queue is: ",
         rq->tag, ((struct nvme_tcp_r2t_pdu *) pdu)->stat.id);
   }
-  UNLOCK(cid);
+  UNLOCKQ(qid);
 }
 
 void on_nvme_tcp_process_nvme_cqe(void* ignore, struct request* rq, void* pdu,
                                   int qid, u64 recv_time) {
   CHECK_TRACE_CONDITIONS(qid);
   u64 now = ktime_get_real_ns();
-  int cid = smp_processor_id();
-  LOCK(cid);
-  struct profile_record* rec = get_profile_record(&stat[cid], rq);
+  
+  LOCKQ(qid);
+  struct profile_record* rec = get_profile_record(&stat[qid], rq);
   if (rec) {
     if (((struct nvme_tcp_rsp_pdu*)pdu)->stat.id != (unsigned long long)rec->
         metadata.cmdid) {
@@ -286,17 +293,38 @@ void on_nvme_tcp_process_nvme_cqe(void* ignore, struct request* rq, void* pdu,
       unsigned long long lasttime = last_entry->timestamp;
       // for small read io, recv_time of completion = recv_time of data, so we can skip the check
       // for larger read io,
-      if (rec->metadata.is_write && recv_time < lasttime) {
-          pr_err("%s: to append time %llu is less than last time %llu\n", __func__, recv_time, lasttime);
-          print_profile_record(rec);
+      if (recv_time < lasttime) {
+        if (rec->metadata.is_write) {
+        } else {
+          struct ts_entry* prev_entry = list_prev_entry(last_entry, list);
+          // if size < 8K
+          if (rec->metadata.size < 8192) {
+            // check recv_time equals the last entry of the latst_etnry
+            if (prev_entry->timestamp > recv_time) {
+              pr_err("%s: to append time %llu is less than last time %llu\n",
+                     __func__, recv_time, lasttime);
+              print_profile_record(rec);
+            }
+          } else {
+            if (prev_entry->timestamp > recv_time)
+              pr_err("%s: to append time %llu is less than last time %llu\n",
+                       __func__, recv_time, lasttime);
+            // print_profile_record(rec);
+          }
+        }
+
+        // pr_err("%s: to append time %llu is less than last time %llu\n",
+        //        __func__, recv_time, lasttime);
+        // print_profile_record(rec);
       }
       cpy_ntprof_stat_to_record(rec, &((struct nvme_tcp_rsp_pdu*)pdu)->stat);
       append_event(rec, recv_time, NVME_TCP_RECV_SKB);
       append_event(rec, now, NVME_TCP_PROCESS_NVME_CQE);
     }
-    complete_record(&stat[cid], rec);
+    // print_profile_record(rec);
+    complete_record(&stat[qid], rec);
   }
-  UNLOCK(cid);
+  UNLOCKQ(qid);
 }
 
 static struct nvmf_tracepoint tracepoints[] = {

@@ -314,7 +314,7 @@ void analyze(struct ntprof_config* conf, struct report* rpt) {
   for (i = 0; i < MAX_CORE_NUM; i++) {
     struct per_core_statistics* s = &stat[i];
     struct profile_record *rec, *tmp;
-    SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[i].lock, "analyze");
+    // SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[i].lock, "analyze");
 
     list_for_each_entry_safe(rec, tmp, &s->completed_records, list) {
       // remove all elements
@@ -326,6 +326,6 @@ void analyze(struct ntprof_config* conf, struct report* rpt) {
       list_del(&rec->list);
       kfree(rec);
     }
-    SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[i].lock, "analyze");
+    // SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[i].lock, "analyze");
   }
 }

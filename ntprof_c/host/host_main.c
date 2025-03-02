@@ -72,9 +72,9 @@ void clear_up(void) {
   }
   int i;
   for (i = 0; i < MAX_CORE_NUM; i++) {
-    SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[i].lock, "clear_up");
+    SPINLOCK_IRQSAVE_DISABLEPREEMPT_Q(&stat[i].lock, "clear_up", i);
     free_per_core_statistics(&stat[i]);
-    SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[i].lock, "clear_up");
+    SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT_Q(&stat[i].lock, "clear_up", i);
   }
 }
 
