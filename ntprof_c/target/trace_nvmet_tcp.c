@@ -38,8 +38,9 @@ create_record(u16 cmdid, int size, bool is_write) {
         UNLOCK_QUEUE(qid); \
     } while (0)
 
-void on_nvmet_tcp_done_recv_pdu(void* ignore, struct nvme_tcp_cmd_pdu* pdu, int qid,
-                      long long recv_time) {
+void on_nvmet_tcp_done_recv_pdu(void* ignore, struct nvme_tcp_cmd_pdu* pdu,
+                                int qid,
+                                long long recv_time) {
   if (!pdu->stat.tag)
     return;
 
@@ -76,7 +77,8 @@ void on_nvmet_tcp_done_recv_pdu(void* ignore, struct nvme_tcp_cmd_pdu* pdu, int 
   UNLOCK_QUEUE(qid);
 }
 
-void on_nvmet_tcp_exec_read_req(void* ignore, struct nvme_command* cmd, int qid) {
+void on_nvmet_tcp_exec_read_req(void* ignore, struct nvme_command* cmd,
+                                int qid) {
   u16 cmdid = cmd->common.command_id;
   u8 opcode = cmd->common.opcode;
   u64 now = ktime_get_real_ns();
@@ -89,8 +91,9 @@ void on_nvmet_tcp_exec_read_req(void* ignore, struct nvme_command* cmd, int qid)
 }
 
 
-void on_nvmet_tcp_exec_write_req(void* ignore, struct nvme_command* cmd, int qid,
-                       int size) {
+void on_nvmet_tcp_exec_write_req(void* ignore, struct nvme_command* cmd,
+                                 int qid,
+                                 int size) {
   u16 cmdid = cmd->common.command_id;
   u8 opcode = cmd->common.opcode;
   u64 now = ktime_get_real_ns();
@@ -102,7 +105,8 @@ void on_nvmet_tcp_exec_write_req(void* ignore, struct nvme_command* cmd, int qid
   HANDLE_COMMON_EVENT(qid, cmdid, now, NVMET_TCP_EXEC_WRITE_REQ);
 }
 
-void on_nvmet_tcp_queue_response(void* ignore, struct nvme_command* cmd, int qid) {
+void on_nvmet_tcp_queue_response(void* ignore, struct nvme_command* cmd,
+                                 int qid) {
   u16 cmdid = cmd->common.command_id;
   u64 now = ktime_get_real_ns();
 
@@ -115,19 +119,22 @@ void on_nvmet_tcp_queue_response(void* ignore, struct nvme_command* cmd, int qid
   SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[qid].lock, __func__);
 }
 
-void on_nvmet_tcp_setup_c2h_data_pdu(void* ignore, struct nvme_completion* cqe, int qid) {
+void on_nvmet_tcp_setup_c2h_data_pdu(void* ignore, struct nvme_completion* cqe,
+                                     int qid) {
   u16 cmdid = cqe->command_id;
   u64 now = ktime_get_real_ns();
   HANDLE_COMMON_EVENT(qid, cmdid, now, NVMET_TCP_SETUP_C2H_DATA_PDU);
 }
 
-void on_nvmet_tcp_setup_r2t_pdu(void* ignore, struct nvme_command* cmd, int qid) {
+void on_nvmet_tcp_setup_r2t_pdu(void* ignore, struct nvme_command* cmd,
+                                int qid) {
   u16 cmdid = cmd->common.command_id;
   u64 now = ktime_get_real_ns();
   HANDLE_COMMON_EVENT(qid, cmdid, now, NVMET_TCP_SETUP_R2T_PDU);
 }
 
-void on_nvmet_tcp_setup_response_pdu(void* ignore, struct nvme_completion* cqe, int qid) {
+void on_nvmet_tcp_setup_response_pdu(void* ignore, struct nvme_completion* cqe,
+                                     int qid) {
   u16 cmdid = cqe->command_id;
   u64 now = ktime_get_real_ns();
   HANDLE_COMMON_EVENT(qid, cmdid, now, NVMET_TCP_SETUP_RESPONSE_PDU);
@@ -139,21 +146,19 @@ void cpy_stat(struct profile_record* record, struct ntprof_stat* s) {
   if (s->id == 0) {
     pr_warn("making s->id 0!!!!!!!!!");
   }
-  // taverse record->ts
-  struct ts_entry* entry;
-  list_for_each_entry(entry, &record->ts->list, list) {
-    if (s->cnt >= 16) {
-      pr_warn("Cnt exceeds 16, skip the rest\n");
-      break;
-    }
-    s->ts[s->cnt] = entry->timestamp;
-    s->event[s->cnt] = entry->event;
+
+  int i;
+  // TODO need to be careful about the array buffer overflow
+  for (i = 0; i < record->cnt; i++) {
+    s->ts[i] = record->timestamps[i];
+    s->event[i] = record->events[i];
     s->cnt++;
   }
 }
 
-void on_nvmet_tcp_try_send_data_pdu(void* ignore, struct nvme_completion* cqe, void* pdu,
-                          int qid, int size) {
+void on_nvmet_tcp_try_send_data_pdu(void* ignore, struct nvme_completion* cqe,
+                                    void* pdu,
+                                    int qid, int size) {
   u16 cmd_id = cqe->command_id;
   u64 now = ktime_get_real_ns();
   HANDLE_COMMON_EVENT(qid, cmd_id, now, NVMET_TCP_TRY_SEND_DATA_PDU);
@@ -179,34 +184,40 @@ static void process_and_remove_record(int qid, u16 cmdid, void* pdu,
   UNLOCK_QUEUE(qid);
 }
 
-void on_nvmet_tcp_try_send_r2t(void* ignore, struct nvme_command* cmd, void* pdu, int qid,
-                     int size) {
+void on_nvmet_tcp_try_send_r2t(void* ignore, struct nvme_command* cmd,
+                               void* pdu, int qid,
+                               int size) {
   process_and_remove_record(qid, cmd->common.command_id, pdu,
                             NVMET_TCP_TRY_SEND_R2T);
 }
 
-void on_nvmet_tcp_try_send_response(void* ignore, struct nvme_completion* cqe, void* pdu,
-                          int qid, int size) {
+void on_nvmet_tcp_try_send_response(void* ignore, struct nvme_completion* cqe,
+                                    void* pdu,
+                                    int qid, int size) {
   process_and_remove_record(qid, cqe->command_id, pdu,
                             NVMET_TCP_TRY_SEND_RESPONSE);
 }
 
-void on_nvmet_tcp_try_send_data(void* ignore, struct nvme_completion* cqe, int qid,
-                      int size) {
+void on_nvmet_tcp_try_send_data(void* ignore, struct nvme_completion* cqe,
+                                int qid,
+                                int size) {
   u16 cmdid = cqe->command_id;
   u64 now = ktime_get_real_ns();
   HANDLE_COMMON_EVENT(qid, cmdid, now, NVMET_TCP_TRY_SEND_DATA);
 }
 
-void on_nvmet_tcp_try_recv_data(void* ignore, struct nvme_command* cmd, int qid, int size,
-                      long long recv_time) {
+void on_nvmet_tcp_try_recv_data(void* ignore, struct nvme_command* cmd, int qid,
+                                int size,
+                                long long recv_time) {
   u16 cmdid = cmd->common.command_id;
   HANDLE_COMMON_EVENT(qid, cmdid, recv_time, NVMET_TCP_TRY_RECV_DATA);
 }
 
-void on_nvmet_tcp_handle_h2c_data_pdu(void* ignore, struct nvme_tcp_data_pdu* pdu,
-                            struct nvme_command* cmd, int qid, int size,
-                            long long recv_time) {
+void on_nvmet_tcp_handle_h2c_data_pdu(void* ignore,
+                                      struct nvme_tcp_data_pdu* pdu,
+                                      struct nvme_command* cmd, int qid,
+                                      int size,
+                                      long long recv_time) {
   if (!pdu->stat.tag) return;
   u16 cmd_id = cmd->common.command_id;
   u64 now = ktime_get_real_ns();
