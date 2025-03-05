@@ -7,6 +7,7 @@
 #include <linux/list.h>
 #include <linux/compiler.h>
 #include <linux/slab.h>
+#include <linux/nvme-tcp.h>
 
 /* Event type definitions (X-macro) */
 #define EVENT_LIST \
@@ -102,12 +103,19 @@ struct profile_record {
   size_t cnt;
 
   struct list_head list;
+
+  struct ntprof_stat stat1;
+  struct ntprof_stat stat2;
 };
 
 /** ---------- predefined sequence template ---------- **/
 typedef struct {
   const enum EEvent* events;
+  const enum EEvent* target1;
+  const enum EEvent* target2;
   size_t length;
+  size_t target1_length;
+  size_t target2_length;
   const char* description;
 } EventSequence;
 
@@ -121,7 +129,17 @@ static const EventSequence seq_read = {
         NVME_TCP_PROCESS_NVME_CQE,
         BLK_RQ_COMPLETE
     },
+    .target1 = (enum EEvent[]){
+        NVMET_TCP_TRY_RECV_PDU,
+        NVMET_TCP_DONE_RECV_PDU,
+        NVMET_TCP_EXEC_READ_REQ,
+        NVMET_TCP_QUEUE_RESPONSE,
+        NVMET_TCP_TRY_SEND_RESPONSE,
+    },
+    .target2 = (enum EEvent[]){},
     .length = 7,
+    .target1_length = 5,
+    .target2_length = 0,
     .description = "Read Sequence"
 };
 
@@ -134,7 +152,17 @@ static const EventSequence seq_small_write = {
         NVME_TCP_PROCESS_NVME_CQE,
         BLK_RQ_COMPLETE
     },
+    .target1 = (enum EEvent[]){
+        NVMET_TCP_TRY_RECV_PDU,
+        NVMET_TCP_DONE_RECV_PDU,
+        NVMET_TCP_EXEC_WRITE_REQ,
+        NVMET_TCP_QUEUE_RESPONSE,
+        NVMET_TCP_TRY_SEND_RESPONSE,
+    },
+    .target2 = (enum EEvent[]){},
     .length = 6,
+    .target1_length = 5,
+    .target2_length = 0,
     .description = "Small Write Sequence"
 };
 
@@ -150,7 +178,21 @@ static const EventSequence seq_big_write = {
         NVME_TCP_PROCESS_NVME_CQE,
         BLK_RQ_COMPLETE
     },
+    .target1 = (enum EEvent[]){
+        NVMET_TCP_TRY_RECV_PDU,
+        NVMET_TCP_DONE_RECV_PDU,
+        NVMET_TCP_TRY_SEND_R2T,
+    },
+    .target2 = (enum EEvent[]){
+        NVMET_TCP_TRY_RECV_PDU,
+        NVMET_TCP_HANDLE_H2C_DATA_PDU,
+        NVMET_TCP_EXEC_WRITE_REQ,
+        NVMET_TCP_QUEUE_RESPONSE,
+        NVMET_TCP_TRY_SEND_RESPONSE,
+    },
     .length = 9,
+    .target1_length = 3,
+    .target2_length = 5,
     .description = "Big Write Sequence"
 };
 
@@ -191,10 +233,50 @@ static int validate_sequence(struct profile_record* r, const EventSequence* seq,
   }
 #endif
 
+  // check target
+  if (seq->target1_length > 0) {
+    if (r->stat1.cnt != seq->target1_length) {
+      pr_warn("%s: Expected %zu target1 events, got %u\n",
+              warn_msg, seq->target1_length, r->stat1.cnt);
+      return 0;
+    }
+    for (i = 0; i < seq->target1_length; i++) {
+      if (r->stat1.event[i] != seq->target1[i]) {
+        pr_warn("%s: Expected %s at target1 %d, got %s\n", warn_msg,
+                event_to_string(seq->target1[i]), i,
+                event_to_string(r->stat1.event[i]));
+        return 0;
+      }
+      if (r->stat1.ts[i] == 0) {
+        pr_warn("%s: target1 timestamp=0 at %d\n", warn_msg, i);
+        return 0;
+      }
+    }
+  }
+
+  if (seq->target2_length > 0) {
+    if (r->stat2.cnt != seq->target2_length) {
+      pr_warn("%s: Expected %zu target2 events, got %u\n",
+              warn_msg, seq->target2_length, r->stat2.cnt);
+      return 0;
+    }
+    for (i = 0; i < seq->target2_length; i++) {
+      if (r->stat2.event[i] != seq->target2[i]) {
+        pr_warn("%s: Expected %s at target2 %d, got %s\n", warn_msg,
+                event_to_string(seq->target2[i]), i,
+                event_to_string(r->stat2.event[i]));
+        return 0;
+      }
+      if (r->stat2.ts[i] == 0) {
+        pr_warn("%s: target2 timestamp=0 at %d\n", warn_msg, i);
+        return 0;
+      }
+    }
+  }
+
   return 1;
 }
 
-/* ---------- 业务校验函数 ---------- */
 static inline int is_valid_read(struct profile_record* r) {
   return validate_sequence(r, &seq_read, "INVALID_READ_RECORD", NULL);
 }
@@ -220,6 +302,18 @@ static inline void print_profile_record(struct profile_record* record) {
   for (i = 0; i < record->cnt; i++) {
     pr_info("  [%d] %s: %llu\n", i, event_to_string(record->events[i]),
             record->timestamps[i]);
+  }
+
+  pr_info("  [FROM TARGET]");
+  for (i = 0; i < record->stat1.cnt; i++) {
+    pr_info("  [%d] %s: %llu\n", i, event_to_string(record->stat1.event[i]),
+            record->stat1.ts[i]);
+  }
+  if (record->metadata.contains_r2t) {
+    for (i = 0; i < record->stat2.cnt; i++) {
+      pr_info("  [%d] %s: %llu\n", i, event_to_string(record->stat2.event[i]),
+              record->stat2.ts[i]);
+    }
   }
 }
 

@@ -188,6 +188,7 @@ void summarize_category(struct categorized_records* cat,
     // }
     print_profile_record(record);
     break_latency(record, &cs->bd);
+    print_breakdown(&cs->bd);
     kfree(record);
   }
 }

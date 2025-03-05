@@ -207,16 +207,26 @@ void on_nvme_tcp_handle_c2h_data(void* ignore, struct request* rq, int qid,
 //   UNLOCKQ(qid);
 // }
 
-void cpy_ntprof_stat_to_record(struct profile_record* record,
-                               struct ntprof_stat* pdu_stat) {
-  if (unlikely(pdu_stat == NULL)) {
-    pr_err("try to copy time series from pdu_stat but it is NULL");
-    return;
-  }
+// void cpy_ntprof_stat_to_record(struct profile_record* record,
+//                                struct ntprof_stat* pdu_stat) {
+//   if (unlikely(pdu_stat == NULL)) {
+//     pr_err("try to copy time series from pdu_stat but it is NULL");
+//     return;
+//   }
+//   int i;
+//   for (i = 0; i < pdu_stat->cnt; i++) {
+//     append_event(record, pdu_stat->ts[i], pdu_stat->event[i]);
+//   }
+// }
+
+void copy_ntprof_stat_to_record(struct ntprof_stat* record_stat,
+                                struct ntprof_stat* pdu_stat) {
   int i;
   for (i = 0; i < pdu_stat->cnt; i++) {
-    append_event(record, pdu_stat->ts[i], pdu_stat->event[i]);
+    record_stat->ts[i] = pdu_stat->ts[i];
+    record_stat->event[i] = pdu_stat->event[i];
   }
+  record_stat->cnt = pdu_stat->cnt;
 }
 
 
@@ -235,7 +245,8 @@ void on_nvme_tcp_handle_r2t(void* ignore, struct request* rq, void* pdu,
               rec->metadata.cmdid);
     } else {
       rec->metadata.contains_r2t = 1;
-      // cpy_ntprof_stat_to_record(rec, &((struct nvme_tcp_r2t_pdu*)pdu)->stat);
+      copy_ntprof_stat_to_record(&rec->stat1,
+                                 &((struct nvme_tcp_r2t_pdu*)pdu)->stat);
     }
 
     append_event(rec, recv_time, NVME_TCP_RECV_SKB);
@@ -265,6 +276,13 @@ void on_nvme_tcp_process_nvme_cqe(void* ignore, struct request* rq, void* pdu,
       // cpy_ntprof_stat_to_record(rec, &((struct nvme_tcp_rsp_pdu*)pdu)->stat);
       if (rec->metadata.is_write) {
         append_event(rec, recv_time, NVME_TCP_RECV_SKB);
+        if (rec->metadata.contains_r2t) {
+          copy_ntprof_stat_to_record(&rec->stat2,&((struct nvme_tcp_rsp_pdu*)pdu)->stat);
+        }else {
+          copy_ntprof_stat_to_record(&rec->stat1,&((struct nvme_tcp_rsp_pdu*)pdu)->stat);
+        }
+      }else {
+        copy_ntprof_stat_to_record(&rec->stat1,&((struct nvme_tcp_rsp_pdu*)pdu)->stat);
       }
       append_event(rec, now, NVME_TCP_PROCESS_NVME_CQE);
     }
