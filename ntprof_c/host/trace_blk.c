@@ -20,15 +20,18 @@ void on_block_rq_complete(void* ignore, struct request* rq, int err,
   }
 
   struct profile_record* rec;
-
   int i = 0;
+
   for (i = 0; i < MAX_CORE_NUM; i++) {
     LOCKQ(i);
     rec = get_profile_record(&stat[i], rq);
+
     if (rec != NULL) {
       unsigned long long now = ktime_get_real_ns();
       append_event(rec, now, BLK_RQ_COMPLETE);
       complete_record(&stat[i], rec);
+      // print_profile_record(rec);
+      UNLOCKQ(i);
       break;
     }
     UNLOCKQ(i);
