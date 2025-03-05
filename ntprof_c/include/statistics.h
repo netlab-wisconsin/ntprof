@@ -260,6 +260,14 @@ static inline void append_event(struct profile_record* record,
   record->cnt++;
 }
 
+static inline enum EEvent get_last_event(struct profile_record* record) {
+  if (record->cnt == 0) {
+    pr_warn("get_last_event: record is empty\n");
+    return -1;
+  }
+  return record->events[record->cnt - 1];
+}
+
 static inline void free_profile_record(struct profile_record* record) {
   if (unlikely(!record)) return;
   if (!list_empty(&record->list)) {
