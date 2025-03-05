@@ -219,7 +219,6 @@ void on_nvmet_tcp_handle_h2c_data_pdu(void* ignore,
                                       struct nvme_command* cmd, int qid,
                                       int size,
                                       long long recv_time) {
-  pr_info("%s is called, pdu->stat.tag=%d\n", __func__, pdu->stat.tag);
   if (!pdu->stat.tag) return;
   u16 cmd_id = cmd->common.command_id;
   u64 now = ktime_get_real_ns();
