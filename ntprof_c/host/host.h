@@ -73,15 +73,22 @@
 // pr_info("cpuid: %d release queue lock %d for %s, unlock\n", smp_processor_id(), qid, name);
 
 #define SPINLOCK_IRQSAVE_DISABLEPREEMPT_Q(x, name, qid) \
-unsigned long __flags; \
-local_bh_disable();\
-preempt_disable(); \
-spin_lock_irqsave(x, __flags);
+  unsigned long __flags; \
+  local_bh_disable();\
+  preempt_disable(); \
+  spin_lock_irqsave(x, __flags);
 
 #define SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT_Q(x, name, qid) \
-spin_unlock_irqrestore(x, __flags); \
-local_bh_enable();\
-preempt_enable();
+  spin_unlock_irqrestore(x, __flags); \
+  local_bh_enable();\
+  preempt_enable();
+
+#define LOCKQ(qid) \
+  SPINLOCK_IRQSAVE_DISABLEPREEMPT_Q(&stat[qid].lock, __func__, qid)
+
+#define UNLOCKQ(qid) \
+  SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT_Q(&stat[qid].lock, __func__, qid)
+
 
 static inline char* check_irq(void) {
   if (in_interrupt()) {
@@ -124,6 +131,9 @@ void complete_record(struct per_core_statistics* stats,
 
 struct profile_record* get_profile_record(struct per_core_statistics* stats,
                                           struct request* req_tag);
+
+// struct profile_record* get_profile_record_global(
+//     struct request* req, struct per_core_statistics* stats);
 
 bool match_config(struct request* req, struct ntprof_config* config);
 

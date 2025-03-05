@@ -102,19 +102,40 @@ struct category_key {
   char session_name[MAX_SESSION_NAME_LEN];
 };
 
-struct breakdown {
-  enum EBreakdownType type;
+// struct breakdown {
+//   enum EBreakdownType type;
+//
+//   struct
+//
+//   union {
+//     struct read_breakdown read;
+//     struct write_breakdown_s writes;
+//     struct write_breakdown_l writel;
+//   };
+// };
 
-  union {
-    struct read_breakdown read;
-    struct write_breakdown_s writes;
-    struct write_breakdown_l writel;
-  };
+struct latency_breakdown {
+  int blk_submission;
+  int blk_completion;
+
+  int nvme_tcp_submission;
+  int nvme_tcp_completion;
+
+  int nvmet_tcp_submission;
+  int nvmet_tcp_completion;
+
+  int target_subsystem;
+
+  int nstack_submission; // target
+  int nstack_completion; // initiator
+  int network_transmission;
 };
+
+
 
 struct category_summary {
   struct category_key key;
-  struct breakdown bd;
+  struct latency_breakdown bd;
 };
 
 #define MAX_CATEGORIES 8

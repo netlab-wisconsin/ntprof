@@ -8,121 +8,53 @@
 #include <linux/compiler.h>
 #include <linux/slab.h>
 
+/* Event type definitions (X-macro) */
+#define EVENT_LIST \
+  X(BLK_SUBMIT) \
+  X(BLK_RQ_COMPLETE) \
+  X(NVME_TCP_QUEUE_RQ) \
+  X(NVME_TCP_QUEUE_REQUEST) \
+  X(NVME_TCP_TRY_SEND) \
+  X(NVME_TCP_TRY_SEND_CMD_PDU) \
+  X(NVME_TCP_TRY_SEND_DATA_PDU) \
+  X(NVME_TCP_TRY_SEND_DATA) \
+  X(NVME_TCP_DONE_SEND_REQ) \
+  X(NVME_TCP_RECV_SKB) \
+  X(NVME_TCP_HANDLE_C2H_DATA) \
+  X(NVME_TCP_RECV_DATA) \
+  X(NVME_TCP_HANDLE_R2T) \
+  X(NVME_TCP_PROCESS_NVME_CQE) \
+  X(NVMET_TCP_TRY_RECV_PDU) \
+  X(NVMET_TCP_DONE_RECV_PDU) \
+  X(NVMET_TCP_EXEC_READ_REQ) \
+  X(NVMET_TCP_EXEC_WRITE_REQ) \
+  X(NVMET_TCP_QUEUE_RESPONSE) \
+  X(NVMET_TCP_SETUP_C2H_DATA_PDU) \
+  X(NVMET_TCP_SETUP_R2T_PDU) \
+  X(NVMET_TCP_SETUP_RESPONSE_PDU) \
+  X(NVMET_TCP_TRY_SEND_DATA_PDU) \
+  X(NVMET_TCP_TRY_SEND_R2T) \
+  X(NVMET_TCP_TRY_SEND_RESPONSE) \
+  X(NVMET_TCP_TRY_SEND_DATA) \
+  X(NVMET_TCP_HANDLE_H2C_DATA_PDU) \
+  X(NVMET_TCP_TRY_RECV_DATA) \
+  X(NVMET_TCP_IO_WORK)
+
 enum EEvent {
-  // ---------------------
-  // BLK Events
-  // ---------------------
-  BLK_SUBMIT,
-  BLK_RQ_COMPLETE,
-
-  // ----------------------
-  // NVMe over TCP Events
-  // ----------------------
-  NVME_TCP_QUEUE_RQ,
-  NVME_TCP_QUEUE_REQUEST,
-  NVME_TCP_TRY_SEND,
-  NVME_TCP_TRY_SEND_CMD_PDU,
-  NVME_TCP_TRY_SEND_DATA_PDU,
-  NVME_TCP_TRY_SEND_DATA,
-  NVME_TCP_DONE_SEND_REQ,
-  NVME_TCP_RECV_SKB,
-  NVME_TCP_HANDLE_C2H_DATA,
-  NVME_TCP_RECV_DATA,
-  NVME_TCP_HANDLE_R2T,
-  NVME_TCP_PROCESS_NVME_CQE,
-
-  // ----------------------
-  // NVMe over TCP Events
-  // ----------------------
-  NVMET_TCP_TRY_RECV_PDU,
-  NVMET_TCP_DONE_RECV_PDU,
-  NVMET_TCP_EXEC_READ_REQ,
-  NVMET_TCP_EXEC_WRITE_REQ,
-  NVMET_TCP_QUEUE_RESPONSE,
-  NVMET_TCP_SETUP_C2H_DATA_PDU,
-  NVMET_TCP_SETUP_R2T_PDU,
-  NVMET_TCP_SETUP_RESPONSE_PDU,
-  NVMET_TCP_TRY_SEND_DATA_PDU,
-  NVMET_TCP_TRY_SEND_R2T,
-  NVMET_TCP_TRY_SEND_RESPONSE,
-  NVMET_TCP_TRY_SEND_DATA,
-  NVMET_TCP_HANDLE_H2C_DATA_PDU,
-  NVMET_TCP_TRY_RECV_DATA,
-  NVMET_TCP_IO_WORK,
+#define X(a) a,
+  EVENT_LIST
+#undef X
 };
 
-// return event name in string given enum
 static inline char* event_to_string(enum EEvent event) {
   switch (event) {
-    case BLK_SUBMIT:
-      return "BLK_SUBMIT";
-    case BLK_RQ_COMPLETE:
-      return "BLK_RQ_COMPLETE";
-    case NVME_TCP_QUEUE_RQ:
-      return "NVME_TCP_QUEUE_RQ";
-    case NVME_TCP_QUEUE_REQUEST:
-      return "NVME_TCP_QUEUE_REQUEST";
-    case NVME_TCP_TRY_SEND:
-      return "NVME_TCP_TRY_SEND";
-    case NVME_TCP_TRY_SEND_CMD_PDU:
-      return "NVME_TCP_TRY_SEND_CMD_PDU";
-    case NVME_TCP_TRY_SEND_DATA_PDU:
-      return "NVME_TCP_TRY_SEND_DATA_PDU";
-    case NVME_TCP_TRY_SEND_DATA:
-      return "NVME_TCP_TRY_SEND_DATA";
-    case NVME_TCP_DONE_SEND_REQ:
-      return "NVME_TCP_DONE_SEND_REQ";
-    case NVME_TCP_RECV_SKB:
-      return "NVME_TCP_RECV_SKB";
-    case NVME_TCP_HANDLE_C2H_DATA:
-      return "NVME_TCP_HANDLE_C2H_DATA";
-    case NVME_TCP_RECV_DATA:
-      return "NVME_TCP_RECV_DATA";
-    case NVME_TCP_HANDLE_R2T:
-      return "NVME_TCP_HANDLE_R2T";
-    case NVME_TCP_PROCESS_NVME_CQE:
-      return "NVME_TCP_PROCESS_NVME_CQE";
-    case NVMET_TCP_TRY_RECV_PDU:
-      return "NVMET_TCP_TRY_RECV_PDU";
-    case NVMET_TCP_DONE_RECV_PDU:
-      return "NVMET_TCP_DONE_RECV_PDU";
-    case NVMET_TCP_EXEC_READ_REQ:
-      return "NVMET_TCP_EXEC_READ_REQ";
-    case NVMET_TCP_EXEC_WRITE_REQ:
-      return "NVMET_TCP_EXEC_WRITE_REQ";
-    case NVMET_TCP_QUEUE_RESPONSE:
-      return "NVMET_TCP_QUEUE_RESPONSE";
-    case NVMET_TCP_SETUP_C2H_DATA_PDU:
-      return "NVMET_TCP_SETUP_C2H_DATA_PDU";
-    case NVMET_TCP_SETUP_R2T_PDU:
-      return "NVMET_TCP_SETUP_R2T_PDU";
-    case NVMET_TCP_SETUP_RESPONSE_PDU:
-      return "NVMET_TCP_SETUP_RESPONSE_PDU";
-    case NVMET_TCP_TRY_SEND_DATA_PDU:
-      return "NVMET_TCP_TRY_SEND_DATA_PDU";
-    case NVMET_TCP_TRY_SEND_R2T:
-      return "NVMET_TCP_TRY_SEND_R2T";
-    case NVMET_TCP_TRY_SEND_RESPONSE:
-      return "NVMET_TCP_TRY_SEND_RESPONSE";
-    case NVMET_TCP_TRY_SEND_DATA:
-      return "NVMET_TCP_TRY_SEND_DATA";
-    case NVMET_TCP_HANDLE_H2C_DATA_PDU:
-      return "NVMET_TCP_HANDLE_H2C_DATA_PDU";
-    case NVMET_TCP_TRY_RECV_DATA:
-      return "NVMET_TCP_TRY_RECV_DATA";
-    case NVMET_TCP_IO_WORK:
-      return "NVMET_TCP_IO_WORK";
+#define X(a) case a: return #a;
+    EVENT_LIST
+#undef X
     default:
       return "UNKNOWN";
   }
 }
-
-
-struct ts_entry {
-  unsigned long long timestamp;
-  enum EEvent event;
-  struct list_head list;
-};
 
 struct profile_record {
   struct {
@@ -136,326 +68,158 @@ struct profile_record {
     int contains_r2t; // 0 for true, 1 for false
   } metadata;
 
-  struct ts_entry* ts;
+  // struct ts_entry* ts;
+
+  // *** READ (initiator side)
+  // [0] blk_submit -> blk layer | 1s
+  // [1] nvme_tcp_queue_rq -> nvme-tcp layer | 1s
+  // [2] nvme_tcp_done_send_req -> wait
+  // [3] nvme_tcp_recv_skb -> nstack | 1c
+  // [4] nvme_tcp_handle_c2h_data -> nvme-tcp layer | 1c
+  // [5] nvme_tcp_process_nvme_cqe -> blk layer | 1c
+  // [6] nvme_tcp_blk_req_complete
+
+  // *** SMALL SIZE WRITE (initiator side)
+  // [0] blk_submit -> blk layer | 1s
+  // [1] nvme_tcp_queue_rq -> nvme-tcp layer | 1s
+  // [2] nvme_tcp_done_send_req -> waiting
+  // [3] nvme_tcp_recv_skb -> nstack | 1c
+  // [4] nvme_tcp_process_nvme_cqe -> blk layer | 1c
+  // [5] blk_req_complete
+
+  // *** BIG SIZE WRITE (initiator side)
+  // [0] blk_submit -> blk layer | 1s
+  // [1] queue_rq -> nvme-tcp layer | 1s
+  // [2] done_send_req -> waiting | 1
+  // [3] recv_skb
+  // [4] handle_r2t -> nstack | 1c
+  // [5] done_send_req -> nvme-tcp | 1s
+  // [6] recv_skb -> loading | 2
+  // [7] process_nvme_cqe -> nstack | 1c
+  // [8] blk_req_complete -> blk layer | 1c
+  u64 timestamps[MAX_EVENT_NUM];
+  enum EEvent events[MAX_EVENT_NUM];
+  size_t cnt;
 
   struct list_head list;
 };
 
-// [21815.693780]     timestamp=1739105422908690767, event=BLK_SUBMIT
-// [21815.693782]     timestamp=1739105422908692600, event=NVME_TCP_QUEUE_RQ
-// [21815.693782]     timestamp=1739105422908696241, event=NVME_TCP_QUEUE_REQUEST
-// [21815.693783]     timestamp=1739105422908697104, event=NVME_TCP_TRY_SEND
-// [21815.693784]     timestamp=1739105422908712754, event=NVME_TCP_TRY_SEND_CMD_PDU
-// [21815.693785]     timestamp=1739105422908713235, event=NVME_TCP_DONE_SEND_REQ
-// [21815.693785]     timestamp=1739105422909338715, event=NVME_TCP_RECV_SKB
-// [21815.693786]     timestamp=1739105422909359041, event=NVME_TCP_HANDLE_C2H_DATA
-// [21815.693787]     timestamp=1739105422909365130, event=NVME_TCP_RECV_DATA
-// [21815.693787]     timestamp=1739105422908821122, event=NVMET_TCP_TRY_RECV_PDU
-// [21815.693788]     timestamp=1739105422908841019, event=NVMET_TCP_DONE_RECV_PDU
-// [21815.693789]     timestamp=1739105422908973388, event=NVMET_TCP_EXEC_READ_REQ
-// [21815.693789]     timestamp=1739105422909338452, event=NVMET_TCP_QUEUE_RESPONSE
-// [21815.693790]     timestamp=1739105422909341494, event=NVMET_TCP_SETUP_C2H_DATA_PDU
-// [21815.693791]     timestamp=1739105422909341717, event=NVMET_TCP_TRY_SEND_DATA_PDU
-// [21815.693791]     timestamp=1739105422909344089, event=NVMET_TCP_TRY_SEND_DATA
-// [21815.693792]     timestamp=1739105422909404902, event=NVMET_TCP_SETUP_RESPONSE_PDU
-// [21815.693793]     timestamp=1739105422909405073, event=NVMET_TCP_TRY_SEND_RESPONSE
-// [21815.693793]     timestamp=1739105422909629212, event=NVME_TCP_RECV_SKB
-// [21815.693794]     timestamp=1739105422909709478, event=NVME_TCP_PROCESS_NVME_CQE
-// [21815.693795]     timestamp=1739105422909712048, event=BLK_RQ_COMPLETE
+/** ---------- predefined sequence template ---------- **/
+typedef struct {
+  const enum EEvent* events;
+  size_t length;
+  const char* description;
+} EventSequence;
 
+static const EventSequence seq_read = {
+    .events = (enum EEvent[]){
+        BLK_SUBMIT,
+        NVME_TCP_QUEUE_RQ,
+        NVME_TCP_DONE_SEND_REQ,
+        NVME_TCP_RECV_SKB,
+        NVME_TCP_HANDLE_C2H_DATA,
+        NVME_TCP_PROCESS_NVME_CQE,
+        BLK_RQ_COMPLETE
+    },
+    .length = 7,
+    .description = "Read Sequence"
+};
+
+static const EventSequence seq_small_write = {
+    .events = (enum EEvent[]){
+        BLK_SUBMIT,
+        NVME_TCP_QUEUE_RQ,
+        NVME_TCP_DONE_SEND_REQ,
+        NVME_TCP_RECV_SKB,
+        NVME_TCP_PROCESS_NVME_CQE,
+        BLK_RQ_COMPLETE
+    },
+    .length = 6,
+    .description = "Small Write Sequence"
+};
+
+static const EventSequence seq_big_write = {
+    .events = (enum EEvent[]){
+        BLK_SUBMIT,
+        NVME_TCP_QUEUE_RQ,
+        NVME_TCP_DONE_SEND_REQ,
+        NVME_TCP_RECV_SKB,
+        NVME_TCP_HANDLE_R2T,
+        NVME_TCP_DONE_SEND_REQ,
+        NVME_TCP_RECV_SKB,
+        NVME_TCP_PROCESS_NVME_CQE,
+        BLK_RQ_COMPLETE
+    },
+    .length = 9,
+    .description = "Big Write Sequence"
+};
+
+static int validate_sequence(struct profile_record* r, const EventSequence* seq,
+                             const char* warn_msg,
+                             int (*extra_check)(struct profile_record*)) {
+  if (r->cnt != seq->length) {
+    pr_warn("%s: Expected %zu events, got %lu (%s)\n",
+            warn_msg, seq->length, r->cnt, seq->description);
+    return 0;
+  }
+
+  if (extra_check && !extra_check(r)) {
+    pr_warn("%s: Extra check failed\n", warn_msg);
+    return 0;
+  }
+
+  int i;
+  for (i = 0; i < seq->length; i++) {
+    if (r->events[i] != seq->events[i]) {
+      pr_warn("%s: Expected %s at %d, got %s\n", warn_msg,
+              event_to_string(seq->events[i]), i,
+              event_to_string(r->events[i]));
+      return 0;
+    }
+    if (r->timestamps[i] == 0) {
+      pr_warn("%s: timestamp=0 at %d\n", warn_msg, i);
+      return 0;
+    }
+  }
+
+#ifdef MAX_EVENT_NUM
+  for (i = seq->length; i < MAX_EVENT_NUM; i++) {
+    if (r->events[i] != -1 || r->timestamps[i] != 0) {
+      pr_warn("%s: Dirty data at index %d\n", warn_msg, i);
+      return 0;
+    }
+  }
+#endif
+
+  return 1;
+}
+
+/* ---------- 业务校验函数 ---------- */
 static inline int is_valid_read(struct profile_record* r) {
-  struct ts_entry* entry = NULL; // 确保 entry 是 NULL 初始化
-  enum EEvent expected_event_sequence[] = {
-      BLK_SUBMIT, //0
-      NVME_TCP_QUEUE_RQ, //1
-      NVME_TCP_QUEUE_REQUEST, //2
-      NVME_TCP_TRY_SEND, //3
-      NVME_TCP_TRY_SEND_CMD_PDU, //4
-      NVME_TCP_DONE_SEND_REQ, ///5
-      NVME_TCP_RECV_SKB, //6
-      NVME_TCP_HANDLE_C2H_DATA, //
-      NVME_TCP_RECV_DATA, //8
-      NVMET_TCP_TRY_RECV_PDU, //9
-      NVMET_TCP_DONE_RECV_PDU, //10
-      NVMET_TCP_EXEC_READ_REQ, //11
-      NVMET_TCP_QUEUE_RESPONSE, //12
-      NVMET_TCP_SETUP_C2H_DATA_PDU, //13
-      NVMET_TCP_TRY_SEND_DATA_PDU, //14
-      NVMET_TCP_TRY_SEND_DATA, //15
-      NVMET_TCP_SETUP_RESPONSE_PDU, //16
-      NVMET_TCP_TRY_SEND_RESPONSE, //17
-      NVME_TCP_RECV_SKB, //18
-      NVME_TCP_PROCESS_NVME_CQE, //19
-      BLK_RQ_COMPLETE //20
-  };
-
-  int expected_index = 0;
-  unsigned long long hosttime = 0;
-  unsigned long long targettime = 0;
-
-  list_for_each_entry(entry, &r->ts->list, list) {
-    if (expected_index >= sizeof(expected_event_sequence) / sizeof(
-          expected_event_sequence[0])) {
-      pr_err("More events than expected in idx [%d]! Extra event found: %s",
-             expected_index,
-             event_to_string(entry->event));
-      return 0;
-    }
-
-    if (entry->event != expected_event_sequence[expected_index]) {
-      pr_err("Event order is not expected in idx [%d]! Expected: %s, Found: %s",
-             expected_index,
-             event_to_string(expected_event_sequence[expected_index]),
-             event_to_string(entry->event));
-      return 0;
-    }
-
-    if (entry->event >= NVMET_TCP_TRY_RECV_PDU && entry->event <=
-        NVMET_TCP_IO_WORK) {
-      if (entry->timestamp < targettime) {
-        pr_err(
-            "Timestamp on target is not increasing on idx[%d]! Previous timestamp: %llu, Current timestamp: %llu",
-            expected_index,
-            targettime, entry->timestamp);
-        return 0;
-      }
-      targettime = entry->timestamp;
-    } else {
-      if (entry->timestamp < hosttime) {
-        pr_err(
-            "Timestamp on host is not increasing on idx[%d! Previous timestamp: %llu, Current timestamp: %llu",
-            expected_index,
-            hosttime, entry->timestamp);
-        return 0;
-      }
-      hosttime = entry->timestamp;
-    }
-
-    expected_index++;
-  }
-  return 1;
+  return validate_sequence(r, &seq_read, "INVALID_READ_RECORD", NULL);
 }
 
-// [21764.846386]     timestamp=1739105372062063411, event=BLK_SUBMIT
-// [21764.846387]     timestamp=1739105372062064681, event=NVME_TCP_QUEUE_RQ
-// [21764.846388]     timestamp=1739105372062066394, event=NVME_TCP_QUEUE_REQUEST
-// [21764.846389]     timestamp=1739105372062066779, event=NVME_TCP_TRY_SEND
-// [21764.846390]     timestamp=1739105372062070726, event=NVME_TCP_TRY_SEND_CMD_PDU
-// [21764.846390]     timestamp=1739105372062077535, event=NVME_TCP_TRY_SEND_DATA
-// [21764.846391]     timestamp=1739105372062077715, event=NVME_TCP_DONE_SEND_REQ
-// [21764.846392]     timestamp=1739105372062200225, event=NVMET_TCP_TRY_RECV_PDU
-// [21764.846393]     timestamp=1739105372062220703, event=NVMET_TCP_DONE_RECV_PDU
-// [21764.846393]     timestamp=1739105372062224744, event=NVMET_TCP_TRY_RECV_DATA
-// [21764.846394]     timestamp=1739105372062225056, event=NVMET_TCP_EXEC_WRITE_REQ
-// [21764.846395]     timestamp=1739105372062244244, event=NVMET_TCP_QUEUE_RESPONSE
-// [21764.846395]     timestamp=1739105372062247083, event=NVMET_TCP_SETUP_RESPONSE_PDU
-// [21764.846396]     timestamp=1739105372062247257, event=NVMET_TCP_TRY_SEND_RESPONSE
-// [21764.846397]     timestamp=1739105372062284215, event=NVME_TCP_RECV_SKB
-// [21764.846398]     timestamp=1739105372062302508, event=NVME_TCP_PROCESS_NVME_CQE
-// [21764.846398]     timestamp=1739105372062304609, event=BLK_RQ_COMPLETE
-
-static inline int is_valid_writes(struct profile_record* r) {
-  struct ts_entry* entry = r->ts;
-
-  enum EEvent expected_event_sequence[] = {
-      BLK_SUBMIT,
-      NVME_TCP_QUEUE_RQ,
-      NVME_TCP_QUEUE_REQUEST,
-      NVME_TCP_TRY_SEND,
-      NVME_TCP_TRY_SEND_CMD_PDU,
-      NVME_TCP_TRY_SEND_DATA,
-      NVME_TCP_DONE_SEND_REQ,
-      NVMET_TCP_TRY_RECV_PDU,
-      NVMET_TCP_DONE_RECV_PDU,
-      NVMET_TCP_TRY_RECV_DATA,
-      NVMET_TCP_EXEC_WRITE_REQ,
-      NVMET_TCP_QUEUE_RESPONSE,
-      NVMET_TCP_SETUP_RESPONSE_PDU,
-      NVMET_TCP_TRY_SEND_RESPONSE,
-      NVME_TCP_RECV_SKB,
-      NVME_TCP_PROCESS_NVME_CQE,
-      BLK_RQ_COMPLETE
-  };
-
-  int expected_index = 0;
-  unsigned long long hosttime = 0;
-  unsigned long long targettime = 0;
-
-  list_for_each_entry(entry, &r->ts->list, list) {
-    if (expected_index >= sizeof(expected_event_sequence) / sizeof(
-          expected_event_sequence[0])) {
-      pr_err("More events than expected in idx [%d]! Extra event found: %s",
-             expected_index,
-             event_to_string(entry->event));
-      return 0;
-    }
-
-    if (entry->event != expected_event_sequence[expected_index]) {
-      pr_err("Event order is not expected in idx [%d]! Expected: %s, Found: %s",
-             expected_index,
-             event_to_string(expected_event_sequence[expected_index]),
-             event_to_string(entry->event));
-      return 0;
-    }
-
-    if (entry->event >= NVMET_TCP_TRY_RECV_PDU && entry->event <=
-        NVMET_TCP_IO_WORK) {
-      if (entry->timestamp < targettime) {
-        pr_err(
-            "Timestamp on target is not increasing on idx[%d]! Previous timestamp: %llu, Current timestamp: %llu",
-            expected_index,
-            targettime, entry->timestamp);
-        return 0;
-      }
-      targettime = entry->timestamp;
-    } else {
-      if (entry->timestamp < hosttime) {
-        pr_err(
-            "Timestamp on host is not increasing on idx[%d! Previous timestamp: %llu, Current timestamp: %llu",
-            expected_index,
-            hosttime, entry->timestamp);
-        return 0;
-      }
-      hosttime = entry->timestamp;
-    }
-
-    expected_index++;
-  }
-
-  return 1;
-}
-
-// [21639.922280]     timestamp=1739105247137164976, event=BLK_SUBMIT
-// [21639.922282]     timestamp=1739105247137166069, event=NVME_TCP_QUEUE_RQ
-// [21639.922283]     timestamp=1739105247137168514, event=NVME_TCP_QUEUE_REQUEST
-// [21639.922283]     timestamp=1739105247137169057, event=NVME_TCP_TRY_SEND
-// [21639.922284]     timestamp=1739105247137178866, event=NVME_TCP_TRY_SEND_CMD_PDU
-// [21639.922285]     timestamp=1739105247137179113, event=NVME_TCP_DONE_SEND_REQ
-// [21639.922285]     timestamp=1739105247137272830, event=NVMET_TCP_TRY_RECV_PDU
-// [21639.922286]     timestamp=1739105247137293624, event=NVMET_TCP_DONE_RECV_PDU
-// [21639.922287]     timestamp=1739105247137427639, event=NVMET_TCP_QUEUE_RESPONSE
-// [21639.922288]     timestamp=1739105247137428808, event=NVMET_TCP_SETUP_R2T_PDU
-// [21639.922288]     timestamp=1739105247137429151, event=NVMET_TCP_TRY_SEND_R2T
-// [21639.922289]     timestamp=1739105247137423752, event=NVME_TCP_RECV_SKB
-// [21639.922290]     timestamp=1739105247137438229, event=NVME_TCP_HANDLE_R2T
-// [21639.922290]     timestamp=1739105247137439064, event=NVME_TCP_QUEUE_REQUEST
-// [21639.922291]     timestamp=1739105247137441013, event=NVME_TCP_TRY_SEND
-// [21639.922292]     timestamp=1739105247137441171, event=NVME_TCP_TRY_SEND_DATA_PDU
-// [21639.922292]     timestamp=1739105247137443512, event=NVME_TCP_TRY_SEND_DATA
-// [21639.922293]     timestamp=1739105247137520990, event=NVME_TCP_DONE_SEND_REQ
-// [21639.922294]     timestamp=1739105247137489909, event=NVMET_TCP_TRY_RECV_PDU
-// [21639.922294]     timestamp=1739105247137501269, event=NVMET_TCP_HANDLE_H2C_DATA_PDU
-// [21639.922295]     timestamp=1739105247137516413, event=NVMET_TCP_TRY_RECV_DATA
-// [21639.922296]     timestamp=1739105247137839508, event=NVMET_TCP_EXEC_WRITE_REQ
-// [21639.922296]     timestamp=1739105247138168673, event=NVMET_TCP_QUEUE_RESPONSE
-// [21639.922297]     timestamp=1739105247138172102, event=NVMET_TCP_SETUP_RESPONSE_PDU
-// [21639.922298]     timestamp=1739105247138172312, event=NVMET_TCP_TRY_SEND_RESPONSE
-// [21639.922298]     timestamp=1739105247138156723, event=NVME_TCP_RECV_SKB
-// [21639.922299]     timestamp=1739105247138160630, event=NVME_TCP_PROCESS_NVME_CQE
-// [21639.922300]     timestamp=1739105247138161931, event=BLK_RQ_COMPLETE
-static inline int is_valid_writel(struct profile_record* r) {
-  struct ts_entry* entry = r->ts;
-
-  enum EEvent expected_event_sequence[] = {
-      BLK_SUBMIT,
-      NVME_TCP_QUEUE_RQ,
-      NVME_TCP_QUEUE_REQUEST,
-      NVME_TCP_TRY_SEND,
-      NVME_TCP_TRY_SEND_CMD_PDU,
-      NVME_TCP_DONE_SEND_REQ,
-      NVMET_TCP_TRY_RECV_PDU,
-      NVMET_TCP_DONE_RECV_PDU,
-      NVMET_TCP_QUEUE_RESPONSE,
-      NVMET_TCP_SETUP_R2T_PDU,
-      NVMET_TCP_TRY_SEND_R2T,
-      NVME_TCP_RECV_SKB,
-      NVME_TCP_HANDLE_R2T,
-      NVME_TCP_QUEUE_REQUEST,
-      NVME_TCP_TRY_SEND,
-      NVME_TCP_TRY_SEND_DATA_PDU,
-      NVME_TCP_TRY_SEND_DATA,
-      NVME_TCP_DONE_SEND_REQ,
-      NVMET_TCP_TRY_RECV_PDU,
-      NVMET_TCP_HANDLE_H2C_DATA_PDU,
-      NVMET_TCP_TRY_RECV_DATA,
-      NVMET_TCP_EXEC_WRITE_REQ,
-      NVMET_TCP_QUEUE_RESPONSE,
-      NVMET_TCP_SETUP_RESPONSE_PDU,
-      NVMET_TCP_TRY_SEND_RESPONSE,
-      NVME_TCP_RECV_SKB,
-      NVME_TCP_PROCESS_NVME_CQE,
-      BLK_RQ_COMPLETE
-  };
-
-  int expected_index = 0;
-  unsigned long long hosttime = 0;
-  unsigned long long targettime = 0;
-
-  list_for_each_entry(entry, &r->ts->list, list) {
-    if (expected_index >= sizeof(expected_event_sequence) / sizeof(
-          expected_event_sequence[0])) {
-      pr_err("More events than expected in idx [%d]! Extra event found: %s",
-             expected_index,
-             event_to_string(entry->event));
-      return 0;
-    }
-
-    if (entry->event != expected_event_sequence[expected_index]) {
-      pr_err("Event order is not expected in idx [%d]! Expected: %s, Found: %s",
-             expected_index,
-             event_to_string(expected_event_sequence[expected_index]),
-             event_to_string(entry->event));
-      return 0;
-    }
-
-    if (entry->event >= NVMET_TCP_TRY_RECV_PDU && entry->event <=
-        NVMET_TCP_IO_WORK) {
-      if (entry->timestamp < targettime) {
-        pr_err(
-            "Timestamp on target is not increasing on idx[%d]! Previous timestamp: %llu, Current timestamp: %llu",
-            expected_index,
-            targettime, entry->timestamp);
-        return 0;
-      }
-      targettime = entry->timestamp;
-    } else {
-      if (entry->timestamp < hosttime) {
-        pr_err(
-            "Timestamp on host is not increasing on idx[%d! Previous timestamp: %llu, Current timestamp: %llu",
-            expected_index,
-            hosttime, entry->timestamp);
-        return 0;
-      }
-      hosttime = entry->timestamp;
-    }
-
-    expected_index++;
-  }
-
-  return 1;
+static inline int is_valid_write(struct profile_record* r) {
+  const EventSequence* seq = r->metadata.contains_r2t
+                               ? &seq_big_write
+                               : &seq_small_write;
+  return validate_sequence(r, seq, "INVALID_WRITE_RECORD", NULL);
 }
 
 static inline int is_valid_profile_record(struct profile_record* r) {
-  if (!r->metadata.is_write) {
-    return is_valid_read(r);
-  } else if (!r->metadata.contains_r2t) {
-    return is_valid_writes(r);
-  } else {
-    return is_valid_writel(r);
-  }
+  return r->metadata.is_write ? is_valid_write(r) : is_valid_read(r);
 }
 
 static inline void print_profile_record(struct profile_record* record) {
-  struct ts_entry* entry;
   pr_info(
-      "Record: disk=%s, tag=%d, size=%d, is_write=%d, contains_c2h=%d, contains_r2t=%d\n",
+      "Record: disk=%s, tag=%d, size=%d, is_write=%d, contains_c2h=%d, contains_r2t=%d, cnt=%d\n",
       record->metadata.disk, record->metadata.req_tag, record->metadata.size,
       record->metadata.is_write,
-      record->metadata.contains_c2h, record->metadata.contains_r2t);
-  int cnt = 0;
-  list_for_each_entry(entry, &record->ts->list, list) {
-    pr_info("    [%d]timestamp=%llu, event=%s\n", cnt++, entry->timestamp,
-            event_to_string(entry->event));
+      record->metadata.contains_c2h, record->metadata.contains_r2t, record->cnt);
+  int i;
+  for (i = 0; i < record->cnt; i++) {
+    pr_info("  [%d] %s: %llu\n", i, event_to_string(record->events[i]),
+            record->timestamps[i]);
   }
 }
 
@@ -465,18 +229,19 @@ static inline void init_profile_record(struct profile_record* record, int size,
   record->metadata.size = size;
   record->metadata.is_write = is_write;
   record->metadata.req_tag = tag;
-  strncpy(record->metadata.disk, disk, MAX_SESSION_NAME_LEN);
+  strncpy(record->metadata.disk, disk, MAX_SESSION_NAME_LEN - 1);
+  record->metadata.disk[MAX_SESSION_NAME_LEN - 1] = '\0';
 
   record->metadata.contains_c2h = 0;
   record->metadata.contains_r2t = 0;
   record->metadata.cmdid = -1;
 
-  record->ts = kmalloc(sizeof(struct ts_entry), GFP_KERNEL);
-  if (unlikely(!record->ts)) {
-    pr_err("Failed to allocate memory for ts_entry list head\n");
-    return;
+  record->cnt = 0;
+  int i = 0;
+  for (i = 0; i < MAX_EVENT_NUM; i++) {
+    record->timestamps[i] = 0;
+    record->events[i] = -1;
   }
-  INIT_LIST_HEAD(&record->ts->list);
   INIT_LIST_HEAD(&record->list);
 }
 
@@ -486,63 +251,13 @@ static inline void init_profile_record(struct profile_record* record, int size,
 static inline void append_event(struct profile_record* record,
                                 unsigned long long timestamp,
                                 enum EEvent event) {
-  struct ts_entry* new_entry;
-
-  if (unlikely(!record->ts)) {
-    pr_err(
-        "append_event: record->ts is NULL, did you forget to call init_profile_record?\n");
+  if (record->cnt == MAX_EVENT_NUM) {
+    pr_warn("append_event: record is full, cannot append more events\n");
     return;
   }
-
-  // deduplicate, if the last event is the same as the current event, we don't add it
-  if (!list_empty(&record->ts->list) && list_last_entry(
-          &record->ts->list, struct ts_entry, list)->event == event) {
-    return;
-  }
-
-  new_entry = kmalloc(sizeof(struct ts_entry), GFP_KERNEL);
-  if (unlikely(!new_entry)) {
-    pr_err("Failed to allocate memory for ts_entry\n");
-    return;
-  }
-
-  new_entry->timestamp = timestamp;
-  new_entry->event = event;
-  INIT_LIST_HEAD(&new_entry->list);
-  list_add_tail(&new_entry->list, &record->ts->list);
-}
-
-/**
- * Append a list of <time, event> pairs at the end of the timeseries list in record
- *
- * NOTE: DO NOT FREE THE MEMORY OF to_append AFTER CALLING THIS FUNCTION
- * SINCE WE USE THE OLD POINTERS DIRECTLY
- */
-static inline void append_events(struct profile_record* record,
-                                 struct ts_entry* to_append) {
-  if (unlikely(!record->ts)) {
-    pr_err(
-        "append_events: record->ts is NULL, did you forget to call init_profile_record?\n");
-    return;
-  }
-
-  if (unlikely(!to_append)) {
-    pr_warn("append_events: to_append is NULL, nothing to append\n");
-    return;
-  }
-
-  list_splice_tail(&to_append->list, &record->ts->list);
-  kfree(to_append);
-}
-
-static inline void free_timeseries(struct ts_entry* timeseries) {
-  struct ts_entry *entry, *tmp;
-  if (unlikely(!timeseries)) return;
-  list_for_each_entry_safe(entry, tmp, &timeseries->list, list) {
-    list_del(&entry->list);
-    kfree(entry);
-  }
-  kfree(timeseries);
+  record->timestamps[record->cnt] = timestamp;
+  record->events[record->cnt] = event;
+  record->cnt++;
 }
 
 static inline void free_profile_record(struct profile_record* record) {
@@ -551,7 +266,6 @@ static inline void free_profile_record(struct profile_record* record) {
     pr_warn("free_profile_record: Attempting to free record still linked!\n");
     return;
   }
-  free_timeseries(record->ts);
   kfree(record);
 }
 

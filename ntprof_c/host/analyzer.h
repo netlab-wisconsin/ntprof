@@ -177,19 +177,19 @@ void analyze(struct ntprof_config* conf, struct report* rpt);
 //     pr_info("networking: %lu\n", b->networking/b->cnt/1000);
 // }
 
-struct latency_breakdown {
-};
+
 
 void start_phase_1(struct per_core_statistics* stat,
                    struct ntprof_config* config);
 
-void break_latency_write_s(struct profile_record* record,
-                           struct write_breakdown_s* breakdown);
 
-void break_latency_read(struct profile_record* record,
-                        struct read_breakdown* breakdown);
-
-void break_latency_write_l(struct profile_record* record,
-                           struct write_breakdown_l* breakdown);
+// void break_latency_write_s(struct profile_record* record,
+//                            struct write_breakdown_s* breakdown);
+//
+// void break_latency_read(struct profile_record* record,
+//                         struct read_breakdown* breakdown);
+//
+// void break_latency_write_l(struct profile_record* record,
+//                            struct write_breakdown_l* breakdown);
 
 #endif // ANALYZER_H

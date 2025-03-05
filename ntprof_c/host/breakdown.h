@@ -5,7 +5,6 @@
 #include "../include/analyze.h"
 #include "../include/statistics.h"
 
-
 static inline void init_read_breakdown(struct read_breakdown* b) {
   memset(b, 0, sizeof(*b));
 }
@@ -63,31 +62,37 @@ pr_info(#field ": %lu\n", (unsigned long)((b->field ) / 1000));
 #undef X
 }
 
-
-static inline void print_breakdown(struct breakdown* b) {
-  switch (b->type) {
-    case BREAKDOWN_READ:
-      print_read_breakdown(&b->read);
-      break;
-    case BREAKDOWN_WRITES:
-      print_write_breakdown_s(&b->writes);
-      break;
-    case BREAKDOWN_WRITEL:
-      print_write_breakdown_l(&b->writel);
-      break;
-    default:
-      pr_err("Unknown breakdown type: %d\n", b->type);
-      break;
+static inline void print_breakdown(struct latency_breakdown* b) {
+  if (!b) {
+    pr_info("latency_breakdown: NULL pointer\n");
+    return;
   }
+
+  pr_info("=== Latency Breakdown ===\n");
+  pr_info("Block Layer Submission: %d us\n", b->blk_submission);
+  pr_info("Block Layer Completion: %d us\n", b->blk_completion);
+  pr_info("NVMe TCP Submission: %d us\n", b->nvme_tcp_submission);
+  pr_info("NVMe TCP Completion: %d us\n", b->nvme_tcp_completion);
+  pr_info("NVMet TCP Submission: %d us\n", b->nvmet_tcp_submission);
+  pr_info("NVMet TCP Completion: %d us\n", b->nvmet_tcp_completion);
+  pr_info("Target Subsystem Processing: %d us\n", b->target_subsystem);
+  pr_info("Network Stack Submission (target): %d us\n", b->nstack_submission);
+  pr_info("Network Stack Completion (initiator): %d us\n", b->nstack_completion);
+  pr_info("Network Transmission: %d us\n", b->network_transmission);
+  pr_info("=========================\n");
 }
 
-void break_latency_read(struct profile_record* record,
-                        struct read_breakdown* breakdown);
 
-void break_latency_write_s(struct profile_record* record,
-                           struct write_breakdown_s* breakdown);
+void break_latency(struct profile_record* record,
+                   struct latency_breakdown* breakdown);
 
-void break_latency_write_l(struct profile_record* record,
-                           struct write_breakdown_l* breakdown);
+// void break_latency_read(struct profile_record* record,
+//                         struct read_breakdown* breakdown);
+
+// void break_latency_write_s(struct profile_record* record,
+//                            struct write_breakdown_s* breakdown);
+//
+// void break_latency_write_l(struct profile_record* record,
+//                            struct write_breakdown_l* breakdown);
 
 #endif //BREAKDOWN_H

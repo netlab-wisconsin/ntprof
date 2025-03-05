@@ -4,6 +4,9 @@
 #define MAX_SESSION_NAME_LEN 32
 #define MAX_IO_SIZE_FILTERS_NUM 32
 
+// maximum number of events in a profile record
+#define MAX_EVENT_NUM 16
+
 enum EIoType { IO_READ, IO_WRITE, BOTH };
 
 enum EAggregation { MIN, MAX, AVG, DIST };

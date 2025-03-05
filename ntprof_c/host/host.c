@@ -62,15 +62,27 @@ struct profile_record* get_profile_record(struct per_core_statistics* stats,
   struct profile_record* record;
   list_for_each(pos, &stats->incomplete_records) {
     record = list_entry(pos, struct profile_record, list);
-    // if (record->metadata.req == req) {
-    //     return record;
-    // }
-    if (record->metadata.req_tag == req->tag) {
-      return record;
+    if (record->metadata.req == req) {
+        return record;
     }
+    // if (record->metadata.req_tag == req->tag) {
+    //   return record;
+    // }
   }
   return NULL;
 }
+
+// struct profile_record* get_profile_record_global(
+//     struct request* req, struct per_core_statistics* stats) {
+//   int i = 0;
+//   for (i = 0; i < MAX_QUEUE_NUM; i++) {
+//     struct profile_record* record = get_profile_record(&stats[i], req);
+//     if (record != NULL) {
+//       return record;
+//     }
+//   }
+//   return NULL;
+// }
 
 int get_list_len(struct per_core_statistics* stats) {
   int l = 0;

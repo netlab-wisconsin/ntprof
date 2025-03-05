@@ -101,34 +101,40 @@ static int categorize_record(struct profile_record* record,
 
 // given a collection of profiling records (collected by the same core)
 // move and group them based on the categories
-static void categorize_records_of_each_core(struct per_core_statistics* stat) {
+static void categorize_records_of_each_core(struct per_core_statistics* stat,
+                                            int core_id) {
   struct profile_record *rec, *tmp;
   unsigned long flags;
-  spin_lock_irqsave(&stat->lock, flags);
+  // spin_lock_irqsave(&stat->lock, flags);
+  SPINLOCK_IRQSAVE_DISABLEPREEMPT_Q(&stat->lock,
+                                    "categorize_records_of_each_core", core_id);
   pr_cont("categorize: ");
   list_for_each_entry_safe(rec, tmp, &stat->completed_records, list) {
     categorize_record(rec, &global_config);
   }
-  // remove tall elements in the incompleted_records
+  // remove all elements in the incompleted_records
   list_for_each_entry_safe(rec, tmp, &stat->incomplete_records, list) {
-    pr_cont("remove [req->tag=%d, req->cmdid=%d], ", rec->metadata.req_tag,
-            rec->metadata.cmdid);
+    // pr_cont("remove [req->tag=%d, req->cmdid=%d], ", rec->metadata.req_tag,
+    // rec->metadata.cmdid);
     list_del(&rec->list);
     kfree(rec);
   }
   pr_info("");
-  spin_unlock_irqrestore(&stat->lock, flags);
+  SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT_Q(&stat->lock,
+                                        "categorize_records_of_each_core",
+                                        core_id);
 }
 
 struct analysis_work {
   struct work_struct work;
   struct per_core_statistics* stat;
+  int core_id;
 };
 
 static void categorize_work_fn(struct work_struct* work) {
   // pr_info("categorize_work_fn start working");
   struct analysis_work* w = container_of(work, struct analysis_work, work);
-  categorize_records_of_each_core(w->stat);
+  categorize_records_of_each_core(w->stat, w->core_id);
   kfree(w);
 }
 
@@ -178,15 +184,10 @@ void summarize_category(struct categorized_records* cat,
   list_for_each_entry_safe(record, tmp, &cat->records, list) {
     list_del(&record->list); // Remove from list
     // if (is_valid_profile_record(record) == 0) {
-    //     print_profile_record(record);
+    // print_profile_record(record);
     // }
-    if (!record->metadata.is_write) {
-      break_latency_read(record, &cs->bd.read);
-    } else if (!record->metadata.contains_r2t) {
-      break_latency_write_s(record, &cs->bd.writes);
-    } else {
-      break_latency_write_l(record, &cs->bd.writel);
-    }
+    print_profile_record(record);
+    break_latency(record, &cs->bd);
     kfree(record);
   }
 }
@@ -297,35 +298,38 @@ static void finish_analyzation(void) {
 }
 
 void analyze(struct ntprof_config* conf, struct report* rpt) {
-  // pr_debug("start preparing analysis phase!");
-  // preparing_analyzation();
-  //
-  // pr_debug("start phase 1: categorize the profile records");
-  // start_phase_1(stat, conf);
-  //
-  // pr_debug("start phase 2: summarize the profile records in each category");
-  // start_phase_2(rpt);
-  //
-  // pr_debug("finish analysis, clean up the hashmap");
-  // finish_analyzation();
+  pr_debug("start preparing analysis phase!");
+  preparing_analyzation();
 
-  pr_warn("start removing!");
-  int i;
-  for (i = 0; i < MAX_CORE_NUM; i++) {
-    struct per_core_statistics* s = &stat[i];
-    struct profile_record *rec, *tmp;
-    // SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[i].lock, "analyze");
+  pr_debug("start phase 1: categorize the profile records");
+  start_phase_1(stat, conf);
 
-    list_for_each_entry_safe(rec, tmp, &s->completed_records, list) {
-      // remove all elements
-      list_del(&rec->list);
-      kfree(rec);
-    }
-    list_for_each_entry_safe(rec, tmp, &s->incomplete_records, list) {
-      // remove all elements
-      list_del(&rec->list);
-      kfree(rec);
-    }
-    // SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[i].lock, "analyze");
-  }
+  pr_debug("start phase 2: summarize the profile records in each category");
+  start_phase_2(rpt);
+
+  pr_debug("finish analysis, clean up the hashmap");
+  finish_analyzation();
+
+  // pr_warn("start removing!");
+  // int i;
+  // long long cnt = 0;
+  // for (i = 0; i < MAX_CORE_NUM; i++) {
+  //   struct per_core_statistics* s = &stat[i];
+  //   struct profile_record *rec, *tmp;
+  //   SPINLOCK_IRQSAVE_DISABLEPREEMPT_Q(&stat[i].lock, "analyze", i);
+  //
+  //   list_for_each_entry_safe(rec, tmp, &s->completed_records, list) {
+  //     // remove all elements
+  //     list_del(&rec->list);
+  //     kfree(rec);
+  //     cnt ++;
+  //   }
+  //   list_for_each_entry_safe(rec, tmp, &s->incomplete_records, list) {
+  //     // remove all elements
+  //     list_del(&rec->list);
+  //     kfree(rec);
+  //   }
+  //   SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT_Q(&stat[i].lock, "analyze", i);
+  // }
+  // pr_info("total_records: %llu", cnt);
 }
