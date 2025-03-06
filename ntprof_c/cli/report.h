@@ -8,72 +8,63 @@
 // #include "../host/breakdown.h"
 #include "../include/analyze.h"
 
-// static inline void print_read_breakdown(struct read_breakdown *b) {
-//     if (b->cnt == 0) {
-//         printf("No read records (cnt=0)\n");
-//         return;
-//     }
-//
-//     printf("latency breakdown (read):\n");
-//
-// #define X(field) \
-// printf(#field ": %.2f\n", (float)((b->field / b->cnt) / 1000));
-//     READ_BREAKDOWN_FIELDS(X)
-// #undef X
-// }
-//
-// static inline void print_write_breakdown_s(struct write_breakdown_s *b) {
-//     if (b->cnt == 0) {
-//         printf("No write records (cnt=0)\n");
-//         return;
-//     }
-//
-//     printf("latency breakdown (write):\n");
-// #define     X(field) \
-//     printf(#field ": %.2f\n", (float)((b->field / b->cnt) / 1000));
-//     WRITE_BREAKDOWN_S_FIELDS(X)
-// #undef X
-// }
-//
-// static inline void print_write_breakdown_l(struct write_breakdown_l *b) {
-//     if (b->cnt == 0) {
-//         printf("No write records (cnt=0)\n");
-//         return;
-//     }
-//
-//     printf("latency breakdown (write):\n");
-// #define     X(field) \
-//     printf(#field ": %.2f\n", (float)((b->field / b->cnt) / 1000));
-//     WRITE_BREAKDOWN_L_FIELDS(X)
-// #undef X
-// }
+static void print_combined(const char* name, long long total_ns, int cnt,
+                           const int dist[MAX_DIST_BUCKET]) {
+  static const char* percentiles[] = {
+      "10%", "50%", "70%", "80%", "90%", "95%", "99%", "99.9%"
+  };
 
-static inline void print_breakdown(struct latency_breakdown* b) {
-  if (!b) {
-    printf("latency_breakdown: NULL pointer\n");
+  if (cnt == 0) {
+    printf("%-25s: N/A\n", name);
     return;
   }
 
-  printf("=== Latency Breakdown ===\n");
-  printf("Block Layer Submission: %d us\n", b->blk_submission);
-  printf("Block Layer Completion: %d us\n", b->blk_completion);
-  printf("NVMe TCP Submission: %d us\n", b->nvme_tcp_submission);
-  printf("NVMe TCP Completion: %d us\n", b->nvme_tcp_completion);
-  printf("NVMet TCP Submission: %d us\n", b->nvmet_tcp_submission);
-  printf("NVMet TCP Completion: %d us\n", b->nvmet_tcp_completion);
-  printf("Target Subsystem Processing: %d us\n", b->target_subsystem);
-  printf("Network Stack Submission (target): %d us\n", b->nstack_submission);
-  printf("Network Stack Completion (initiator): %d us\n", b->nstack_completion);
-  printf("Network Transmission: %d us\n", b->network_transmission);
-  printf("=========================\n");
+  double avg_us = (double)total_ns / cnt / 1000.0;
+
+  printf("%-25s: avg %.2f us", name, avg_us);
+
+  for (int i = 0; i < MAX_DIST_BUCKET; ++i) {
+    double us = dist[i] / 1000.0; // ns -> us
+    printf(", %s %.2f", percentiles[i], us);
+  }
+
+  printf("\n");
+}
+
+static inline void print_latency_breakdown_summary_user(
+    const struct latency_breakdown_summary* s) {
+  printf("=== Latency Breakdown (avg with distribution) ===\n");
+
+  print_combined("blk_submission", s->bd_sum.blk_submission, s->cnt,
+                 s->dist.blk_submission);
+  print_combined("blk_completion", s->bd_sum.blk_completion, s->cnt,
+                 s->dist.blk_completion);
+  print_combined("nvme_tcp_submission", s->bd_sum.nvme_tcp_submission, s->cnt,
+                 s->dist.nvme_tcp_submission);
+  print_combined("nvme_tcp_completion", s->bd_sum.nvme_tcp_completion, s->cnt,
+                 s->dist.nvme_tcp_completion);
+  print_combined("nvmet_tcp_submission", s->bd_sum.nvmet_tcp_submission, s->cnt,
+                 s->dist.nvmet_tcp_submission);
+  print_combined("nvmet_tcp_completion", s->bd_sum.nvmet_tcp_completion, s->cnt,
+                 s->dist.nvmet_tcp_completion);
+  print_combined("target_subsystem", s->bd_sum.target_subsystem, s->cnt,
+                 s->dist.target_subsystem);
+  print_combined("nstack_submission", s->bd_sum.nstack_submission, s->cnt,
+                 s->dist.nstack_submission);
+  print_combined("nstack_completion", s->bd_sum.nstack_completion, s->cnt,
+                 s->dist.nstack_completion);
+  print_combined("network_transmission", s->bd_sum.network_transmission, s->cnt,
+                 s->dist.network_transmission);
+
+  printf("==================================================\n");
 }
 
 static inline void print_category_summary(struct category_summary* cs) {
-  // print the key
   printf("group: type=%s, ", cs->key.io_type ? "write" : "read");
   printf("size=%d, ", cs->key.io_size);
-  printf("dev=%s\n", cs->key.session_name);
-  print_breakdown(&cs->bd);
+  printf("dev=%s", cs->key.session_name);
+  printf("sample#=: %d\n", cs->lbs.cnt);
+  print_latency_breakdown_summary_user(&cs->lbs);
 }
 
 

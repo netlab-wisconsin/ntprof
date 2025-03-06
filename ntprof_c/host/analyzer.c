@@ -9,6 +9,7 @@
 #include <linux/jhash.h>
 #include <linux/bitops.h>
 #include <linux/spinlock.h>
+#include <linux/sort.h>
 
 #include "../include/analyze.h"
 #include "analyzer.h"
@@ -105,9 +106,7 @@ static void categorize_records_of_each_core(struct per_core_statistics* stat,
                                             int core_id) {
   struct profile_record *rec, *tmp;
   unsigned long flags;
-  // spin_lock_irqsave(&stat->lock, flags);
-  SPINLOCK_IRQSAVE_DISABLEPREEMPT_Q(&stat->lock,
-                                    "categorize_records_of_each_core", core_id);
+  // TODO: spinlock?
   pr_cont("categorize: ");
   list_for_each_entry_safe(rec, tmp, &stat->completed_records, list) {
     categorize_record(rec, &global_config);
@@ -120,9 +119,6 @@ static void categorize_records_of_each_core(struct per_core_statistics* stat,
     kfree(rec);
   }
   pr_info("");
-  SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT_Q(&stat->lock,
-                                        "categorize_records_of_each_core",
-                                        core_id);
 }
 
 struct analysis_work {
@@ -177,20 +173,202 @@ void start_phase_1(struct per_core_statistics* stat,
 //  Phase 2 - summarize each category and generate report
 // *******************************************************
 
+
+static const u32 quantiles_scaled[MAX_DIST_BUCKET] = {
+    100, 500, 700, 800, 900, 950, 990, 999
+};
+
+struct sample_array {
+  int* data;
+  int count;
+  int capacity;
+};
+
+
+static void init_sample_array(struct sample_array* arr, int total_cnt) {
+  arr->data = kmalloc(total_cnt * sizeof(int), GFP_KERNEL);
+  if (!arr->data) {
+    pr_err("Memory allocation failed for sample_array\n");
+  }
+  arr->count = 0;
+  arr->capacity = total_cnt;
+}
+
+
+static void add_sample(struct sample_array* arr, int total_cnt) {
+  if (arr->count >= arr->capacity) {
+    pr_warn("Too many samples in the array\n");
+    return;
+  }
+  arr->data[arr->count++] = total_cnt;
+}
+
+static void free_sample_array(struct sample_array* arr) {
+  kfree(arr->data);
+  arr->data = NULL;
+  arr->count = 0;
+  arr->capacity = 0;
+}
+
+static int compare_int(const void* a, const void* b) {
+  return (*(int*)a - *(int*)b);
+}
+
+static void calculate_quantiles(const struct sample_array* samples,
+                                int dest[MAX_DIST_BUCKET]) {
+  if (samples->count == 0) {
+    memset(dest, 0, MAX_DIST_BUCKET * sizeof(int));
+    return;
+  }
+
+  if (samples->count == 1) {
+    for (int i = 0; i < MAX_DIST_BUCKET; ++i) {
+      dest[i] = samples->data[0];
+    }
+    return;
+  }
+
+  sort(samples->data, samples->count, sizeof(int), compare_int, NULL);
+
+  for (int i = 0; i < MAX_DIST_BUCKET; ++i) {
+    u64 scaled_pos = (u64)quantiles_scaled[i] * (samples->count - 1);
+    u32 idx_low = (u32)(scaled_pos / 1000);
+    u32 frac = (u32)(scaled_pos % 1000);
+
+    if (idx_low >= samples->count - 1) {
+      dest[i] = samples->data[samples->count - 1];
+    } else {
+      int low = samples->data[idx_low];
+      int high = samples->data[idx_low + 1];
+      dest[i] = low + ((high - low) * frac + 500) / 1000;
+    }
+  }
+}
+
+
 void summarize_category(struct categorized_records* cat,
                         struct category_summary* cs) {
   struct profile_record *record, *tmp;
   cs->key = cat->key;
+
+  pr_info("before summarization");
+  print_latency_breakdown_summary(&cs->lbs);
+
+  struct {
+    struct sample_array blk_submission;
+    struct sample_array blk_completion;
+    struct sample_array nvme_tcp_submission;
+    struct sample_array nvme_tcp_completion;
+    struct sample_array nvmet_tcp_submission;
+    struct sample_array nvmet_tcp_completion;
+    struct sample_array target_subsystem;
+    struct sample_array nstack_submission;
+    struct sample_array nstack_completion;
+    struct sample_array network_transmission;
+  } samples;
+
+  int sample_cnt = atomic_read(&cat->count);
+  init_sample_array(&samples.blk_submission, sample_cnt);
+  init_sample_array(&samples.blk_completion, sample_cnt);
+  init_sample_array(&samples.nvme_tcp_submission, sample_cnt);
+  init_sample_array(&samples.nvme_tcp_completion, sample_cnt);
+  init_sample_array(&samples.nvmet_tcp_submission, sample_cnt);
+  init_sample_array(&samples.nvmet_tcp_completion, sample_cnt);
+  init_sample_array(&samples.target_subsystem, sample_cnt);
+  init_sample_array(&samples.nstack_submission, sample_cnt);
+  init_sample_array(&samples.nstack_completion, sample_cnt);
+  init_sample_array(&samples.network_transmission, sample_cnt);
+
+  pr_info("sample_cnt = %d\n", sample_cnt);
+
   list_for_each_entry_safe(record, tmp, &cat->records, list) {
     list_del(&record->list); // Remove from list
-    // if (is_valid_profile_record(record) == 0) {
-    // print_profile_record(record);
-    // }
-    print_profile_record(record);
-    break_latency(record, &cs->bd);
-    print_breakdown(&cs->bd);
+    if (is_valid_profile_record(record) == 0) {
+      print_profile_record(record);
+    } else {
+      // // print_profile_record(record);
+      struct latency_breakdown bd = {0};
+      break_latency(record, &bd);
+      //
+      cs->lbs.cnt++;
+
+      cs->lbs.bd_sum.blk_submission += bd.blk_submission;
+      cs->lbs.bd_sum.blk_completion += bd.blk_completion;
+      cs->lbs.bd_sum.nvme_tcp_submission += bd.nvme_tcp_submission;
+      cs->lbs.bd_sum.nvme_tcp_completion += bd.nvme_tcp_completion;
+      cs->lbs.bd_sum.nvmet_tcp_submission += bd.nvmet_tcp_submission;
+      cs->lbs.bd_sum.nvmet_tcp_completion += bd.nvmet_tcp_completion;
+      cs->lbs.bd_sum.target_subsystem += bd.target_subsystem;
+      cs->lbs.bd_sum.nstack_submission += bd.nstack_submission;
+      cs->lbs.bd_sum.nstack_completion += bd.nstack_completion;
+      cs->lbs.bd_sum.network_transmission += bd.network_transmission;
+      //
+      add_sample(&samples.blk_submission, bd.blk_submission);
+      add_sample(&samples.blk_completion, bd.blk_completion);
+      add_sample(&samples.nvme_tcp_submission, bd.nvme_tcp_submission);
+      add_sample(&samples.nvme_tcp_completion, bd.nvme_tcp_completion);
+      add_sample(&samples.nvmet_tcp_submission, bd.nvmet_tcp_submission);
+      add_sample(&samples.nvmet_tcp_completion, bd.nvmet_tcp_completion);
+      add_sample(&samples.target_subsystem, bd.target_subsystem);
+      add_sample(&samples.nstack_submission, bd.nstack_submission);
+      add_sample(&samples.nstack_completion, bd.nstack_completion);
+      add_sample(&samples.network_transmission, bd.network_transmission);
+
+      // print_breakdown(&cs->bd);
+    }
     kfree(record);
   }
+  pr_info("cs->lbs.cnt: %d", cs->lbs.cnt);
+  pr_info("cs->lbs.bd_sum.blk_submission: %lld", cs->lbs.bd_sum.blk_submission);
+  pr_info("cs->lbs.bd_sum.blk_completion: %lld", cs->lbs.bd_sum.blk_completion);
+  pr_info("cs->lbs.bd_sum.nvme_tcp_submission: %lld",
+          cs->lbs.bd_sum.nvme_tcp_submission);
+  pr_info("cs->lbs.bd_sum.nvme_tcp_completion: %lld",
+          cs->lbs.bd_sum.nvme_tcp_completion);
+  pr_info("cs->lbs.bd_sum.nvmet_tcp_submission: %lld",
+          cs->lbs.bd_sum.nvmet_tcp_submission);
+  pr_info("cs->lbs.bd_sum.nvmet_tcp_completion: %lld",
+          cs->lbs.bd_sum.nvmet_tcp_completion);
+  pr_info("cs->lbs.bd_sum.target_subsystem: %lld",
+          cs->lbs.bd_sum.target_subsystem);
+  pr_info("cs->lbs.bd_sum.nstack_submission: %lld",
+          cs->lbs.bd_sum.nstack_submission);
+  pr_info("cs->lbs.bd_sum.nstack_completion: %lld",
+          cs->lbs.bd_sum.nstack_completion);
+  pr_info("cs->lbs.bd_sum.network_transmission: %lld",
+          cs->lbs.bd_sum.network_transmission);
+
+  calculate_quantiles(&samples.blk_submission, cs->lbs.dist.blk_submission);
+  calculate_quantiles(&samples.blk_completion, cs->lbs.dist.blk_completion);
+  calculate_quantiles(&samples.nvme_tcp_submission,
+                      cs->lbs.dist.nvme_tcp_submission);
+  calculate_quantiles(&samples.nvme_tcp_completion,
+                      cs->lbs.dist.nvme_tcp_completion);
+  calculate_quantiles(&samples.nvmet_tcp_submission,
+                      cs->lbs.dist.nvmet_tcp_submission);
+  calculate_quantiles(&samples.nvmet_tcp_completion,
+                      cs->lbs.dist.nvmet_tcp_completion);
+  calculate_quantiles(&samples.target_subsystem, cs->lbs.dist.target_subsystem);
+  calculate_quantiles(&samples.nstack_submission,
+                      cs->lbs.dist.nstack_submission);
+  calculate_quantiles(&samples.nstack_completion,
+                      cs->lbs.dist.nstack_completion);
+  calculate_quantiles(&samples.network_transmission,
+                      cs->lbs.dist.network_transmission);
+
+  free_sample_array(&samples.blk_submission);
+  free_sample_array(&samples.blk_completion);
+  free_sample_array(&samples.nvme_tcp_submission);
+  free_sample_array(&samples.nvme_tcp_completion);
+  free_sample_array(&samples.nvmet_tcp_submission);
+  free_sample_array(&samples.nvmet_tcp_completion);
+  free_sample_array(&samples.target_subsystem);
+  free_sample_array(&samples.nstack_submission);
+  free_sample_array(&samples.nstack_completion);
+  free_sample_array(&samples.network_transmission);
+
+  pr_info("after summarization");
+  print_latency_breakdown_summary(&cs->lbs);
 }
 
 struct summarize_work {

@@ -5,7 +5,7 @@ all: ntprof_host
 
 ntprof_host:
 	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(CURDIR) \
-		EXTRA_CFLAGS="-I$(KERNEL_SRC)/block -I$(KERNEL_SRC)/include -I$(CURDIR)/../include" modules
+		EXTRA_CFLAGS="-std=gnu17 -I$(KERNEL_SRC)/block -I$(KERNEL_SRC)/include -I$(CURDIR)/../include" modules
 
 clean:
 	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(CURDIR) clean

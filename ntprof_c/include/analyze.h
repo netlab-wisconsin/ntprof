@@ -115,27 +115,52 @@ struct category_key {
 // };
 
 struct latency_breakdown {
-  int blk_submission;
-  int blk_completion;
+  long long blk_submission;
+  long long blk_completion;
 
-  int nvme_tcp_submission;
-  int nvme_tcp_completion;
+  long long nvme_tcp_submission;
+  long long nvme_tcp_completion;
 
-  int nvmet_tcp_submission;
-  int nvmet_tcp_completion;
+  long long nvmet_tcp_submission;
+  long long nvmet_tcp_completion;
 
-  int target_subsystem;
+  long long target_subsystem;
 
-  int nstack_submission; // target
-  int nstack_completion; // initiator
-  int network_transmission;
+  long long nstack_submission; // target
+  long long nstack_completion; // initiator
+  long long network_transmission;
 };
 
+#define MAX_DIST_BUCKET 8
+// 10, 50, 70, 80, 90, 95, 99, 99.9
+
+struct latency_distribution {
+  int blk_submission[MAX_DIST_BUCKET];
+  int blk_completion[MAX_DIST_BUCKET];
+
+  int nvme_tcp_submission[MAX_DIST_BUCKET];
+  int nvme_tcp_completion[MAX_DIST_BUCKET];
+
+  int nvmet_tcp_submission[MAX_DIST_BUCKET];
+  int nvmet_tcp_completion[MAX_DIST_BUCKET];
+
+  int target_subsystem[MAX_DIST_BUCKET];
+
+  int nstack_submission[MAX_DIST_BUCKET]; // target
+  int nstack_completion[MAX_DIST_BUCKET]; // initiator
+  int network_transmission[MAX_DIST_BUCKET];
+};
+
+struct latency_breakdown_summary {
+  int cnt;
+  struct latency_breakdown bd_sum;
+  struct latency_distribution dist;
+};
 
 
 struct category_summary {
   struct category_key key;
-  struct latency_breakdown bd;
+  struct latency_breakdown_summary lbs;
 };
 
 #define MAX_CATEGORIES 8
