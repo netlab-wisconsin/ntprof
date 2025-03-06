@@ -4,11 +4,11 @@
 
 ntprof is a systematic, informative, and lightweight NVMe/TCP profiler for Linux (Ubuntu). It helps users to understand the performance of NVMe/TCP storage systems. 
 
-ntprof introduce new kernel modules at the initiator (ntprof-host) and target side (ntprof-target), which can be easily installed and removed. It also include a user-space utility (cli) to interact with the kernel modules and display the profiling results.
+ntprof introduces new kernel modules at the initiator (ntprof_host) and target side (ntprof_target), which can be easily installed and removed. It also includes a user-space utility (ntprof-cli) to interact with the kernel modules and display the profiling results.
 
 ## Preparation
 
-### Get the linux kernel source code ready
+### Get the Linux kernel source code ready
 
 ntprof relies on Linux kernel (5.15.0) tracepoints to collect I/O statistics. However, the tracepoints provided by the current Linux system for the nvme-tcp module are insufficient to meet the profiling requirements. Therefore, we need to download the Linux kernel source code, add new tracepoints to the source, and then compile and install the customized kernel.
 
@@ -63,7 +63,7 @@ $ sudo apt-get install libiniparser-dev
   $ make target
   ```
 
-  You can find the comiled kernel module in `target/ntprof_target.ko`.
+  The compiled kernel module is `target/ntprof_target.ko`.
 
 
 ### Online profiling
