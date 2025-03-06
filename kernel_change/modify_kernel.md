@@ -1,12 +1,12 @@
 # Modify the kernel source code
 
-## Create nvme_tcp.h
+## Create nvme_tcp.h (initiator side)
 Create a new file [`nvme_tcp.h`](kernel_change/include/trace/events/nvme_tcp.h) in the `include/trace/events` directory. This file defines the tracepoints for the nvme-tcp module.
 
-## Create nvmet_tcp.h
+## Create nvmet_tcp.h (target side)
 Create a new file [`nvmet_tcp.h`](kernel_change/drivers/nvme/host/nvme_tcp.c) in the `include/trace/events` directory. This file defines the tracepoints for the nvmet-tcp module.
 
-## Modify block/blk-core.c
+## Modify block/blk-core.c (initiator side)
 Modify the `block/blk-core.c` file as folows. (Search the unchanged lines as key words in the file to locate the position)
 - Export the predefined tracepoints `block_rq_complete`. 
   ``` diff
@@ -19,7 +19,7 @@ Modify the `block/blk-core.c` file as folows. (Search the unchanged lines as key
   + EXPORT_TRACEPOINT_SYMBOL_GPL(block_rq_complete);
   ```
 
-## Modify drivers/nvme/host/tcp.c
+## Modify drivers/nvme/host/tcp.c (initiator side)
 
 Modify the `drivers/nvme/host/tcp.c` file as follows.
 
@@ -444,7 +444,7 @@ Modify the `drivers/nvme/host/tcp.c` file as follows.
     }
   ```
 
-## Modify drivers/nvme/target/tcp.c
+## Modify drivers/nvme/target/tcp.c (target side)
 
 Modify the `drivers/nvme/target/tcp.c` file as follows.
 
@@ -1107,7 +1107,7 @@ Modify the `drivers/nvme/target/tcp.c` file as follows.
     }
   ```
 
-# Modify include/linux/nvme-tcp.h
+## Modify include/linux/nvme-tcp.h (both sides)
 
 Modify the `include/linux/nvme-tcp.h` file as follows.
 
