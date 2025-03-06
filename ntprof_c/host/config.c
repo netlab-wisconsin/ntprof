@@ -13,6 +13,7 @@ void print_config(struct ntprof_config* config) {
   pr_info("NVMe Drive Bandwidth Limit: %d\n",
           config->nvme_drive_bandwidth_limit);
   pr_info("Is Online: %d\n", config->is_online);
+  pr_info("Data Dir: %s", config->data_dir);
   pr_info("Time Interval: %d\n", config->time_interval);
   pr_info("Frequency: %d\n", config->frequency);
   pr_info("Buffer Size: %d\n", config->buffer_size);

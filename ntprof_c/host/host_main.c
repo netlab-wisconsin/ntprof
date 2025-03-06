@@ -15,6 +15,7 @@
 #include "host.h"
 #include "host_logging.h"
 #include "analyzer.h"
+#include "serialize.h"
 
 #define DEVICE_NAME "ntprof"
 #define CLASS_NAME "ntprof_class"
@@ -121,36 +122,54 @@ static long ntprof_ioctl(struct file* file, unsigned int cmd,
       }
       is_profiling = 0;
       unregister_tracepoints();
+
+    // if is offline mode, flush the profile records to the files
+      if (!global_config.is_online) {
+        pr_info("ntprof: Flushing profile records to files\n");
+        serialize_all_cores(global_config.data_dir, stat);
+      }
       break;
 
     case NTPROF_IOCTL_ANALYZE:
-      previous_stat = is_profiling;
-      if (is_profiling) {
-        is_profiling = 0;
-        unregister_tracepoints();
-        pr_debug("ntprof: Profiling temporarily stopped for analysis\n");
+      if (global_config.is_online) {
+        previous_stat = is_profiling;
+        if (is_profiling) {
+          is_profiling = 0;
+          unregister_tracepoints();
+          pr_debug("ntprof: Profiling temporarily stopped for analysis\n");
+        }
+        msleep(1000);
+        // call the analyze function to assign value to ret
+        memset(&aarg, 0, sizeof(aarg));
+        analyze(&global_config, &aarg.rpt);
+
+        if (copy_to_user(uarg, &aarg, sizeof(aarg))) {
+          pr_err("ntprof: Failed to copy analysis result to user\n");
+          return -EFAULT;
+        }
+
+        if (previous_stat) {
+          is_profiling = 1;
+          register_tracepoints();
+          pr_debug("ntprof: Profiling resumed: %s\n",
+                   global_config.session_name);
+        }
+      } else {
+        // clear stat
+        int i;
+        for (i = 0; i < MAX_CORE_NUM; i++) {
+          free_per_core_statistics(&stat[i]);
+          init_per_core_statistics(&stat[i]);
+        }
+        deserialize_all_cores(global_config.data_dir, stat);
+        memset(&aarg, 0, sizeof(aarg));
+        analyze(&global_config, &aarg.rpt);
+        if (copy_to_user(uarg, &aarg, sizeof(aarg))) {
+          pr_err("ntprof: Failed to copy analysis result to user\n");
+          return -EFAULT;
+        }
       }
 
-      msleep(1000);
-
-    // call the analyze function to assign value to ret
-      memset(&aarg, 0, sizeof(aarg));
-      analyze(&global_config, &aarg.rpt);
-
-    // if (aarg.rpt.cnt > 0) {
-    //     print_breakdown(&aarg.rpt.breakdown[0]);
-    // }
-
-      if (copy_to_user(uarg, &aarg, sizeof(aarg))) {
-        pr_err("ntprof: Failed to copy analysis result to user\n");
-        return -EFAULT;
-      }
-
-      if (previous_stat) {
-        is_profiling = 1;
-        register_tracepoints();
-        pr_debug("ntprof: Profiling resumed: %s\n", global_config.session_name);
-      }
       break;
 
     default:

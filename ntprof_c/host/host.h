@@ -116,7 +116,6 @@ struct per_core_statistics {
   int is_cleared;
   struct list_head incomplete_records;
   struct list_head completed_records;
-  // struct list_head records;
 };
 
 void init_per_core_statistics(struct per_core_statistics* stats);

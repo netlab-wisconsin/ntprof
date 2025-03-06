@@ -26,6 +26,7 @@ struct ntprof_config {
 
   // Profiling Specification
   int is_online; // Profiling mode: online or offline
+  char data_dir[256]; // Directory to store profiling data
   int time_interval; // Time interval in seconds
   int frequency; // Sampling rate
   int buffer_size; // Buffer size in MB
