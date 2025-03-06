@@ -35,7 +35,7 @@ $ sudo make install
 $ sudo reboot
 ```
 
-### Getting Started
+## Getting Started
 
 ### Get and compile the ntprof source code
 
@@ -66,7 +66,7 @@ $ sudo apt-get install libiniparser-dev
   You can find the comiled kernel module in `target/ntprof_target.ko`.
 
 
-#### Online profiling
+### Online profiling
 Assume the current dir is navigated to `ntprof/src/`. 
 
 1. **Step 1**: config the `IS_ONLINE` option in `ntprof_config.ini` to `true` for online profiling.
@@ -100,7 +100,7 @@ Assume the current dir is navigated to `ntprof/src/`.
     ```
 
 
-#### Offline profiling
+### Offline profiling
 Assume the current dir is navigated to `ntprof/src/`. 
 
 1. **Step 1**: config the `IS_ONLINE` option in `ntprof_config.ini` to `false` for offline profiling, and also specify the output directory `DATA_DIR` for the profiling data. 
