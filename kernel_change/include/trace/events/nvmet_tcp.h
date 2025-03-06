@@ -8,38 +8,17 @@
 #include <linux/nvme.h>
 #include <linux/nvme-tcp.h>
 
-TRACE_EVENT(nvmet_tcp_try_recv_pdu,
-    TP_PROTO(u8 pdu_type, u8 hdr_len, int queue_left, int qid, int port, unsigned long long time),
-    TP_ARGS(pdu_type, hdr_len, queue_left, qid, port, time),
-    TP_STRUCT__entry(
-        __field(u8, pdu_type)
-        __field(u8, hdr_len)
-        __field(int, queue_left)
-        __field(int, qid)
-    ),
-    TP_fast_assign(
-        __entry->pdu_type = pdu_type;
-        __entry->hdr_len = hdr_len;
-        __entry->queue_left = queue_left;
-        __entry->qid = qid;
-    ),
-    /** print all fields */
-    TP_printk("pdu_type=%u, pdu_len=%u, remain=%d, qid=%d",
-        __entry->pdu_type, __entry->hdr_len, __entry->queue_left, __entry->qid)
-);
-
 TRACE_EVENT(nvmet_tcp_done_recv_pdu,
-    TP_PROTO(u16 cmd_id, int qid, u8 opcode, int size, unsigned long long time, long long recv_time),
-    TP_ARGS(cmd_id, qid, opcode, size, time, recv_time),
+    TP_PROTO(struct nvme_tcp_cmd_pdu *pdu, int qid, long long recv_time),
+    TP_ARGS(pdu, qid, recv_time),
     TP_STRUCT__entry(
         __field(u16, cmd_id)
         __field(int, qid)
-        __field(bool, opcode)
+        __field(__u8, opcode)
     ),
     TP_fast_assign(
-        __entry->cmd_id = cmd_id;
-        __entry->qid = qid;
-        __entry->opcode = opcode;
+        __entry->cmd_id = pdu->cmd.common.command_id;
+        __entry->opcode = pdu->cmd.common.opcode;
     ),
     /** print all fields */
     TP_printk("cmd_id=%u, qid=%d, opcode=%d",
@@ -47,99 +26,120 @@ TRACE_EVENT(nvmet_tcp_done_recv_pdu,
 );
 
 TRACE_EVENT(nvmet_tcp_exec_read_req,
-    TP_PROTO(u16 cmd_id, int qid, u8 opcode, int size, unsigned long long time),
-    TP_ARGS(cmd_id, qid, opcode, size, time),
+    TP_PROTO(struct nvme_command *cmd, int qid),
+    TP_ARGS(cmd, qid),
     TP_STRUCT__entry(
         __field(u16, cmd_id)
         __field(int, qid)
-        __field(bool, opcode)
+        __field(u8, opcode)
     ),
     TP_fast_assign(
-        __entry->cmd_id = cmd_id;
+        __entry->cmd_id = cmd->common.command_id;
         __entry->qid = qid;
-        __entry->opcode = opcode;
+        __entry->opcode = cmd->common.opcode;
     ),
     TP_printk("cmd_id=%u, qid=%d, opcode=%d",
         __entry->cmd_id, __entry->qid, __entry->opcode)
 );
 
-DEFINE_EVENT(nvmet_tcp_exec_read_req, nvmet_tcp_exec_write_req,
-    TP_PROTO(u16 cmd_id, int qid, u8 opcode, int size, unsigned long long time),
-    TP_ARGS(cmd_id, qid, opcode, size, time)
+TRACE_EVENT(nvmet_tcp_exec_write_req,
+    TP_PROTO(struct nvme_command *cmd, int qid, int size),
+    TP_ARGS(cmd, qid, size),
+    TP_STRUCT__entry(
+        __field(u16, cmd_id)
+        __field(int, qid)
+        __field(u8, opcode)
+    ),
+    TP_fast_assign(
+        __entry->cmd_id = cmd->common.command_id;
+        __entry->qid = qid;
+        __entry->opcode = cmd->common.opcode;
+    ),
+    TP_printk("cmd_id=%u, qid=%d, opcode=%d",
+        __entry->cmd_id, __entry->qid, __entry->opcode)
 );
 
 TRACE_EVENT(nvmet_tcp_queue_response,
-    TP_PROTO(u16 cmd_id, int qid, bool is_write, unsigned long long time),
-    TP_ARGS(cmd_id, qid, is_write, time),
+    TP_PROTO(struct nvme_command *cmd, int qid),
+    TP_ARGS(cmd, qid),
     TP_STRUCT__entry(
         __field(u16, cmd_id)
         __field(int, qid)
         __field(bool, is_write)
     ),
     TP_fast_assign(
-        __entry->cmd_id = cmd_id;
+        __entry->cmd_id = cmd->common.command_id;
         __entry->qid = qid;
-        __entry->is_write = is_write;
+        __entry->is_write = nvme_is_write(cmd);
     ),
     TP_printk("cmd_id=%u, qid=%d, is_write=%d",
         __entry->cmd_id, __entry->qid, __entry->is_write)
 );
 
 TRACE_EVENT(nvmet_tcp_setup_c2h_data_pdu,
-    TP_PROTO(u16 cmd_id, int qid, unsigned long long time),
-    TP_ARGS(cmd_id, qid, time),
+    TP_PROTO(struct nvme_completion	*cqe, int qid),
+    TP_ARGS(cqe, qid),
     TP_STRUCT__entry(
         __field(u16, cmd_id)
         __field(int, qid)
     ),
     TP_fast_assign(
-        __entry->cmd_id = cmd_id;
+        __entry->cmd_id = cqe->command_id;
         __entry->qid = qid;
     ),
     TP_printk("cmd_id=%u, qid=%d",
         __entry->cmd_id, __entry->qid)
 );
 
-
-DEFINE_EVENT(nvmet_tcp_setup_c2h_data_pdu, nvmet_tcp_setup_r2t_pdu,
-    TP_PROTO(u16 cmd_id, int qid, unsigned long long time),
-    TP_ARGS(cmd_id, qid, time)
+DEFINE_EVENT(nvmet_tcp_queue_response, nvmet_tcp_setup_r2t_pdu,
+    TP_PROTO(struct nvme_command *cmd, int qid),
+    TP_ARGS(cmd, qid)
 );
 
 DEFINE_EVENT(nvmet_tcp_setup_c2h_data_pdu, nvmet_tcp_setup_response_pdu,
-    TP_PROTO(u16 cmd_id, int qid, unsigned long long time),
-    TP_ARGS(cmd_id, qid, time)
+    TP_PROTO(struct nvme_completion	*cqe, int qid),
+    TP_ARGS(cqe, qid)
 );
 
 TRACE_EVENT(nvmet_tcp_try_send_data_pdu,
-    TP_PROTO(u16 cmd_id, int qid, int size, unsigned long long time, void* pdu),
-    TP_ARGS(cmd_id, qid, size, time, pdu),
+    TP_PROTO(struct nvme_completion	*cqe, void *pdu, int qid, int size),
+    TP_ARGS(cqe, pdu, qid, size),
     TP_STRUCT__entry(
         __field(u16, cmd_id)
         __field(int, qid)
     ),
     TP_fast_assign(
-        __entry->cmd_id = cmd_id;
+        __entry->cmd_id = cqe->command_id;
         __entry->qid = qid;
     ),
     TP_printk("cmd_id=%u, qid=%d",
         __entry->cmd_id, __entry->qid)
 );
 
-DEFINE_EVENT(nvmet_tcp_try_send_data_pdu, nvmet_tcp_try_send_r2t,
-    TP_PROTO(u16 cmd_id, int qid, int size, unsigned long long time, void *pdu),
-    TP_ARGS(cmd_id, qid, size, time, pdu)
+TRACE_EVENT(nvmet_tcp_try_send_r2t,
+  TP_PROTO(struct nvme_command	*cmd, void *pdu, int qid, int size),
+  TP_ARGS(cmd, pdu, qid, size),
+  TP_STRUCT__entry(
+      __field(u16, cmd_id)
+      __field(int, qid)
+  ),
+  TP_fast_assign(
+      __entry->cmd_id = cmd->common.command_id;
+      __entry->qid = qid;
+  ),
+  TP_printk("cmd_id=%u, qid=%d",
+      __entry->cmd_id, __entry->qid)
 );
 
 TRACE_EVENT(nvmet_tcp_try_send_response,
-    TP_PROTO(u16 cmd_id, int qid, int size, int iswrite, unsigned long long time, void *pdu),
-    TP_ARGS(cmd_id, qid, size, iswrite, time, pdu),
+    TP_PROTO(struct nvme_completion	*cqe,void *pdu, int qid, int size),
+    TP_ARGS(cqe, pdu, qid, size),
     TP_STRUCT__entry(
         __field(u16, cmd_id)
         __field(int, qid)
     ),
     TP_fast_assign(
-        __entry->cmd_id = cmd_id;
+        __entry->cmd_id = cqe->command_id;
         __entry->qid = qid;
     ),
     TP_printk("cmd_id=%u, qid=%d",
@@ -147,97 +147,55 @@ TRACE_EVENT(nvmet_tcp_try_send_response,
 );
 
 TRACE_EVENT(nvmet_tcp_try_send_data,
-    TP_PROTO(u16 cmd_id, int qid, int cp_len,  unsigned long long time),
-    TP_ARGS(cmd_id, qid, cp_len, time),
+    TP_PROTO(struct nvme_completion	*cqe, int qid, int size),
+    TP_ARGS(cqe, qid, size),
     TP_STRUCT__entry(
         __field(u16, cmd_id)
         __field(int, qid)
-        __field(int, cp_len)
+        __field(int, size)
     ),
     TP_fast_assign(
-        __entry->cmd_id = cmd_id;
+        __entry->cmd_id = cqe->command_id;
         __entry->qid = qid;
-        __entry->cp_len = cp_len;
+        __entry->size = size;
     ),
-    TP_printk("cmd_id=%u, qid=%d, cp_len=%d",
-        __entry->cmd_id, __entry->qid, __entry->cp_len)
+    TP_printk("cmd_id=%u, qid=%d, size=%d",
+        __entry->cmd_id, __entry->qid, __entry->size)
 );
 
 TRACE_EVENT(nvmet_tcp_handle_h2c_data_pdu,
-    TP_PROTO(u16 cmd_id, int qid, int datalen, unsigned long long time, long long recv_time),
-    TP_ARGS(cmd_id, qid, datalen, time, recv_time),
+    TP_PROTO(struct nvme_tcp_data_pdu *pdu, struct nvme_command *cmd, int qid, int size, long long recv_time),
+    TP_ARGS(pdu, cmd, qid, size, recv_time),
     TP_STRUCT__entry(
         __field(u16, cmd_id)
         __field(int, qid)
-        __field(int, datalen)
+        __field(int, size)
     ),
     TP_fast_assign(
-        __entry->cmd_id = cmd_id;
+        __entry->cmd_id = cmd->common.command_id;
         __entry->qid = qid;
-        __entry->datalen = datalen;
+        __entry->size = size;
     ),
-    TP_printk("cmd_id=%u, qid=%d, datalen=%d",
-        __entry->cmd_id, __entry->qid, __entry->datalen)
+    TP_printk("cmd_id=%u, qid=%d, size=%d",
+        __entry->cmd_id, __entry->qid, __entry->size)
 );
 
 TRACE_EVENT(nvmet_tcp_try_recv_data,
-    TP_PROTO(u16 cmd_id, int qid, int datalen, unsigned long long time, long long recv_time),
-    TP_ARGS(cmd_id, qid, datalen, time, recv_time),
+    TP_PROTO(struct nvme_command *cmd, int qid, int size, long long recv_time),
+    TP_ARGS(cmd, qid, size, recv_time),
     TP_STRUCT__entry(
         __field(u16, cmd_id)
         __field(int, qid)
-        __field(int, datalen)
+        __field(int, size)
     ),
     TP_fast_assign(
-        __entry->cmd_id = cmd_id;
+        __entry->cmd_id = cmd->common.command_id;
         __entry->qid = qid;
-        __entry->datalen = datalen;
+        __entry->size = size;
     ),
-    TP_printk("cmd_id=%u, qid=%d, datalen=%d",
-        __entry->cmd_id, __entry->qid, __entry->datalen)
+    TP_printk("cmd_id=%u, qid=%d, size=%d",
+        __entry->cmd_id, __entry->qid, __entry->size)
 );
-
-TRACE_EVENT(nvmet_tcp_alloc_queue,
-    TP_PROTO(int qid, int remote_port, unsigned long long time),
-    TP_ARGS(qid, remote_port, time),
-    TP_STRUCT__entry(
-        __field(int, qid)
-        __field(int, remote_port)
-    ),
-    TP_fast_assign(
-        __entry->qid = qid;
-        __entry->remote_port = remote_port;
-    ),
-    TP_printk("qid=%d, remote_port=%d",
-        __entry->qid, __entry->remote_port)
-);
-
-TRACE_EVENT(nvmet_tcp_io_work,
-    TP_PROTO(int qid, long long recv, long long send),
-    TP_ARGS(qid, recv, send),
-    TP_STRUCT__entry(
-        __field(int, qid)
-    ),
-    TP_fast_assign(
-        __entry->qid = qid;
-    ),
-    TP_printk("qid=%d",
-         __entry->qid)
-);
-
-TRACE_EVENT(nvmet_tcp_recv_msg_types,
-    TP_PROTO(int *cnt, int qid, unsigned long long time),
-    TP_ARGS(cnt, qid, time),
-    TP_STRUCT__entry(
-        __field(int, qid)
-    ),
-    TP_fast_assign(
-        __entry->qid = qid;
-    ),
-    TP_printk("qid=%d",
-        __entry->qid)
-);
-
 
 #endif /* _TRACE_NVMET_TCP_H */
 

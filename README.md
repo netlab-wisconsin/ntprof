@@ -23,9 +23,9 @@ The source code will be extracted to `/usr/src/linux-source-5.15.0`.
 
 ### Modify the kernel source code
 
-1. Create a new file [`nvme_tcp.h`](kernel_change/include/trace/events/nvme_tcp.h.new) in the `include/trace/events` directory. This file defines the tracepoints for the nvme-tcp module.
+1. Create a new file [`nvme_tcp.h`](kernel_change/include/trace/events/nvme_tcp.h) in the `include/trace/events` directory. This file defines the tracepoints for the nvme-tcp module.
 
-2. Create a new file [`nvmet_tcp.h`](kernel_change/drivers/nvme/host/nvme_tcp.c.new) in the `include/trace/events` directory. This file defines the tracepoints for the nvmet-tcp module.
+2. Create a new file [`nvmet_tcp.h`](kernel_change/drivers/nvme/host/nvme_tcp.c) in the `include/trace/events` directory. This file defines the tracepoints for the nvmet-tcp module.
 
 3. Modify the `block/blk-core.c` file as folows
 

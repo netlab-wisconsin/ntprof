@@ -44,23 +44,6 @@ enum nvme_tcp_pdu_type {
 	nvme_tcp_r2t		= 0x9,
 };
 
-// struct resp_set{
-// 	s64 skb_ts;
-// 	int cnt[10];
-// };
-
-// static void inline init_resp_set(struct resp_set *set) {
-// 	int i;
-// 	set->skb_ts = 0;
-// 	for (i = 0; i < 10; i++) {
-// 		set->cnt[i] = 0;
-// 	}
-// }
-
-// static void inline add_resp(enum nvme_tcp_pdu_type type, struct resp_set *set) {
-// 	set->cnt[type]++;
-// }
-
 enum nvme_tcp_pdu_flags {
 	NVME_TCP_F_HDGST		= (1 << 0),
 	NVME_TCP_F_DDGST		= (1 << 1),
@@ -158,8 +141,6 @@ struct nvme_tcp_cmd_pdu {
 	struct nvme_command	cmd;
 	struct ntprof_stat stat;
 };
-
-
 
 /**
  * struct nvme_tcp_rsp_pdu - nvme tcp response capsule pdu

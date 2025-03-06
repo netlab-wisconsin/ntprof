@@ -160,3 +160,6 @@ docs/
 /arch/*/boot/bootpImage.cmd
 /arch/*/boot/dtbs
 /arch/*/boot/dtbs-$(ARCH)
+
+*.idea
+*.code
