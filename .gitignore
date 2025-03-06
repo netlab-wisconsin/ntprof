@@ -162,4 +162,8 @@ docs/
 /arch/*/boot/dtbs-$(ARCH)
 
 *.idea
+*.idea/*
 *.code
+*.code/*
+*.clang-format
+*.editorconfig
