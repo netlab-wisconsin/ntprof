@@ -2,8 +2,6 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
-#include <stdlib.h>
-#include <stdbool.h>
 
 #include "../include/config.h"
 #include <iniparser/iniparser.h>

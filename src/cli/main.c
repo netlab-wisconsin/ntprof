@@ -67,11 +67,7 @@ int analyze(struct ntprof_config *config) {
     struct analyze_arg arg = { .config = *config };
     int ret = send_ioctl(fd, NTPROF_IOCTL_ANALYZE, &arg);
     if (ret != EXIT_SUCCESS) return EXIT_FAILURE;
-
     printf("Analyze result:\n");
-    // printf("  - Total number of probes: %llu\n", arg.rpt.total_io);
-    // printf("  - Total number of categories: %u\n", arg.rpt.cnt);
-
     print_report(&arg.rpt);
 
     return EXIT_SUCCESS;
