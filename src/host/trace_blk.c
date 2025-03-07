@@ -2,14 +2,8 @@
 
 #include <trace/events/block.h>
 #include "host.h"
-#include "host_logging.h"
-#include "host.h"
-
-#include "analyze.h"
 #include "analyzer.h"
 #include <linux/delay.h>
-
-// #include "../target/target.h"
 
 void on_block_rq_complete(void* ignore, struct request* rq, int err,
                           unsigned int nr_bytes) {
