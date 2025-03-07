@@ -57,7 +57,7 @@ static inline void print_latency_breakdown_summary_user(
 static inline void print_category_summary(struct category_summary* cs) {
   printf("group: type=%s, ", cs->key.io_type ? "write" : "read");
   printf("size=%d, ", cs->key.io_size);
-  printf("dev=%s", cs->key.session_name);
+  printf("dev=%s, ", cs->key.session_name);
   printf("sample#=: %d\n", cs->lbs.cnt);
   print_latency_breakdown_summary_user(&cs->lbs);
 }

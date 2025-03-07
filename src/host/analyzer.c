@@ -1,20 +1,21 @@
+#include "analyzer.h"
+
+#include <linux/bitops.h>
+#include <linux/delay.h>
 #include <linux/hashtable.h>
-#include <linux/slab.h>
+#include <linux/jhash.h>
+#include <linux/kthread.h>
 #include <linux/list.h>
 #include <linux/mutex.h>
-#include <linux/kthread.h>
 #include <linux/sched.h>
-#include <linux/delay.h>
-#include <linux/workqueue.h>
-#include <linux/jhash.h>
-#include <linux/bitops.h>
-#include <linux/spinlock.h>
+#include <linux/slab.h>
 #include <linux/sort.h>
+#include <linux/spinlock.h>
+#include <linux/workqueue.h>
 
 #include "../include/analyze.h"
-#include "analyzer.h"
-#include "statistics.h"
 #include "breakdown.h"
+#include "statistics.h"
 
 #define CATEGORY_HASH_BITS (ilog2(MAX_CATEGORIES - 1) + 1)
 
@@ -22,7 +23,8 @@
 static DEFINE_HASHTABLE(categories_hash, CATEGORY_HASH_BITS);
 static atomic_t categories_count = ATOMIC_INIT(0);
 
-// multiple threads will try to find and update the (key -> categorized_records) hashmap
+// multiple threads will try to find and update the (key -> categorized_records)
+// hashmap
 static DEFINE_MUTEX(category_mutex);
 
 // *************************************************
@@ -46,9 +48,8 @@ static int categorize_record(struct profile_record* record,
       .io_size = config->enable_group_by_size ? record->metadata.size : -1,
       .io_type = config->enable_group_by_type ? record->metadata.is_write : -1,
   };
-  const char* session = config->enable_group_by_session
-                          ? config->session_name
-                          : "";
+  const char* session =
+      config->enable_group_by_session ? config->session_name : "";
   strncpy(key.session_name, session, MAX_SESSION_NAME_LEN - 1);
   key.session_name[MAX_SESSION_NAME_LEN - 1] = '\0';
 
@@ -68,11 +69,13 @@ static int categorize_record(struct profile_record* record,
   if (found) {
     // we find the corresponding entry in the hashmap
     // insert the profiling record to the bucket
-    // pr_cont("move [req->tag=%d, req->cmdid=%d], ", record->metadata.req_tag, record->metadata.cmdid);
+    // pr_cont("move [req->tag=%d, req->cmdid=%d], ", record->metadata.req_tag,
+    // record->metadata.cmdid);
     list_move_tail(&record->list, &cat->records);
     atomic_inc(&cat->count);
   } else {
-    // generate a new entry (category) in the hashmap and insert the new profiling record
+    // generate a new entry (category) in the hashmap and insert the new
+    // profiling record
     if (atomic_read(&categories_count) < MAX_CATEGORIES) {
       cat = kzalloc(sizeof(*cat), GFP_KERNEL);
       if (!cat) {
@@ -84,7 +87,8 @@ static int categorize_record(struct profile_record* record,
       INIT_LIST_HEAD(&cat->records);
       atomic_set(&cat->count, 1);
 
-      // pr_cont("move [req->tag=%d, req->cmdid=%d], ", record->metadata.req_tag, record->metadata.cmdid);
+      // pr_cont("move [req->tag=%d, req->cmdid=%d], ",
+      // record->metadata.req_tag, record->metadata.cmdid);
       list_move_tail(&record->list, &cat->records);
 
       hash_add(categories_hash, &cat->hash_node, hash);
@@ -105,20 +109,15 @@ static int categorize_record(struct profile_record* record,
 static void categorize_records_of_each_core(struct per_core_statistics* stat,
                                             int core_id) {
   struct profile_record *rec, *tmp;
-  unsigned long flags;
   // TODO: spinlock?
-  pr_cont("categorize: ");
   list_for_each_entry_safe(rec, tmp, &stat->completed_records, list) {
     categorize_record(rec, &global_config);
   }
   // remove all elements in the incompleted_records
   list_for_each_entry_safe(rec, tmp, &stat->incomplete_records, list) {
-    // pr_cont("remove [req->tag=%d, req->cmdid=%d], ", rec->metadata.req_tag,
-    // rec->metadata.cmdid);
     list_del(&rec->list);
     kfree(rec);
   }
-  pr_info("");
 }
 
 struct analysis_work {
@@ -151,8 +150,7 @@ void start_phase_1(struct per_core_statistics* stat,
   mutex_unlock(&category_mutex);
 
   for (i = 0; i < MAX_CORE_NUM; ++i) {
-    if (list_empty(&stat[i].completed_records))
-      continue;
+    if (list_empty(&stat[i].completed_records)) continue;
 
     struct analysis_work* work = kmalloc(sizeof(*work), GFP_KERNEL);
     if (!work) {
@@ -173,17 +171,14 @@ void start_phase_1(struct per_core_statistics* stat,
 //  Phase 2 - summarize each category and generate report
 // *******************************************************
 
-
-static const u32 quantiles_scaled[MAX_DIST_BUCKET] = {
-    100, 500, 700, 800, 900, 950, 990, 999
-};
+static const u32 quantiles_scaled[MAX_DIST_BUCKET] = {100, 500, 700, 800,
+                                                      900, 950, 990, 999};
 
 struct sample_array {
   int* data;
   int count;
   int capacity;
 };
-
 
 static void init_sample_array(struct sample_array* arr, int total_cnt) {
   arr->data = kmalloc(total_cnt * sizeof(int), GFP_KERNEL);
@@ -193,7 +188,6 @@ static void init_sample_array(struct sample_array* arr, int total_cnt) {
   arr->count = 0;
   arr->capacity = total_cnt;
 }
-
 
 static void add_sample(struct sample_array* arr, int total_cnt) {
   if (arr->count >= arr->capacity) {
@@ -245,14 +239,10 @@ static void calculate_quantiles(const struct sample_array* samples,
   }
 }
 
-
 void summarize_category(struct categorized_records* cat,
                         struct category_summary* cs) {
   struct profile_record *record, *tmp;
   cs->key = cat->key;
-
-  pr_info("before summarization");
-  print_latency_breakdown_summary(&cs->lbs);
 
   struct {
     struct sample_array blk_submission;
@@ -279,17 +269,14 @@ void summarize_category(struct categorized_records* cat,
   init_sample_array(&samples.nstack_completion, sample_cnt);
   init_sample_array(&samples.network_transmission, sample_cnt);
 
-  pr_info("sample_cnt = %d\n", sample_cnt);
-
   list_for_each_entry_safe(record, tmp, &cat->records, list) {
-    list_del(&record->list); // Remove from list
+    list_del(&record->list);  // Remove from list
     if (is_valid_profile_record(record) == 0) {
       print_profile_record(record);
     } else {
-      // // print_profile_record(record);
       struct latency_breakdown bd = {0};
       break_latency(record, &bd);
-      //
+
       cs->lbs.cnt++;
 
       cs->lbs.bd_sum.blk_submission += bd.blk_submission;
@@ -302,7 +289,7 @@ void summarize_category(struct categorized_records* cat,
       cs->lbs.bd_sum.nstack_submission += bd.nstack_submission;
       cs->lbs.bd_sum.nstack_completion += bd.nstack_completion;
       cs->lbs.bd_sum.network_transmission += bd.network_transmission;
-      //
+
       add_sample(&samples.blk_submission, bd.blk_submission);
       add_sample(&samples.blk_completion, bd.blk_completion);
       add_sample(&samples.nvme_tcp_submission, bd.nvme_tcp_submission);
@@ -313,30 +300,9 @@ void summarize_category(struct categorized_records* cat,
       add_sample(&samples.nstack_submission, bd.nstack_submission);
       add_sample(&samples.nstack_completion, bd.nstack_completion);
       add_sample(&samples.network_transmission, bd.network_transmission);
-
-      // print_breakdown(&cs->bd);
     }
     kfree(record);
   }
-  pr_info("cs->lbs.cnt: %d", cs->lbs.cnt);
-  pr_info("cs->lbs.bd_sum.blk_submission: %lld", cs->lbs.bd_sum.blk_submission);
-  pr_info("cs->lbs.bd_sum.blk_completion: %lld", cs->lbs.bd_sum.blk_completion);
-  pr_info("cs->lbs.bd_sum.nvme_tcp_submission: %lld",
-          cs->lbs.bd_sum.nvme_tcp_submission);
-  pr_info("cs->lbs.bd_sum.nvme_tcp_completion: %lld",
-          cs->lbs.bd_sum.nvme_tcp_completion);
-  pr_info("cs->lbs.bd_sum.nvmet_tcp_submission: %lld",
-          cs->lbs.bd_sum.nvmet_tcp_submission);
-  pr_info("cs->lbs.bd_sum.nvmet_tcp_completion: %lld",
-          cs->lbs.bd_sum.nvmet_tcp_completion);
-  pr_info("cs->lbs.bd_sum.target_subsystem: %lld",
-          cs->lbs.bd_sum.target_subsystem);
-  pr_info("cs->lbs.bd_sum.nstack_submission: %lld",
-          cs->lbs.bd_sum.nstack_submission);
-  pr_info("cs->lbs.bd_sum.nstack_completion: %lld",
-          cs->lbs.bd_sum.nstack_completion);
-  pr_info("cs->lbs.bd_sum.network_transmission: %lld",
-          cs->lbs.bd_sum.network_transmission);
 
   calculate_quantiles(&samples.blk_submission, cs->lbs.dist.blk_submission);
   calculate_quantiles(&samples.blk_completion, cs->lbs.dist.blk_completion);
@@ -366,9 +332,6 @@ void summarize_category(struct categorized_records* cat,
   free_sample_array(&samples.nstack_submission);
   free_sample_array(&samples.nstack_completion);
   free_sample_array(&samples.network_transmission);
-
-  pr_info("after summarization");
-  print_latency_breakdown_summary(&cs->lbs);
 }
 
 struct summarize_work {
@@ -378,12 +341,6 @@ struct summarize_work {
   int id;
 };
 
-// this whole function is protected by the category_mutex
-// static void merge_result(struct report *global, struct report *local, int idx) {
-//     global->total_io += local->total_io;
-//     global->breakdown[idx] = local->breakdown[idx];
-// }
-
 static void summarize_work_fn(struct work_struct* work) {
   pr_debug("summarize_work_fn start working!");
   struct summarize_work* sw = container_of(work, struct summarize_work, work);
@@ -391,15 +348,15 @@ static void summarize_work_fn(struct work_struct* work) {
 
   summarize_category(cat, &sw->global_result->summary[sw->id]);
 
-  // pr_info("Category => %s, %d, %d", cat->key.session_name, cat->key.io_size, cat->key.io_type);
-  // it it is writel, print the breakdown
+  // pr_info("Category => %s, %d, %d", cat->key.session_name, cat->key.io_size,
+  // cat->key.io_type); it it is writel, print the breakdown
   // print_breakdown(&sw->global_result->summary[sw->id].bd);
 
   mutex_lock(&category_mutex);
   // udpate the global report
   // merge_result(sw->global_result, &(sw->local_result), id);
   hash_del(&cat->hash_node);
-  kfree(cat); // Free category after summarization
+  kfree(cat);  // Free category after summarization
   mutex_unlock(&category_mutex);
 
   kfree(sw);

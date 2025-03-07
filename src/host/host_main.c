@@ -108,11 +108,8 @@ static long ntprof_ioctl(struct file* file, unsigned int cmd,
         pr_err("ntprof: Failed to copy config from user\n");
         return -EFAULT;
       }
-      pr_info("after copy from user\n");
       is_profiling = 1;
       register_tracepoints();
-      pr_info("ntprof: Profiling started: %s\n", global_config.session_name);
-      print_config(&global_config);
       break;
 
     case NTPROF_IOCTL_STOP:
@@ -127,7 +124,7 @@ static long ntprof_ioctl(struct file* file, unsigned int cmd,
     // if is offline mode, flush the profile records to the files
       if (!global_config.is_online) {
         msleep(1000);
-        pr_info("ntprof: Flushing profile records to files, datadir=%s\n", global_config.data_dir);
+        pr_debug("ntprof: Flushing profile records to files, datadir=%s\n", global_config.data_dir);
         serialize_all_cores(global_config.data_dir, stat);
       }
       break;
@@ -158,14 +155,11 @@ static long ntprof_ioctl(struct file* file, unsigned int cmd,
         }
       } else {
         // clear stat
-        pr_info("receive offline analyze request.");
         int i;
-        pr_info("start free all core statistics");
         for (i = 0; i < MAX_CORE_NUM; i++) {
           free_per_core_statistics(&stat[i]);
           init_per_core_statistics(&stat[i]);
         }
-        pr_info("start deserialize all cores");
         deserialize_all_cores(global_config.data_dir, stat);
 
         memset(&aarg, 0, sizeof(aarg));
