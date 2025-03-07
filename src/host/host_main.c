@@ -123,9 +123,11 @@ static long ntprof_ioctl(struct file* file, unsigned int cmd,
       is_profiling = 0;
       unregister_tracepoints();
 
+
     // if is offline mode, flush the profile records to the files
       if (!global_config.is_online) {
-        pr_info("ntprof: Flushing profile records to files\n");
+        msleep(1000);
+        pr_info("ntprof: Flushing profile records to files, datadir=%s\n", global_config.data_dir);
         serialize_all_cores(global_config.data_dir, stat);
       }
       break;
@@ -156,12 +158,16 @@ static long ntprof_ioctl(struct file* file, unsigned int cmd,
         }
       } else {
         // clear stat
+        pr_info("receive offline analyze request.");
         int i;
+        pr_info("start free all core statistics");
         for (i = 0; i < MAX_CORE_NUM; i++) {
           free_per_core_statistics(&stat[i]);
           init_per_core_statistics(&stat[i]);
         }
+        pr_info("start deserialize all cores");
         deserialize_all_cores(global_config.data_dir, stat);
+
         memset(&aarg, 0, sizeof(aarg));
         analyze(&global_config, &aarg.rpt);
         if (copy_to_user(uarg, &aarg, sizeof(aarg))) {
