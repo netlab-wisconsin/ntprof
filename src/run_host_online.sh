@@ -1,23 +1,28 @@
 #!/bin/bash
 set -e
 
+# This script automates the process of:
+# 1. Building the host kernel module and CLI tool.
+# 2. Loading the kernel module.
+# 3. Running the profiling experiment with a specified configuration file.
+# 4. Analyzing profiling data.
+# 5. Cleaning up resources after execution.
+
+# Usage:
+#   ./script.sh [config_file]
+#   - config_file: (optional) Path to the configuration file (default: ntprof_config.ini).
+
 NAME="[run_exp_host]"
-CONFIG_FILE="ntprof_config.ini"
+CONFIG_FILE=${1:-"ntprof_config.ini"}  # First argument: config file (default: ntprof_config.ini)
+
 MODULE_NAME="ntprof_host"
 HOST_DIR_NAME="host"
 CLI_DIR_NAME="cli"
 MODULE_PATH="$HOST_DIR_NAME/$MODULE_NAME.ko"
 CLI_PATH="$CLI_DIR_NAME/ntprof_cli"
-DURATION=3
-
-# check if ini config file is specified
-if [ $# -gt 0 ]; then
-    CONFIG_FILE="$1"
-fi
 
 echo "$NAME Cleaning up old build..."
 make clean && make host && make cli
-
 
 cleanup() {
     echo "$NAME Stopping experiment and cleaning up..."
@@ -30,39 +35,24 @@ cleanup() {
 
 trap cleanup EXIT
 
-# Lead the kernel modules
+# Load the kernel module
 echo "$NAME Loading the module..."
 if ! sudo insmod "$MODULE_PATH"; then
     echo "Error: Failed to load kernel module!"
     exit 1
 fi
 
-# start collecting data
-echo "$NAME Starting the experiment with config: $CONFIG_FILE"
+# Start collecting data
+echo "$NAME sends START config: $CONFIG_FILE"
 if ! sudo $CLI_PATH start "$CONFIG_FILE"; then
     echo "Error: Experiment failed to start!"
     exit 1
 fi
 
-# # wait for the experiment to finish
-echo "$NAME Running for $DURATION seconds..."
-sleep $DURATION
-
-echo "cli send stop"
-
-if ! sudo $CLI_PATH stop; then
-    echo "Error: Experiment failed to stop!"
-    exit 1
-fi
-
-echo "cli send analyze"
-
+echo "$NAME cli sends ANALYZE"
 if ! sudo $CLI_PATH analyze; then
     echo "Error: Experiment failed to analyze!"
     exit 1
 fi
 
-# sleep $DURATION
 echo "$NAME Experiment completed successfully!"
-
-sleep 1000
