@@ -65,7 +65,6 @@ $ sudo apt-get install libiniparser-dev
 
   The compiled kernel module is `target/ntprof_target.ko`.
 
-
 ### Online profiling
 Assume the current dir is navigated to `ntprof/src/`. 
 
@@ -99,11 +98,13 @@ Assume the current dir is navigated to `ntprof/src/`.
     $ sudo rmmod ntprof_target
     ```
 
+We also provide sample script to run ntprof in online mode. Navigate to `src` directory and run the `./run_target.sh <duration in seconds>` on the target side. And then run the `./run_host_online.sh <config file>` on the initiator side. The profiling results will be displayed in the terminal. Terminate the script by using Ctrl+C.
+
 
 ### Offline profiling
 Assume the current dir is navigated to `ntprof/src/`. 
 
-1. **Step 1**: config the `IS_ONLINE` option in `ntprof_config.ini` to `false` for offline profiling, and also specify the output directory `DATA_DIR` for the profiling data. 
+1. **Step 1**: config the `IS_ONLINE` option in `ntprof_config.ini` to `false` for offline profiling, and also specify the output directory `DATA_DIR` for the profiling data. Please make sure the output directory exists before profiling. It is `/tmp/ntprof_data` by default.s
 
 2. **Step 2**: load the kernel modules on the initiator side
     ``` bash
@@ -142,3 +143,5 @@ Assume the current dir is navigated to `ntprof/src/`.
     ``` bash
     $ sudo rmmod ntprof_target
     ```
+
+We also provide sample script to run ntprof in offline mode. Navigate to `src` directory and run the `./run_target.sh <duration in seconds>` on the target side. And then run the `./run_host_offline.sh <config file> <duration in seconds>` on the initiator side. The profiling results will be displayed in the terminal. Terminate the script by using Ctrl+C.
