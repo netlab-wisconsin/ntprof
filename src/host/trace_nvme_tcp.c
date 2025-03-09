@@ -1,32 +1,30 @@
 #include <linux/blk-mq.h>
 #include <linux/blk_types.h>
 #include <linux/blkdev.h>
+#include <linux/delay.h>
 #include <linux/irqflags.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/mutex.h>
+#include <linux/net.h>
 #include <linux/nvme-tcp.h>
 #include <linux/nvme.h>
 #include <linux/proc_fs.h>
+#include <linux/skbuff.h>
+#include <linux/timekeeping.h>
 #include <linux/tracepoint.h>
 #include <trace/events/nvme_tcp.h>
-#include <linux/timekeeping.h>
-#include <linux/skbuff.h>
-#include <linux/net.h>
+
 #include "../include/statistics.h"
+#include "../include/trace.h"
+#include "breakdown.h"
 #include "host.h"
 #include "host_logging.h"
-#include "../include/trace.h"
-#include <linux/delay.h>
 
-#include "breakdown.h"
-
-
-#define CHECK_TRACE_CONDITIONS(qid) \
-    do { \
-        if (unlikely(atomic_read(&trace_on) == 0 || (qid) == 0)) \
-            return; \
-    } while (0)
+#define CHECK_TRACE_CONDITIONS(qid)                                  \
+  do {                                                               \
+    if (unlikely(atomic_read(&trace_on) == 0 || (qid) == 0)) return; \
+  } while (0)
 
 // #define LOCK(cid) \
 //     SPINLOCK_IRQSAVE_DISABLEPREEMPT(&stat[cid].lock, __func__)
@@ -34,29 +32,27 @@
 // #define UNLOCK(cid) \
 //     SPINUNLOCK_IRQRESTORE_ENABLEPREEMPT(&stat[cid].lock, __func__)
 
+#define CHECK_FREQUENCY(cid)                                        \
+  do {                                                              \
+    if (unlikely(global_config.frequency == 0)) {                   \
+      pr_err_once("Sampling frequency is 0\n");                     \
+      return;                                                       \
+    }                                                               \
+    if (++stat[cid].sampler % global_config.frequency != 0) {       \
+      ((struct nvme_tcp_cmd_pdu*)pdu)->stat.tag = false;            \
+      return;                                                       \
+    }                                                               \
+  } while (0)
 
-#define CHECK_FREQUENCY(cid) \
-    do { \
-        if (unlikely(global_config.frequency == 0)) { \
-            pr_err_once("Sampling frequency is 0\n"); \
-            return; \
-        } \
-        if (++stat[cid].sampler % global_config.frequency != 0) \
-            return; \
-    } while (0)
-
-
-static struct profile_record* create_profile_record(
-    struct request* req, int cid) {
+static struct profile_record* create_profile_record(struct request* req,
+                                                    int cid) {
   struct profile_record* record = kmalloc(sizeof(*record), GFP_KERNEL);
   if (unlikely(!record)) {
     pr_err("Allocation failed for tag %d\n", req->tag);
     return NULL;
   }
 
-  init_profile_record(record,
-                      blk_rq_bytes(req),
-                      rq_data_dir(req),
+  init_profile_record(record, blk_rq_bytes(req), rq_data_dir(req),
                       req->rq_disk ? req->rq_disk->disk_name : "unknown",
                       req->tag);
 
@@ -69,7 +65,6 @@ static struct profile_record* create_profile_record(
 static inline u64 get_start_time(struct request* req) {
   return ktime_get_real_ns() - ktime_get_ns() + req->start_time_ns;
 }
-
 
 void on_nvme_tcp_queue_rq(void* ignore, struct request* req, void* pdu, int qid,
                           struct llist_head* req_list,
@@ -103,19 +98,17 @@ void on_nvme_tcp_queue_request(void* ignore, struct request* req,
   LOCKQ(qid);
   struct profile_record* rec = get_profile_record(&stat[qid], req);
   if (rec) {
-    if (rec->metadata.cmdid == -1)
-      rec->metadata.cmdid = cmd->common.command_id;
+    if (rec->metadata.cmdid == -1) rec->metadata.cmdid = cmd->common.command_id;
   }
   UNLOCKQ(qid);
 }
 
 #define APPEND_EVENT_IF_VALID(isValidExpr, rec, time, e) \
-    do { \
-        if (rec && (isValidExpr)) { \
-            append_event(rec, time, e); \
-        } \
-    } while (0)
-
+  do {                                                   \
+    if (rec && (isValidExpr)) {                          \
+      append_event(rec, time, e);                        \
+    }                                                    \
+  } while (0)
 
 // void on_nvme_tcp_try_send(void* ignore, struct request* req, int qid) {
 //   CHECK_TRACE_CONDITIONS(qid);
@@ -197,7 +190,8 @@ void on_nvme_tcp_handle_c2h_data(void* ignore, struct request* rq, int qid,
   UNLOCKQ(qid);
 }
 
-// void on_nvme_tcp_recv_data(void* ignore, struct request* req, int qid, int len) {
+// void on_nvme_tcp_recv_data(void* ignore, struct request* req, int qid, int
+// len) {
 //   CHECK_TRACE_CONDITIONS(qid);
 //   u64 now = ktime_get_real_ns();
 //
@@ -229,7 +223,6 @@ void copy_ntprof_stat_to_record(struct ntprof_stat* record_stat,
   record_stat->cnt = pdu_stat->cnt;
 }
 
-
 void on_nvme_tcp_handle_r2t(void* ignore, struct request* rq, void* pdu,
                             int qid, u64 recv_time) {
   CHECK_TRACE_CONDITIONS(qid);
@@ -238,11 +231,10 @@ void on_nvme_tcp_handle_r2t(void* ignore, struct request* rq, void* pdu,
   LOCKQ(qid);
   struct profile_record* rec = get_profile_record(&stat[qid], rq);
   if (rec) {
-    if (((struct nvme_tcp_r2t_pdu*)pdu)->stat.id != (unsigned long long)rec->
-        metadata.cmdid) {
+    if (((struct nvme_tcp_r2t_pdu*)pdu)->stat.id !=
+        (unsigned long long)rec->metadata.cmdid) {
       pr_warn("stat.id=%llu, metadata.cmdid=%d\n",
-              ((struct nvme_tcp_r2t_pdu *) pdu)->stat.id,
-              rec->metadata.cmdid);
+              ((struct nvme_tcp_r2t_pdu*)pdu)->stat.id, rec->metadata.cmdid);
     } else {
       rec->metadata.contains_r2t = 1;
       copy_ntprof_stat_to_record(&rec->stat1,
@@ -252,9 +244,11 @@ void on_nvme_tcp_handle_r2t(void* ignore, struct request* rq, void* pdu,
     append_event(rec, recv_time, NVME_TCP_RECV_SKB);
     append_event(rec, now, NVME_TCP_HANDLE_R2T);
   } else {
-    pr_err(
-        "!!! on_nvme_tcp_handle_r2t: rec [tag=%d] is not found or it is NULL, stat->cmdid=%llu, the incomplete queue is: ",
-        rq->tag, ((struct nvme_tcp_r2t_pdu *) pdu)->stat.id);
+    // pr_err(
+    //     "!!! on_nvme_tcp_handle_r2t: rec [tag=%d] is not found or it is NULL, "
+    //     "stat->cmdid=%llu, the incomplete queue is: ",
+    //     rq->tag, ((struct nvme_tcp_r2t_pdu*)pdu)->stat.id);
+    // print_incomplete_queue(&stat[qid]);
   }
   UNLOCKQ(qid);
 }
@@ -267,22 +261,24 @@ void on_nvme_tcp_process_nvme_cqe(void* ignore, struct request* rq, void* pdu,
   LOCKQ(qid);
   struct profile_record* rec = get_profile_record(&stat[qid], rq);
   if (rec) {
-    if (((struct nvme_tcp_rsp_pdu*)pdu)->stat.id != (unsigned long long)rec->
-        metadata.cmdid) {
+    if (((struct nvme_tcp_rsp_pdu*)pdu)->stat.id !=
+        (unsigned long long)rec->metadata.cmdid) {
       pr_warn("stat.id=%llu, metadata.cmdid=%d\n",
-              ((struct nvme_tcp_rsp_pdu *) pdu)->stat.id,
-              rec->metadata.cmdid);
+              ((struct nvme_tcp_rsp_pdu*)pdu)->stat.id, rec->metadata.cmdid);
     } else {
       // cpy_ntprof_stat_to_record(rec, &((struct nvme_tcp_rsp_pdu*)pdu)->stat);
       if (rec->metadata.is_write) {
         append_event(rec, recv_time, NVME_TCP_RECV_SKB);
         if (rec->metadata.contains_r2t) {
-          copy_ntprof_stat_to_record(&rec->stat2,&((struct nvme_tcp_rsp_pdu*)pdu)->stat);
-        }else {
-          copy_ntprof_stat_to_record(&rec->stat1,&((struct nvme_tcp_rsp_pdu*)pdu)->stat);
+          copy_ntprof_stat_to_record(&rec->stat2,
+                                     &((struct nvme_tcp_rsp_pdu*)pdu)->stat);
+        } else {
+          copy_ntprof_stat_to_record(&rec->stat1,
+                                     &((struct nvme_tcp_rsp_pdu*)pdu)->stat);
         }
-      }else {
-        copy_ntprof_stat_to_record(&rec->stat1,&((struct nvme_tcp_rsp_pdu*)pdu)->stat);
+      } else {
+        copy_ntprof_stat_to_record(&rec->stat1,
+                                   &((struct nvme_tcp_rsp_pdu*)pdu)->stat);
       }
       append_event(rec, now, NVME_TCP_PROCESS_NVME_CQE);
     }
@@ -290,7 +286,6 @@ void on_nvme_tcp_process_nvme_cqe(void* ignore, struct request* rq, void* pdu,
   }
   UNLOCKQ(qid);
 }
-
 
 // register tracepoints
 static struct nvmf_tracepoint tracepoints[] = {
@@ -316,8 +311,8 @@ int register_nvme_tcp_tracepoints(void) {
 
     ret = t->register_fn(t->handler, NULL);
     if (ret) {
-      pr_err("Failed to register tracepoint %d (handler: %ps)\n",
-             registered, t->handler);
+      pr_err("Failed to register tracepoint %d (handler: %ps)\n", registered,
+             t->handler);
       goto unregister;
     }
   }
@@ -325,8 +320,8 @@ int register_nvme_tcp_tracepoints(void) {
 
 unregister:
   while (--registered >= 0) {
-    tracepoints[registered].
-        unregister_fn(tracepoints[registered].handler, NULL);
+    tracepoints[registered].unregister_fn(tracepoints[registered].handler,
+                                          NULL);
   }
   return ret;
 }

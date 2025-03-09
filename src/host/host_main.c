@@ -123,7 +123,7 @@ static long ntprof_ioctl(struct file* file, unsigned int cmd,
 
     // if is offline mode, flush the profile records to the files
       if (!global_config.is_online) {
-        msleep(1000);
+        msleep(200);
         pr_debug("ntprof: Flushing profile records to files, datadir=%s\n", global_config.data_dir);
         serialize_all_cores(global_config.data_dir, stat);
       }
@@ -137,7 +137,7 @@ static long ntprof_ioctl(struct file* file, unsigned int cmd,
           unregister_tracepoints();
           pr_debug("ntprof: Profiling temporarily stopped for analysis\n");
         }
-        msleep(1000);
+        msleep(200);
         // call the analyze function to assign value to ret
         memset(&aarg, 0, sizeof(aarg));
         analyze(&global_config, &aarg.rpt);

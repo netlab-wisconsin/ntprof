@@ -80,7 +80,7 @@ int run_analyze(struct ntprof_config *config) {
                 fprintf(stderr, "Error: Analysis failed during online monitoring.\n");
                 return EXIT_FAILURE;
             }
-            sleep(config->time_interval);
+            usleep((config->time_interval*1000-200)*1000);
         }
         printf("\nAnalysis interrupted by user.\n");
     } else {
