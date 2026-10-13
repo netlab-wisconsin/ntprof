@@ -35,9 +35,11 @@ void ntp_report_tput(FILE* f, const struct ntp_tput* t) {
 
   fprintf(f,
           "throughput: read %.1f kIOPS %.1f MB/s | write %.1f kIOPS %.1f MB/s "
-          "(%.1f s, all commands, as submitted)\n",
+          "(%.1f s, %s)\n",
           t->read_ios / s / 1e3, t->read_bytes / s / 1e6, t->write_ios / s / 1e3,
-          t->write_bytes / s / 1e6, t->seconds);
+          t->write_bytes / s / 1e6, t->seconds,
+          t->estimated ? "estimated from the sampled commands"
+                       : "all commands, as submitted");
 }
 
 /* Which quantile columns to print. */
@@ -199,11 +201,13 @@ int ntp_report_json(const char* path, struct ntp_stats* s,
   if (tput)
     fprintf(f,
             "  \"throughput\": {\"seconds\": %.3f, \"read_ios\": %llu, "
-            "\"read_bytes\": %llu, \"write_ios\": %llu, \"write_bytes\": %llu},\n",
+            "\"read_bytes\": %llu, \"write_ios\": %llu, \"write_bytes\": %llu, "
+            "\"estimated\": %s},\n",
             tput->seconds, (unsigned long long)tput->read_ios,
             (unsigned long long)tput->read_bytes,
             (unsigned long long)tput->write_ios,
-            (unsigned long long)tput->write_bytes);
+            (unsigned long long)tput->write_bytes,
+            tput->estimated ? "true" : "false");
   fprintf(f, "  \"groups\": [");
   for (size_t gi = 0; gi < s->n; gi++) {
     struct ntp_group* g = &s->groups[gi];

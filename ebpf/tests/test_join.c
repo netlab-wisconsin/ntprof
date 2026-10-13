@@ -103,9 +103,59 @@ static void test_expire(void) {
   ntp_joiner_free(j);
 }
 
+static int released;
+static uint64_t released_slba;
+
+static void on_release(void* ctx, const struct ntp_host_rec* h) {
+  released++;
+  released_slba = h->id.slba;
+}
+
+/* Online: a host record that comes before its target record waits for it. */
+static void test_host_first(void) {
+  struct ntp_joiner* j = ntp_joiner_new(8);
+  struct ntp_host_rec h, hout;
+  struct ntp_tgt_rec t, tout;
+
+  /* target first: joined as the host arrives */
+  t = tgt(1, 2, 3, 100, 10);
+  CHECK(!ntp_joiner_target_arrives(j, &t, &hout));
+  h = host(1, 2, 3, 100);
+  CHECK(ntp_joiner_host_arrives(j, &h, &tout));
+  CHECK_EQ(tout.ts[NTP_T_CMD_ARR], 10);
+
+  /* host first: joined as the target arrives */
+  h = host(1, 2, 4, 300);
+  h.ts[NTP_H_BLK_DONE] = 1000;
+  CHECK(!ntp_joiner_host_arrives(j, &h, &tout));
+  CHECK_EQ(ntp_joiner_waiting_hosts(j), 1);
+  t = tgt(1, 2, 4, 999, 20); /* same key, another command */
+  CHECK(!ntp_joiner_target_arrives(j, &t, &hout));
+  t = tgt(1, 2, 4, 300, 30);
+  CHECK(ntp_joiner_target_arrives(j, &t, &hout));
+  CHECK_EQ(hout.id.slba, 300);
+  CHECK_EQ(hout.ts[NTP_H_BLK_DONE], 1000);
+  CHECK_EQ(ntp_joiner_waiting_hosts(j), 0);
+  CHECK_EQ(ntp_joiner_pending(j), 1); /* the slba 999 target */
+  CHECK_EQ(ntp_joiner_stats(j)->matched, 2);
+
+  /* a host whose target never comes is released once old enough */
+  h = host(1, 2, 5, 500);
+  h.ts[NTP_H_BLK_DONE] = 2000;
+  CHECK(!ntp_joiner_host_arrives(j, &h, &tout));
+  CHECK_EQ(ntp_joiner_release_hosts(j, 2000, on_release, NULL), 0);
+  CHECK_EQ(ntp_joiner_release_hosts(j, 2001, on_release, NULL), 1);
+  CHECK_EQ(released, 1);
+  CHECK_EQ(released_slba, 500);
+  CHECK_EQ(ntp_joiner_stats(j)->host_unmatched, 1);
+  CHECK_EQ(ntp_joiner_waiting_hosts(j), 0);
+  ntp_joiner_free(j);
+}
+
 int main(void) {
   RUN(test_match_by_key_and_lba);
   RUN(test_fifo_and_eviction);
   RUN(test_expire);
+  RUN(test_host_first);
   TEST_DONE();
 }

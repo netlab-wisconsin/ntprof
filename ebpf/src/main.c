@@ -20,7 +20,7 @@ static void usage(FILE* f) {
           "usage: ntprof <command> [options] [files]\n"
           "\n"
           "commands:\n"
-          "  record             profile the running kernel (root)\n"
+          "  record             profile the running kernel or SPDK (root)\n"
           "  report FILE...     analyse record files: the host's, and the "
           "target's if any\n"
           "  compare BASE LOAD  LAD per stage; each run is host.ntp[,target.ntp]\n"
@@ -48,6 +48,10 @@ static void usage(FILE* f) {
           "                        operations on every I/O; default: mean\n"
           "                        occupancy per stage by Little's law)\n"
           "      --kprobes         use kprobes even where fentry/fexit work\n"
+          "      --spdk-host PATH  the initiator is SPDK: the binary with the\n"
+          "                        ntprof probes (shared build: the libraries,\n"
+          "                        comma-separated), e.g. build/bin/spdk_nvme_perf\n"
+          "      --spdk-target PATH  the target is SPDK, e.g. build/bin/nvmf_tgt\n"
           "  -v, --verbose         more messages (twice: libbpf debug)\n"
           "  -h, --help\n");
 }
@@ -62,6 +66,8 @@ enum {
   OPT_IFNAME,
   OPT_EXACT_QUEUES,
   OPT_KPROBES,
+  OPT_SPDK_HOST,
+  OPT_SPDK_TARGET,
 };
 
 static const struct option long_opts[] = {
@@ -82,6 +88,8 @@ static const struct option long_opts[] = {
     {"ifname", required_argument, NULL, OPT_IFNAME},
     {"exact-queues", no_argument, NULL, OPT_EXACT_QUEUES},
     {"kprobes", no_argument, NULL, OPT_KPROBES},
+    {"spdk-host", required_argument, NULL, OPT_SPDK_HOST},
+    {"spdk-target", required_argument, NULL, OPT_SPDK_TARGET},
     {"verbose", no_argument, NULL, 'v'},
     {"help", no_argument, NULL, 'h'},
     {NULL, 0, NULL, 0},
@@ -156,6 +164,12 @@ static int apply_option(struct ntp_config* c, int opt, const char* v) {
       return 0;
     case OPT_KPROBES:
       c->force_kprobes = true;
+      return 0;
+    case OPT_SPDK_HOST:
+      snprintf(c->spdk_host, sizeof(c->spdk_host), "%s", v);
+      return 0;
+    case OPT_SPDK_TARGET:
+      snprintf(c->spdk_target, sizeof(c->spdk_target), "%s", v);
       return 0;
     case OPT_IFNAME:
       if (!if_nametoindex(v)) return bad("--ifname", v);

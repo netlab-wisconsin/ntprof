@@ -1,0 +1,352 @@
+diff --git a/include/spdk/sock.h b/include/spdk/sock.h
+index fdf54b0..003bd63 100644
+--- a/include/spdk/sock.h
++++ b/include/spdk/sock.h
+@@ -61,6 +61,10 @@ struct spdk_sock_request {
+ 
+ 		/* Indicate if the whole req or part of it is pending zerocopy completion. */
+ 		bool pending_zcopy;
++
++		/* Fire the ntprof sock_req_sent probe when the request is sent
++		 * (set by the NVMe/TCP transports for sampled commands). */
++		bool ntprof;
+ 	} internal;
+ 
+ 	int				iovcnt;
+diff --git a/include/spdk_internal/ntprof.h b/include/spdk_internal/ntprof.h
+new file mode 100644
+index 0000000..38aa9e4
+--- /dev/null
++++ b/include/spdk_internal/ntprof.h
+@@ -0,0 +1,105 @@
++/*   SPDX-License-Identifier: BSD-3-Clause
++ *   Copyright (C) 2026 Yuyuan Kang.
++ *   All rights reserved.
++ */
++
++/*
++ * USDT probes for ntprof (https://github.com/netlab-wisconsin/ntprof), the
++ * per-stage NVMe-oF latency profiler. Each probe marks a stage boundary of
++ * one sampled command in the NVMe/TCP transports; ntprof attaches eBPF
++ * programs to them.
++ *
++ * A probe that a tracer is attached to traps into the kernel each time it
++ * runs, which costs about a microsecond. So the probes only run for sampled
++ * commands: g_ntprof_sample_every is 0 (off) until ntprof writes its
++ * sampling period into the running process, and a command is sampled when
++ * ntprof_sample_hash() of its identifying fields is a multiple of it. ntprof
++ * computes the same hash in the kernel, so an SPDK side and a kernel side
++ * sample the same commands. An unsampled command costs a load and a compare.
++ *
++ * Provider "ntprof". Probes and arguments:
++ *   nvme_tcp_submit   (tcp_req, struct spdk_nvme_cmd *, qid, cntlid)
++ *   nvme_tcp_pdu      (tcp_req, struct nvme_tcp_pdu *, PDU type)
++ *   nvme_tcp_event    (tcp_req, enum ntprof_nvme_event)
++ *   nvmf_tcp_cmd      (tcp_req, struct spdk_nvme_cmd *, qid, cntlid)
++ *   nvmf_tcp_state    (tcp_req, enum spdk_nvmf_tcp_req_state)
++ *   nvmf_tcp_pdu      (tcp_req, PDU type, PDU flags)
++ *   nvmf_tcp_h2c      (tcp_req)
++ *   sock_req_sent     (struct spdk_sock_request's cb_arg)
++ * nvme_tcp_* run in the initiator, nvmf_tcp_* in the target. *_pdu: a PDU of
++ * the command was queued to the socket. sock_req_sent: the socket layer
++ * handed the whole PDU to the kernel (sendmsg returned); it runs for the
++ * socket requests marked with internal.ntprof.
++ */
++
++#ifndef SPDK_INTERNAL_NTPROF_H
++#define SPDK_INTERNAL_NTPROF_H
++
++#include "spdk/stdinc.h"
++#include "spdk/config.h"
++#include "spdk/nvme_spec.h"
++
++/* Initiator command events (nvme_tcp_event). */
++enum ntprof_nvme_event {
++	NTPROF_NVME_C2H = 1,	/* a C2H data PDU header of the command was parsed */
++	NTPROF_NVME_R2T = 2,	/* an R2T for the command was parsed */
++	NTPROF_NVME_RSP = 3,	/* the response capsule was parsed */
++	NTPROF_NVME_DONE = 4,	/* the command is completed to its submitter */
++};
++
++/* Sampling period set by ntprof; 0 = off. Defined in lib/sock/sock.c. */
++extern volatile uint32_t g_ntprof_sample_every;
++
++/* Must stay identical to ntp_sample_hash() in ntprof's ebpf/bpf/ntprof.h. */
++static inline uint64_t
++ntprof_sample_hash(uint16_t cid, uint64_t slba, uint16_t nlb)
++{
++	uint64_t x = slba ^ ((uint64_t)cid << 48) ^ ((uint64_t)nlb << 32);
++
++	x ^= x >> 30;
++	x *= 0xbf58476d1ce4e5b9ULL;
++	x ^= x >> 27;
++	x *= 0x94d049bb133111ebULL;
++	x ^= x >> 31;
++	return x;
++}
++
++#if defined(SPDK_CONFIG_USDT) && !defined(SPDK_UNIT_TEST)
++#include <sys/sdt.h>
++
++/* Is this command sampled? Only reads and writes are. */
++static inline bool
++ntprof_sampled(const struct spdk_nvme_cmd *cmd)
++{
++	uint32_t every = g_ntprof_sample_every;
++	uint64_t slba;
++
++	if (spdk_likely(every == 0)) {
++		return false;
++	}
++	if (cmd->opc != SPDK_NVME_OPC_READ && cmd->opc != SPDK_NVME_OPC_WRITE) {
++		return false;
++	}
++	slba = ((uint64_t)cmd->cdw11 << 32) | cmd->cdw10;
++	return ntprof_sample_hash(cmd->cid, slba, (uint16_t)cmd->cdw12) % every == 0;
++}
++
++#define NTPROF_PROBE1(name, a1)			DTRACE_PROBE1(ntprof, name, a1)
++#define NTPROF_PROBE2(name, a1, a2)		DTRACE_PROBE2(ntprof, name, a1, a2)
++#define NTPROF_PROBE3(name, a1, a2, a3)		DTRACE_PROBE3(ntprof, name, a1, a2, a3)
++#define NTPROF_PROBE4(name, a1, a2, a3, a4)	DTRACE_PROBE4(ntprof, name, a1, a2, a3, a4)
++#else
++/* Without USDT nothing can attach: never sample. */
++static inline bool
++ntprof_sampled(const struct spdk_nvme_cmd *cmd)
++{
++	return false;
++}
++
++#define NTPROF_PROBE1(...)
++#define NTPROF_PROBE2(...)
++#define NTPROF_PROBE3(...)
++#define NTPROF_PROBE4(...)
++#endif
++
++#endif /* SPDK_INTERNAL_NTPROF_H */
+diff --git a/include/spdk_internal/sock_module.h b/include/spdk_internal/sock_module.h
+index 8cacca3..0bcd455 100644
+--- a/include/spdk_internal/sock_module.h
++++ b/include/spdk_internal/sock_module.h
+@@ -17,6 +17,7 @@
+ #include "spdk/log.h"
+ #include "spdk/trace.h"
+ #include "spdk_internal/trace_defs.h"
++#include "spdk_internal/ntprof.h"
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -173,6 +174,10 @@ spdk_sock_request_pend(struct spdk_sock *sock, struct spdk_sock_request *req)
+ #ifdef DEBUG
+ 	req->internal.curr_list = &sock->pending_reqs;
+ #endif
++	/* The whole request has been handed to the kernel. */
++	if (spdk_unlikely(req->internal.ntprof)) {
++		NTPROF_PROBE1(sock_req_sent, req->cb_arg);
++	}
+ }
+ 
+ static inline int
+@@ -185,6 +190,7 @@ spdk_sock_request_complete(struct spdk_sock *sock, struct spdk_sock_request *req
+ 	req->internal.offset = 0;
+ 	req->internal.zcopy_idx = 0;
+ 	req->internal.pending_zcopy = false;
++	req->internal.ntprof = false;
+ 
+ 	closed = sock->flags.closed;
+ 	sock->cb_cnt++;
+diff --git a/lib/nvme/nvme_tcp.c b/lib/nvme/nvme_tcp.c
+index cf9a837..b29a84b 100644
+--- a/lib/nvme/nvme_tcp.c
++++ b/lib/nvme/nvme_tcp.c
+@@ -22,6 +22,7 @@
+ #include "spdk/dma.h"
+ 
+ #include "spdk_internal/nvme_tcp.h"
++#include "spdk_internal/ntprof.h"
+ #include "spdk_internal/trace_defs.h"
+ 
+ #define NVME_TCP_RW_BUFFER_SIZE 131072
+@@ -149,6 +150,8 @@ struct nvme_tcp_req {
+ 	 * waiting for H2C complete */
+ 	uint16_t				ttag_r2t_next;
+ 	bool					in_capsule_data;
++	/* sampled by ntprof: fire the ntprof probes */
++	bool					ntprof;
+ 	/* It is used to track whether the req can be safely freed */
+ 	union {
+ 		uint8_t raw;
+@@ -1158,6 +1161,10 @@ nvme_tcp_qpair_capsule_cmd_send(struct nvme_tcp_qpair *tqpair,
+ 				  0, tcp_req->req->payload.size);
+ end:
+ 	capsule_cmd->common.plen = plen;
++	pdu->sock_req.internal.ntprof = tcp_req->ntprof;
++	if (spdk_unlikely(tcp_req->ntprof)) {
++		NTPROF_PROBE3(nvme_tcp_pdu, tcp_req, pdu, SPDK_NVME_TCP_PDU_TYPE_CAPSULE_CMD);
++	}
+ 	nvme_tcp_qpair_write_pdu(tqpair, pdu, nvme_tcp_qpair_cmd_send_complete, tcp_req);
+ }
+ 
+@@ -1189,6 +1196,10 @@ nvme_tcp_qpair_submit_request(struct spdk_nvme_qpair *qpair,
+ 	spdk_trace_record(TRACE_NVME_TCP_SUBMIT, qpair->id, 0, (uintptr_t)tcp_req->pdu, req->cb_arg,
+ 			  (uint32_t)req->cmd.cid, (uint32_t)req->cmd.opc,
+ 			  req->cmd.cdw10, req->cmd.cdw11, req->cmd.cdw12, tqpair->qpair.queue_depth);
++	tcp_req->ntprof = ntprof_sampled(&req->cmd);
++	if (spdk_unlikely(tcp_req->ntprof)) {
++		NTPROF_PROBE4(nvme_tcp_submit, tcp_req, &req->cmd, qpair->id, qpair->ctrlr->cntlid);
++	}
+ 	TAILQ_INSERT_TAIL(&tqpair->outstanding_reqs, tcp_req, link);
+ 
+ 	if (TAILQ_ENTRY_NOT_ENQUEUED(tqpair, link_timeout) && qpair->poll_group != NULL &&
+@@ -1246,6 +1257,9 @@ nvme_tcp_req_complete(struct nvme_tcp_req *tcp_req,
+ 	}
+ 
+ 	qpair->queue_depth--;
++	if (spdk_unlikely(tcp_req->ntprof)) {
++		NTPROF_PROBE2(nvme_tcp_event, tcp_req, NTPROF_NVME_DONE);
++	}
+ 	spdk_trace_record(TRACE_NVME_TCP_COMPLETE, qpair->id, 0, (uintptr_t)tcp_req->pdu, req->cb_arg,
+ 			  (uint32_t)req->cmd.cid, (uint32_t)cpl.status_raw, qpair->queue_depth);
+ 	TAILQ_REMOVE(&tqpair->outstanding_reqs, tcp_req, link);
+@@ -1791,6 +1805,9 @@ nvme_tcp_capsule_resp_hdr_handle(struct nvme_tcp_qpair *tqpair, struct nvme_tcp_
+ 	assert(tcp_req->req != NULL);
+ 
+ 	tcp_req->rsp = capsule_resp->rccqe;
++	if (spdk_unlikely(tcp_req->ntprof)) {
++		NTPROF_PROBE2(nvme_tcp_event, tcp_req, NTPROF_NVME_RSP);
++	}
+ 	tcp_req->ordering.bits.data_recv = 1;
+ 
+ 	/* Recv the pdu again */
+@@ -1919,6 +1936,9 @@ nvme_tcp_c2h_data_hdr_handle(struct nvme_tcp_qpair *tqpair, struct nvme_tcp_pdu
+ 	nvme_tcp_pdu_set_data_buf(pdu, tcp_req->iov, tcp_req->iovcnt,
+ 				  c2h_data->datao, c2h_data->datal);
+ 	pdu->req = tcp_req;
++	if (spdk_unlikely(tcp_req->ntprof)) {
++		NTPROF_PROBE2(nvme_tcp_event, tcp_req, NTPROF_NVME_C2H);
++	}
+ 
+ 	nvme_tcp_qpair_set_recv_state(tqpair, NVME_TCP_PDU_RECV_STATE_AWAIT_PDU_PAYLOAD);
+ 	return;
+@@ -2020,6 +2040,10 @@ nvme_tcp_send_h2c_data(struct nvme_tcp_req *tcp_req)
+ 
+ 	NVME_TQPAIR_DEBUGLOG(tqpair, "h2c_data info: datao=%u, datal=%u, pdu_len=%u\n",
+ 			     h2c_data->datao, h2c_data->datal, h2c_data->common.plen);
++	rsp_pdu->sock_req.internal.ntprof = tcp_req->ntprof;
++	if (spdk_unlikely(tcp_req->ntprof)) {
++		NTPROF_PROBE3(nvme_tcp_pdu, tcp_req, rsp_pdu, SPDK_NVME_TCP_PDU_TYPE_H2C_DATA);
++	}
+ 	nvme_tcp_qpair_write_pdu(tqpair, rsp_pdu, nvme_tcp_qpair_h2c_data_send_complete, tcp_req);
+ }
+ 
+@@ -2085,6 +2109,9 @@ nvme_tcp_r2t_hdr_handle(struct nvme_tcp_qpair *tqpair, struct nvme_tcp_pdu *pdu)
+ 
+ 	tcp_req->ttag = r2t->ttag;
+ 	tcp_req->r2tl_remain = r2t->r2tl;
++	if (spdk_unlikely(tcp_req->ntprof)) {
++		NTPROF_PROBE2(nvme_tcp_event, tcp_req, NTPROF_NVME_R2T);
++	}
+ 	nvme_tcp_qpair_set_recv_state(tqpair, NVME_TCP_PDU_RECV_STATE_AWAIT_PDU_READY);
+ 
+ 	if (spdk_likely(tcp_req->ordering.bits.send_ack)) {
+diff --git a/lib/nvmf/tcp.c b/lib/nvmf/tcp.c
+index 8819b93..435423c 100644
+--- a/lib/nvmf/tcp.c
++++ b/lib/nvmf/tcp.c
+@@ -20,6 +20,7 @@
+ 
+ #include "spdk_internal/assert.h"
+ #include "spdk_internal/nvme_tcp.h"
++#include "spdk_internal/ntprof.h"
+ 
+ #include "nvmf_internal.h"
+ #include "transport.h"
+@@ -247,6 +248,8 @@ struct spdk_nvmf_tcp_req  {
+ 	bool					pdu_in_use;
+ 	bool					has_in_capsule_data;
+ 	bool					fused_failed;
++	/* sampled by ntprof: fire the ntprof probes */
++	bool					ntprof;
+ 
+ 	/* transfer_tag */
+ 	uint16_t				ttag;
+@@ -433,6 +436,9 @@ nvmf_tcp_req_set_state(struct spdk_nvmf_tcp_req *tcp_req,
+ 	tqpair->state_cntr[state]++;
+ 
+ 	tcp_req->state = state;
++	if (spdk_unlikely(tcp_req->ntprof)) {
++		NTPROF_PROBE2(nvmf_tcp_state, tcp_req, state);
++	}
+ }
+ 
+ static inline struct nvme_tcp_pdu *
+@@ -462,6 +468,7 @@ nvmf_tcp_req_get(struct spdk_nvmf_tcp_qpair *tqpair)
+ 	tcp_req->req.raw = 0; /* clear all flags */
+ 	tcp_req->req.zcopy_phase = NVMF_ZCOPY_PHASE_NONE;
+ 	tcp_req->req.cmd_cb_fn = NULL;
++	tcp_req->ntprof = false;
+ 
+ 	TAILQ_REMOVE(&tqpair->tcp_req_free_queue, tcp_req, state_link);
+ 	TAILQ_INSERT_TAIL(&tqpair->tcp_req_working_queue, tcp_req, state_link);
+@@ -1341,6 +1348,12 @@ nvmf_tcp_qpair_write_req_pdu(struct spdk_nvmf_tcp_qpair *tqpair,
+ 	assert(!tcp_req->pdu_in_use);
+ 	tcp_req->pdu_in_use = true;
+ 
++	pdu->sock_req.internal.ntprof = tcp_req->ntprof;
++	if (spdk_unlikely(tcp_req->ntprof)) {
++		NTPROF_PROBE3(nvmf_tcp_pdu, tcp_req, pdu->hdr.common.pdu_type,
++			      pdu->hdr.common.flags);
++	}
++
+ 	nvmf_tcp_qpair_write_pdu(tqpair, pdu, cb_fn, cb_arg);
+ }
+ 
+@@ -2009,6 +2022,9 @@ nvmf_tcp_h2c_data_hdr_handle(struct spdk_nvmf_tcp_transport *ttransport,
+ 	}
+ 
+ 	pdu->req = tcp_req;
++	if (spdk_unlikely(tcp_req->ntprof)) {
++		NTPROF_PROBE1(nvmf_tcp_h2c, tcp_req);
++	}
+ 
+ 	if (spdk_unlikely(tcp_req->req.dif_enabled)) {
+ 		pdu->dif_ctx = &tcp_req->req.dif.dif_ctx;
+@@ -3110,6 +3126,11 @@ nvmf_tcp_req_process(struct spdk_nvmf_tcp_transport *ttransport,
+ 
+ 			/* copy the cmd from the receive pdu */
+ 			tcp_req->cmd = tqpair->pdu_in_progress->hdr.capsule_cmd.ccsqe;
++			tcp_req->ntprof = ntprof_sampled(&tcp_req->cmd);
++			if (spdk_unlikely(tcp_req->ntprof)) {
++				NTPROF_PROBE4(nvmf_tcp_cmd, tcp_req, &tcp_req->cmd, tqpair->qpair.qid,
++					      tqpair->qpair.ctrlr ? tqpair->qpair.ctrlr->cntlid : 0);
++			}
+ 
+ 			if (spdk_unlikely(spdk_nvmf_request_get_dif_ctx(&tcp_req->req, &tcp_req->req.dif.dif_ctx))) {
+ 				tcp_req->req.dif_enabled = true;
+diff --git a/lib/sock/sock.c b/lib/sock/sock.c
+index ca84311..a3e2772 100644
+--- a/lib/sock/sock.c
++++ b/lib/sock/sock.c
+@@ -32,6 +32,9 @@ static struct spdk_sock_initialize_opts g_init_opts = {
+ 	.enable_interrupt_mode = true
+ };
+ 
++/* ntprof's sampling period (spdk_internal/ntprof.h); written by ntprof. */
++volatile uint32_t g_ntprof_sample_every;
++
+ struct spdk_sock_placement_id_entry {
+ 	int placement_id;
+ 	uint32_t ref;
+diff --git a/lib/sock/spdk_sock.map b/lib/sock/spdk_sock.map
+index ecb7d6b..3152920 100644
+--- a/lib/sock/spdk_sock.map
++++ b/lib/sock/spdk_sock.map
+@@ -59,5 +59,8 @@
+ 	spdk_sock_map_find_free;
+ 	spdk_sock_map_cleanup;
+ 
++	# ntprof sampling period in spdk_internal/ntprof.h
++	g_ntprof_sample_every;
++
+ 	local: *;
+ };

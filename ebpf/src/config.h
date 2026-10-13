@@ -68,6 +68,12 @@ struct ntp_config {
   char ifname[32];     /* stamp skb arrivals only from this device */
   bool exact_queues;   /* per-request queue occupancy (costs per-I/O map ops) */
   bool force_kprobes;  /* kprobes even when fentry/fexit are available */
+  /*
+   * The role runs in SPDK: comma-separated binaries or libraries carrying
+   * the ntprof USDT probes; empty = the kernel driver.
+   */
+  char spdk_host[512];
+  char spdk_target[512];
 };
 
 void config_defaults(struct ntp_config* c);

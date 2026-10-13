@@ -21,6 +21,7 @@
 
 #define NTP_DISK_NAME_LEN 32
 #define NTP_MAX_SIZE_FILTERS 16
+#define NTP_MAX_PIDS 8
 
 enum ntp_rec_kind {
   NTP_REC_HOST = 1,
@@ -99,6 +100,7 @@ struct ntp_rec_hdr {
 #define NTP_F_MULTI_R2T (1u << 4)  /* more than one R2T for this command */
 #define NTP_F_QUEUES (1u << 5)     /* the q_* fields were tracked (exact mode) */
 #define NTP_F_RDMA_READ (1u << 6)  /* RDMA: the target fetched the write data */
+#define NTP_F_SPDK (1u << 7)       /* recorded in SPDK (user-space transport) */
 
 struct ntp_host_rec {
   struct ntp_rec_hdr hdr;
@@ -162,7 +164,9 @@ struct ntp_filter {
    * sampled commands is in flight.
    */
   __u8 stamp_always;
-  __u8 pad2[3];
+  __u8 npids;          /* SPDK: entries in pids[] */
+  __u8 pad2[2];
+  __u32 pids[NTP_MAX_PIDS]; /* SPDK: processes whose socket reads are watched */
 };
 
 /* NVMe opcodes of the I/O command set used here. */

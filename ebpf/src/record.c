@@ -4,9 +4,10 @@
  * (online) and at the end, and optionally save the records.
  *
  * With --role both, host and target programs share one ring buffer, so a
- * command's target record (emitted when its response leaves) is consumed
- * before its host record (emitted at block_rq_complete) and the two are
- * joined as the host record arrives.
+ * command's target record (emitted when its response leaves) is normally
+ * consumed before its host record (emitted at completion) and the two are
+ * joined as the host record arrives. A host record that comes first waits
+ * up to HOST_WAIT_NS for its target record.
  */
 #include <signal.h>
 #include <stdlib.h>
@@ -24,8 +25,10 @@
 #define TARGET_EXPIRY_NS (10ull * 1000000000ull)
 /* Time for commands in flight at the end to complete. */
 #define DRAIN_NS (200ull * 1000000ull)
-/* Bound on unmatched target records per (cntlid, qid, cid). */
+/* Bound on unmatched records per (cntlid, qid, cid). */
 #define TARGETS_PER_KEY 64
+/* How long a host record waits for a target record that comes after it. */
+#define HOST_WAIT_NS (100ull * 1000000ull)
 
 static volatile sig_atomic_t stop;
 
@@ -41,21 +44,34 @@ struct session {
   uint64_t host_records, target_records, malformed;
 };
 
+static void add_host(struct session* s, const struct ntp_host_rec* h,
+                     const struct ntp_tgt_rec* t) {
+  ntp_stats_add(&s->interval, h, t);
+  ntp_stats_add(&s->total, h, t);
+}
+
+static void add_unmatched(void* ctx, const struct ntp_host_rec* h) {
+  add_host(ctx, h, NULL);
+}
+
 static int on_record(void* ctx, const void* data, size_t size) {
   struct session* s = ctx;
   const struct ntp_rec_hdr* hdr = data;
 
   if (hdr->kind == NTP_REC_HOST && size == sizeof(struct ntp_host_rec)) {
-    const struct ntp_host_rec* h = data;
     struct ntp_tgt_rec t;
-    bool m = s->joiner && ntp_joiner_match(s->joiner, h, &t);
 
     s->host_records++;
-    ntp_stats_add(&s->interval, h, m ? &t : NULL);
-    ntp_stats_add(&s->total, h, m ? &t : NULL);
+    if (!s->joiner)
+      add_host(s, data, NULL);
+    else if (ntp_joiner_host_arrives(s->joiner, data, &t))
+      add_host(s, data, &t);
   } else if (hdr->kind == NTP_REC_TARGET && size == sizeof(struct ntp_tgt_rec)) {
+    struct ntp_host_rec h;
+
     s->target_records++;
-    if (s->joiner) ntp_joiner_add_target(s->joiner, data);
+    if (s->joiner && ntp_joiner_target_arrives(s->joiner, data, &h))
+      add_host(s, &h, data);
   } else {
     s->malformed++;
     return 0;
@@ -64,11 +80,14 @@ static int on_record(void* ctx, const void* data, size_t size) {
   return 0;
 }
 
-static void read_tput(struct ntp_loader* l, struct ntp_tput* t) {
+static void read_tput(const struct ntp_config* c, struct ntp_loader* l,
+                      struct ntp_tput* t) {
   t->read_ios = ntp_loader_counter(l, NTP_CNT_HOST_READ_IOS);
   t->read_bytes = ntp_loader_counter(l, NTP_CNT_HOST_READ_BYTES);
   t->write_ios = ntp_loader_counter(l, NTP_CNT_HOST_WRITE_IOS);
   t->write_bytes = ntp_loader_counter(l, NTP_CNT_HOST_WRITE_BYTES);
+  /* SPDK reports sampled commands only; its counts are scaled up */
+  t->estimated = c->spdk_host[0] != '\0';
 }
 
 static void tput_delta(const struct ntp_tput* now, const struct ntp_tput* prev,
@@ -78,6 +97,7 @@ static void tput_delta(const struct ntp_tput* now, const struct ntp_tput* prev,
   out->read_bytes = now->read_bytes - prev->read_bytes;
   out->write_ios = now->write_ios - prev->write_ios;
   out->write_bytes = now->write_bytes - prev->write_bytes;
+  out->estimated = now->estimated;
 }
 
 static void print_counters(struct ntp_loader* l, const struct session* s) {
@@ -89,7 +109,8 @@ static void print_counters(struct ntp_loader* l, const struct session* s) {
     printf(" | host sampled %llu",
            (unsigned long long)ntp_loader_counter(l, NTP_CNT_HOST_SAMPLED));
   if (c->role & NTP_ROLE_TARGET)
-    printf(" | target commands %llu, sampled %llu",
+    printf(c->spdk_target[0] ? " | target commands ~%llu (estimated), sampled %llu"
+                             : " | target commands %llu, sampled %llu",
            (unsigned long long)ntp_loader_counter(l, NTP_CNT_TGT_CMDS),
            (unsigned long long)ntp_loader_counter(l, NTP_CNT_TGT_SAMPLED));
   printf(" | lost: ring buffer %llu, map full %llu, stale %llu\n",
@@ -155,7 +176,7 @@ int cmd_record(const struct ntp_config* c) {
   interval_ns = (uint64_t)c->interval_s * 1000000000ull;
   start = prev_tick = now_mono_ns();
   next_tick = start + interval_ns;
-  read_tput(l, &start_tput);
+  read_tput(c, l, &start_tput);
   prev_tput = start_tput;
 
   while (!stop) {
@@ -173,9 +194,12 @@ int cmd_record(const struct ntp_config* c) {
     if (now < next_tick) continue;
     next_tick += interval_ns;
 
-    if (s.joiner) ntp_joiner_expire(s.joiner, now - TARGET_EXPIRY_NS);
+    if (s.joiner) {
+      ntp_joiner_release_hosts(s.joiner, now - HOST_WAIT_NS, add_unmatched, &s);
+      ntp_joiner_expire(s.joiner, now - TARGET_EXPIRY_NS);
+    }
     if (c->online && (c->role & NTP_ROLE_HOST)) {
-      read_tput(l, &cur);
+      read_tput(c, l, &cur);
       tput_delta(&cur, &prev_tput, (now - prev_tick) / 1e9, &delta);
       printf("\n--- interval %.1f-%.1f s ---\n", (prev_tick - start) / 1e9,
              (now - start) / 1e9);
@@ -193,12 +217,13 @@ int cmd_record(const struct ntp_config* c) {
    * their records, then drain.
    */
   end = now_mono_ns();
-  read_tput(l, &cur);
+  read_tput(c, l, &cur);
   ntp_loader_disarm(l);
   for (uint64_t until = now_mono_ns() + DRAIN_NS; now_mono_ns() < until;)
     ntp_loader_poll(l, 10);
   while (ntp_loader_poll(l, 0) > 0) {
   }
+  if (s.joiner) ntp_joiner_release_hosts(s.joiner, UINT64_MAX, add_unmatched, &s);
   if (c->role & NTP_ROLE_HOST) {
     tput_delta(&cur, &start_tput, (end - start) / 1e9, &delta);
     printf("\n=== total (%.1f s) ===\n", (end - start) / 1e9);

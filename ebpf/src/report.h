@@ -24,6 +24,7 @@ void ntp_report_opts_from_config(struct ntp_report_opts* o,
 struct ntp_tput {
   double seconds;
   uint64_t read_ios, read_bytes, write_ios, write_bytes;
+  bool estimated; /* scaled up from the sampled commands (SPDK) */
 };
 
 void ntp_report_tput(FILE* f, const struct ntp_tput* t);

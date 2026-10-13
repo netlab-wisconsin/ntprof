@@ -1,4 +1,5 @@
-# ntprof v2: eBPF profiler for NVMe-over-Fabrics on unmodified kernels.
+# ntprof v2: eBPF profiler for NVMe-over-Fabrics on unmodified kernels and
+# SPDK.
 #
 #   make                 build ./ntprof (libbpf is built from the submodule)
 #   make test            run the user-space unit tests
@@ -30,12 +31,13 @@ CLANG_BPF_SYS_INCLUDES := $(shell $(CLANG) -v -E - </dev/null 2>&1 \
 BPF_CFLAGS := -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) -Wall -Werror \
               -I$(LIBBPF_INC) -Ilibbpf/include/uapi -Ibpf $(CLANG_BPF_SYS_INCLUDES)
 
-BPF_PROGS := nvme_tcp_host nvme_tcp_target nvme_rdma_host nvme_rdma_target
+BPF_PROGS := nvme_tcp_host nvme_tcp_target nvme_rdma_host nvme_rdma_target \
+             spdk_tcp_host spdk_tcp_target
 SKELS := $(patsubst %,$(OUTPUT)/%.skel.h,$(BPF_PROGS))
 
 APP_SRCS := src/main.c src/config.c src/record.c src/offline.c src/loader.c \
             src/trace_file.c src/model.c src/join.c src/stats.c src/report.c \
-            src/util.c
+            src/spdk.c src/util.c
 APP_OBJS := $(patsubst src/%.c,$(OUTPUT)/%.o,$(APP_SRCS))
 # what the unit tests link against: no BPF, no libbpf
 LIB_OBJS := $(addprefix $(OUTPUT)/,model.o join.o stats.o util.o)

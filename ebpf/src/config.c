@@ -143,6 +143,15 @@ static int apply(struct ntp_config* c, const char* section, const char* key,
       return -1;
     return 0;
   }
+  /* v2: the role runs in SPDK (binaries or libraries with the probes) */
+  if (IS("Profiling", "SPDK_HOST")) {
+    snprintf(c->spdk_host, sizeof(c->spdk_host), "%s", v);
+    return 0;
+  }
+  if (IS("Profiling", "SPDK_TARGET")) {
+    snprintf(c->spdk_target, sizeof(c->spdk_target), "%s", v);
+    return 0;
+  }
 #undef IS
   ntp_warn("ignoring unknown key [%s] %s", section, key);
   return 0;

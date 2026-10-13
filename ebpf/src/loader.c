@@ -14,6 +14,9 @@
 #include "nvme_rdma_target.skel.h"
 #include "nvme_tcp_host.skel.h"
 #include "nvme_tcp_target.skel.h"
+#include "spdk.h"
+#include "spdk_tcp_host.skel.h"
+#include "spdk_tcp_target.skel.h"
 #include "util.h"
 
 #define KERNEL_BTF "/sys/kernel/btf/vmlinux"
@@ -33,6 +36,8 @@ struct obj_desc {
   const char* const* required;
   int (*open)(struct obj_inst* o, const struct bpf_object_open_opts* opts);
   void (*destroy)(struct obj_inst* o);
+  /* the role runs in SPDK: USDT probes in the binaries given for it */
+  bool spdk;
 };
 
 struct obj_inst {
@@ -46,6 +51,11 @@ struct obj_inst {
   struct bpf_map* skb_arrival;
   struct bpf_link** links;
   size_t nlinks;
+  /* SPDK */
+  const char* usdt_paths; /* comma-separated files with the probes */
+  struct ntp_spdk_proc procs[NTP_MAX_PIDS];
+  int nprocs;
+  bool gated; /* the processes sample commands */
 };
 
 #define SKEL_ADAPTER(prefix)                                                 \
@@ -56,7 +66,8 @@ struct obj_inst {
     if (!s) return -errno;                                                   \
     o->skel = s;                                                             \
     o->obj = s->obj;                                                         \
-    o->filter = &s->rodata->filter;                                              o->armed = &s->bss->ntp_armed;                                           \
+    o->filter = &s->rodata->filter;                                          \
+    o->armed = &s->bss->ntp_armed;                                           \
     o->events = s->maps.events;                                              \
     o->counters = s->maps.counters;                                          \
     o->skb_arrival = s->maps.skb_arrival;                                    \
@@ -70,6 +81,8 @@ SKEL_ADAPTER(nvme_tcp_host)
 SKEL_ADAPTER(nvme_tcp_target)
 SKEL_ADAPTER(nvme_rdma_host)
 SKEL_ADAPTER(nvme_rdma_target)
+SKEL_ADAPTER(spdk_tcp_host)
+SKEL_ADAPTER(spdk_tcp_target)
 
 /* Base names (without the _fe/_fx/_kp/_kr flavour suffix). */
 static const char* const tcp_host_required[] = {
@@ -87,16 +100,49 @@ static const char* const rdma_host_required[] = {
 static const char* const rdma_target_required[] = {
     "ntp_tr_recv_done", "ntp_t_req_init", "ntp_tr_queue_resp", NULL};
 
+/* USDT programs are named USDT_PREFIX + the probe name. */
+#define USDT_PREFIX "ntp_u_"
+#define USDT_PROVIDER "ntprof"
+
+static const char* const spdk_host_required[] = {
+    "ntp_u_nvme_tcp_submit", "ntp_u_nvme_tcp_pdu", "ntp_u_nvme_tcp_event",
+    "ntp_u_sock_req_sent", NULL};
+
+static const char* const spdk_target_required[] = {
+    "ntp_u_nvmf_tcp_cmd", "ntp_u_nvmf_tcp_state", "ntp_u_nvmf_tcp_pdu",
+    "ntp_u_nvmf_tcp_h2c", "ntp_u_sock_req_sent", NULL};
+
 static const struct obj_desc objects[] = {
     {"nvme_tcp_host", NTP_ROLE_HOST, NTP_TR_TCP, "nvme_tcp", tcp_host_required,
-     open_nvme_tcp_host, destroy_nvme_tcp_host},
+     open_nvme_tcp_host, destroy_nvme_tcp_host, false},
     {"nvme_tcp_target", NTP_ROLE_TARGET, NTP_TR_TCP, "nvmet_tcp",
-     tcp_target_required, open_nvme_tcp_target, destroy_nvme_tcp_target},
+     tcp_target_required, open_nvme_tcp_target, destroy_nvme_tcp_target, false},
     {"nvme_rdma_host", NTP_ROLE_HOST, NTP_TR_RDMA, "nvme_rdma",
-     rdma_host_required, open_nvme_rdma_host, destroy_nvme_rdma_host},
+     rdma_host_required, open_nvme_rdma_host, destroy_nvme_rdma_host, false},
     {"nvme_rdma_target", NTP_ROLE_TARGET, NTP_TR_RDMA, "nvmet_rdma",
-     rdma_target_required, open_nvme_rdma_target, destroy_nvme_rdma_target},
+     rdma_target_required, open_nvme_rdma_target, destroy_nvme_rdma_target,
+     false},
+    /* the kernel hooks of SPDK objects only need struct sk_buff's BTF */
+    {"spdk_tcp_host", NTP_ROLE_HOST, NTP_TR_TCP, "nvme_tcp", spdk_host_required,
+     open_spdk_tcp_host, destroy_spdk_tcp_host, true},
+    {"spdk_tcp_target", NTP_ROLE_TARGET, NTP_TR_TCP, "nvmet_tcp",
+     spdk_target_required, open_spdk_tcp_target, destroy_spdk_tcp_target, true},
 };
+
+/* Does @role run in SPDK in this configuration? */
+static bool role_in_spdk(const struct ntp_config* c, enum ntp_role role) {
+  return (role & NTP_ROLE_HOST) ? c->spdk_host[0] : c->spdk_target[0];
+}
+
+/* Is @d the object for one of @c's roles? */
+static bool wanted(const struct ntp_config* c, const struct obj_desc* d) {
+  return (c->role & d->role) && c->transport == d->transport &&
+         d->spdk == role_in_spdk(c, d->role);
+}
+
+static bool is_usdt(const struct bpf_program* prog) {
+  return !strcmp(bpf_program__section_name(prog), "usdt");
+}
 
 /* ---- /proc/kallsyms ---- */
 
@@ -154,6 +200,12 @@ static bool target_present(const struct ksyms* k, const struct bpf_program* prog
   const char* slash = strchr(sec, '/');
   char sym[256];
 
+  if (is_usdt(prog)) {
+    /* in user space: whether the binary has it shows at attach time */
+    snprintf(what, len, "USDT %s:%s", USDT_PROVIDER,
+             bpf_program__name(prog) + strlen(USDT_PREFIX));
+    return true;
+  }
   if (!slash) {
     snprintf(what, len, "%s", sec);
     return false;
@@ -369,7 +421,22 @@ static int open_one(struct ntp_loader* l, const struct obj_desc* d,
   o->desc = d;
   l->ninst++;
 
-  fill_filter(o->filter, c, (d->role & NTP_ROLE_HOST) ? sel : NULL);
+  if (d->spdk) {
+    /* the processes must exist now: ntprof switches their sampling on */
+    o->usdt_paths = (d->role & NTP_ROLE_HOST) ? c->spdk_host : c->spdk_target;
+    o->nprocs = ntp_spdk_find(o->usdt_paths, o->procs, NTP_MAX_PIDS);
+    if (o->nprocs < 0) return -1;
+    if (!o->nprocs) {
+      ntp_err("%s: no running process maps %s; start the SPDK application "
+              "first",
+              d->name, o->usdt_paths);
+      return -1;
+    }
+  }
+  /* an SPDK host has no block device to select */
+  fill_filter(o->filter, c, (d->role & NTP_ROLE_HOST) && !d->spdk ? sel : NULL);
+  o->filter->npids = (uint8_t)o->nprocs;
+  for (int i = 0; i < o->nprocs; i++) o->filter->pids[i] = (uint32_t)o->procs[i].pid;
   rb_bytes = (uint64_t)(c->buffer_mb > MAX_RINGBUF_MB ? MAX_RINGBUF_MB
                                                        : c->buffer_mb)
              << 20;
@@ -402,17 +469,59 @@ static int open_one(struct ntp_loader* l, const struct obj_desc* d,
   return 0;
 }
 
+/*
+ * A USDT program, on every file of the list that has its probe, in every
+ * process that maps the file. Returns 0 if attached somewhere.
+ */
+static int attach_usdt(struct obj_inst* o, struct bpf_program* prog) {
+  const char* probe = bpf_program__name(prog) + strlen(USDT_PREFIX);
+  char* copy = xstrdup(o->usdt_paths);
+  char* save = NULL;
+  int err = -ENOENT, n = 0;
+
+  for (char* p = strtok_r(copy, ",", &save); p; p = strtok_r(NULL, ",", &save)) {
+    struct bpf_link* link =
+        bpf_program__attach_usdt(prog, -1, strip(p), USDT_PROVIDER, probe, NULL);
+
+    if (!link) {
+      err = -errno;
+      continue;
+    }
+    o->links[o->nlinks++] = link;
+    n++;
+  }
+  free(copy);
+  return n ? 0 : err;
+}
+
 static int attach_all(struct obj_inst* o) {
   struct bpf_program* prog;
-  size_t n = 0;
+  size_t n = 0, files = 1;
 
+  if (o->usdt_paths)
+    for (const char* p = o->usdt_paths; *p; p++) files += *p == ',';
   bpf_object__for_each_program(prog, o->obj) n++;
-  o->links = xcalloc(n, sizeof(*o->links));
+  o->links = xcalloc(n * files, sizeof(*o->links));
   bpf_object__for_each_program(prog, o->obj) {
     const char* name = bpf_program__name(prog);
-    struct bpf_link* link;
+    struct bpf_link* link = NULL;
 
     if (!bpf_program__autoload(prog)) continue;
+    if (is_usdt(prog)) {
+      int err = attach_usdt(o, prog);
+
+      if (!err) continue;
+      if (is_required(o->desc, name)) {
+        ntp_err("%s: cannot attach to USDT probe %s:%s in %s: %s; is SPDK "
+                "built with ebpf/spdk's patch and --with-usdt?",
+                o->desc->name, USDT_PROVIDER, name + strlen(USDT_PREFIX),
+                o->usdt_paths, strerror(-err));
+        return -1;
+      }
+      ntp_warn("%s: cannot attach to USDT probe %s (%s); continuing without it",
+               o->desc->name, name + strlen(USDT_PREFIX), strerror(-err));
+      continue;
+    }
     link = bpf_program__attach(prog);
     if (!link) {
       int err = -errno;
@@ -442,13 +551,23 @@ struct ntp_loader* ntp_loader_open(const struct ntp_config* c, ntp_record_cb cb,
   libbpf_set_print(libbpf_log);
 
   if (geteuid() != 0) ntp_warn("not running as root; loading will likely fail");
+  if ((c->spdk_host[0] || c->spdk_target[0]) && c->transport != NTP_TR_TCP) {
+    ntp_err("SPDK: only NVMe/TCP is supported so far");
+    goto fail;
+  }
+  if ((c->role & NTP_ROLE_HOST) && c->spdk_host[0] && strcmp(c->session, "all")) {
+    ntp_err("SESSION_NAME %s names a kernel block device; an SPDK host has "
+            "none (use all)",
+            c->session);
+    goto fail;
+  }
   if (resolve_session(c->session, &sel)) goto fail;
   if (ksyms_load(&ks)) goto fail;
 
   for (size_t i = 0; i < ARRAY_SIZE(objects); i++) {
     const struct obj_desc* d = &objects[i];
 
-    if (!(c->role & d->role) || c->transport != d->transport) continue;
+    if (!wanted(c, d)) continue;
     if (open_one(l, d, c, &sel, &ks, shared)) {
       ksyms_free(&ks);
       goto fail;
@@ -471,6 +590,26 @@ struct ntp_loader* ntp_loader_open(const struct ntp_config* c, ntp_record_cb cb,
   }
   /* every hook is in place: start counting and recording */
   for (size_t i = 0; i < l->ninst; i++) *l->inst[i].armed = true;
+
+  /*
+   * And let SPDK sample: its probes fire only from now on. Targets first (and
+   * hosts first when stopping), so that a command a host samples is sampled
+   * by its target too.
+   */
+  for (size_t i = l->ninst; i-- > 0;) {
+    struct obj_inst* o = &l->inst[i];
+
+    o->gated = o->nprocs > 0;
+    for (int k = 0; k < o->nprocs; k++) {
+      int err = ntp_spdk_set_gate(&o->procs[k], c->sample_every);
+
+      if (err) {
+        ntp_err("%s: cannot set the sampling period of process %d: %s",
+                o->desc->name, (int)o->procs[k].pid, strerror(-err));
+        goto fail;
+      }
+    }
+  }
   return l;
 
 fail:
@@ -478,8 +617,16 @@ fail:
   return NULL;
 }
 
+/* SPDK stops sampling (a process that has exited is no error). */
+static void ungate(struct obj_inst* o) {
+  if (!o->gated) return;
+  for (int k = 0; k < o->nprocs; k++) ntp_spdk_set_gate(&o->procs[k], 0);
+  o->gated = false;
+}
+
 void ntp_loader_close(struct ntp_loader* l) {
   if (!l) return;
+  for (size_t i = 0; i < l->ninst; i++) ungate(&l->inst[i]);
   ring_buffer__free(l->rb);
   for (size_t i = 0; i < l->ninst; i++) {
     struct obj_inst* o = &l->inst[i];
@@ -492,7 +639,10 @@ void ntp_loader_close(struct ntp_loader* l) {
 }
 
 void ntp_loader_disarm(struct ntp_loader* l) {
-  for (size_t i = 0; i < l->ninst; i++) *l->inst[i].armed = false;
+  for (size_t i = 0; i < l->ninst; i++) {
+    ungate(&l->inst[i]);
+    *l->inst[i].armed = false;
+  }
 }
 
 int ntp_loader_poll(struct ntp_loader* l, int timeout_ms) {
@@ -538,10 +688,31 @@ int ntp_probe(const struct ntp_config* c, FILE* f) {
     struct bpf_program* prog;
     int err;
 
-    if (!(c->role & d->role) || c->transport != d->transport) continue;
+    if (!wanted(c, d)) continue;
     snprintf(btf_mod, sizeof(btf_mod), "/sys/kernel/btf/%s", d->btf_module);
     fprintf(f, "\n%s (module BTF %s: %s)\n", d->name, d->btf_module,
             access(btf_mod, R_OK) ? "absent" : "present");
+    if (d->spdk) {
+      const char* paths = (d->role & NTP_ROLE_HOST) ? c->spdk_host : c->spdk_target;
+      char* copy = xstrdup(paths);
+      char* save = NULL;
+      struct ntp_spdk_proc procs[NTP_MAX_PIDS];
+      int n;
+
+      for (char* p = strtok_r(copy, ",", &save); p; p = strtok_r(NULL, ",", &save)) {
+        const char* path = strip(p);
+
+        fprintf(f, "  USDT probes in %s:\n", path);
+        if (ntp_spdk_list_probes(path, f) == 0) fprintf(f, "  (none)\n");
+      }
+      free(copy);
+      n = ntp_spdk_find(paths, procs, NTP_MAX_PIDS);
+      fprintf(f, "  running processes:");
+      for (int k = 0; k < n; k++)
+        fprintf(f, " %d (sampling variable at %#llx)", (int)procs[k].pid,
+                (unsigned long long)procs[k].gate);
+      fprintf(f, "%s\n", n > 0 ? "" : " none");
+    }
     if (btf_opts(c, d, btf_path, sizeof(btf_path), &opts) || d->open(&o, &opts)) {
       fprintf(f, "  cannot open object\n");
       continue;
