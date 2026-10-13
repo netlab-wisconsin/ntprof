@@ -102,12 +102,8 @@ static int64_t d(uint64_t later, uint64_t earlier) {
   return (int64_t)(later - earlier);
 }
 
-/*
- * The host side alone. For each round trip, "wait" runs from the moment the
- * host handed its PDU to TCP to the arrival of the target's answer at the
- * host's network stack; it covers network and target.
- */
-static void host_side(const struct ntp_host_rec* h, struct ntp_breakdown* b) {
+/* What every transport shares on the host: blk-mq at both ends, submission. */
+static void common_host(const struct ntp_host_rec* h, struct ntp_breakdown* b) {
   const __u64* H = h->ts;
 
   set(b, NTP_C_TR_SUB, d(H[NTP_H_CMD_SENT], H[NTP_H_QUEUE_RQ]));
@@ -120,7 +116,25 @@ static void host_side(const struct ntp_host_rec* h, struct ntp_breakdown* b) {
   }
   if (H[NTP_H_NVME_DONE])
     set(b, NTP_C_CMPL_IPI, d(H[NTP_H_NVME_DONE], H[NTP_H_RSP_PROC]));
+}
 
+/* The bdev backend's block request splits the target subsystem time. */
+static void backend_details(const __u64* T, struct ntp_breakdown* b) {
+  if (!T[NTP_T_BE_ISSUE] || !T[NTP_T_BE_DONE]) return;
+  set(b, NTP_C_TGT_BE_SUB, d(T[NTP_T_BE_ISSUE], T[NTP_T_EXEC]));
+  set(b, NTP_C_TGT_DEV, d(T[NTP_T_BE_DONE], T[NTP_T_BE_ISSUE]));
+  set(b, NTP_C_TGT_BE_CMPL, d(T[NTP_T_COMPLETE], T[NTP_T_BE_DONE]));
+}
+
+/*
+ * NVMe/TCP, the host side alone. For each round trip, "wait" runs from the
+ * moment the host handed its PDU to TCP to the arrival of the target's answer
+ * at the host's network stack; it covers network and target.
+ */
+static void host_side(const struct ntp_host_rec* h, struct ntp_breakdown* b) {
+  const __u64* H = h->ts;
+
+  common_host(h, b);
   switch (b->io_class) {
     case NTP_IO_CLASS_READ:
       set(b, NTP_C_REMOTE, d(H[NTP_H_C2H_ARR], H[NTP_H_CMD_SENT]));
@@ -180,12 +194,55 @@ static void target_side(const struct ntp_tgt_rec* t, struct ntp_breakdown* b) {
   set(b, NTP_C_NET, b->comp[NTP_C_REMOTE] - residence);
   b->valid &= ~(1u << NTP_C_REMOTE);
   b->comp[NTP_C_REMOTE] = 0;
+  backend_details(T, b);
+}
 
-  if (T[NTP_T_BE_ISSUE] && T[NTP_T_BE_DONE]) {
-    set(b, NTP_C_TGT_BE_SUB, d(T[NTP_T_BE_ISSUE], T[NTP_T_EXEC]));
-    set(b, NTP_C_TGT_DEV, d(T[NTP_T_BE_DONE], T[NTP_T_BE_ISSUE]));
-    set(b, NTP_C_TGT_BE_CMPL, d(T[NTP_T_COMPLETE], T[NTP_T_BE_DONE]));
+/*
+ * NVMe/RDMA. The host CPU sees one round trip: the command posted, the
+ * response's completion polled; the data moves by RDMA WRITE (reads) or RDMA
+ * READ (writes) without it. A write's RDMA READ is wire and remote-NIC time
+ * seen from the target, so it is network time, not target time.
+ */
+static const int host_req_rdma[] = {NTP_H_QUEUE_RQ, NTP_H_CMD_SENT,
+                                    NTP_H_RSP_ARR, NTP_H_RSP_PROC,
+                                    NTP_H_BLK_DONE};
+static const int tgt_req_rdma[] = {NTP_T_CMD_ARR, NTP_T_CMD_PROC, NTP_T_EXEC,
+                                   NTP_T_COMPLETE, NTP_T_RSP_SENT};
+
+static void rdma_host_side(const struct ntp_host_rec* h, struct ntp_breakdown* b) {
+  const __u64* H = h->ts;
+
+  common_host(h, b);
+  set(b, NTP_C_REMOTE, d(H[NTP_H_RSP_ARR], H[NTP_H_CMD_SENT]));
+  set(b, NTP_C_HOST_RX, d(H[NTP_H_RSP_PROC], H[NTP_H_RSP_ARR]));
+  set(b, NTP_C_TR_CMPL, 0);
+}
+
+static bool rdma_target_side(const struct ntp_tgt_rec* t, struct ntp_breakdown* b) {
+  const __u64* T = t->ts;
+  bool fetch = t->hdr.flags & NTP_F_RDMA_READ;
+  int64_t fetch_ns = 0, residence;
+
+  if (!have_all(T, tgt_req_rdma, ARRAY_SIZE(tgt_req_rdma)) ||
+      (fetch && (!T[NTP_T_R2T_SENT] || !T[NTP_T_DATA_PROC])))
+    return false;
+  set(b, NTP_C_TGT_RX, d(T[NTP_T_CMD_PROC], T[NTP_T_CMD_ARR]));
+  if (fetch) {
+    fetch_ns = d(T[NTP_T_DATA_PROC], T[NTP_T_R2T_SENT]);
+    set(b, NTP_C_TGT_SUB, d(T[NTP_T_R2T_SENT], T[NTP_T_CMD_PROC]) +
+                              d(T[NTP_T_EXEC], T[NTP_T_DATA_PROC]));
+    b->io_class = NTP_IO_CLASS_WRITE_R2T;
+  } else {
+    set(b, NTP_C_TGT_SUB, d(T[NTP_T_EXEC], T[NTP_T_CMD_PROC]));
   }
+  set(b, NTP_C_TGT_BE, d(T[NTP_T_COMPLETE], T[NTP_T_EXEC]));
+  set(b, NTP_C_TGT_CMPL, d(T[NTP_T_RSP_SENT], T[NTP_T_COMPLETE]));
+  residence = d(T[NTP_T_RSP_SENT], T[NTP_T_CMD_ARR]) - fetch_ns;
+  set(b, NTP_C_NET, b->comp[NTP_C_REMOTE] - residence);
+  b->valid &= ~(1u << NTP_C_REMOTE);
+  b->comp[NTP_C_REMOTE] = 0;
+  backend_details(T, b);
+  return true;
 }
 
 static void stage(struct ntp_breakdown* b, enum ntp_stage s,
@@ -221,8 +278,24 @@ enum ntp_model_err ntp_breakdown(const struct ntp_host_rec* h,
 
   memset(out, 0, sizeof(*out));
   out->io_class = ntp_io_class_of(h);
-  if (!host_complete(h, out->io_class)) return NTP_MODEL_INCOMPLETE_HOST;
 
+  if (h->hdr.transport == NTP_TR_RDMA) {
+    if (!have_all(h->ts, host_req_rdma, ARRAY_SIZE(host_req_rdma)))
+      return NTP_MODEL_INCOMPLETE_HOST;
+    rdma_host_side(h, out);
+    if (t) {
+      bool same_dir = !(t->hdr.flags & NTP_F_WRITE) == !(h->hdr.flags & NTP_F_WRITE);
+
+      if (same_dir && t->hdr.transport == NTP_TR_RDMA && rdma_target_side(t, out))
+        out->joined = true;
+      else
+        err = NTP_MODEL_INCOMPLETE_TARGET;
+    }
+    stages(out);
+    return err;
+  }
+
+  if (!host_complete(h, out->io_class)) return NTP_MODEL_INCOMPLETE_HOST;
   host_side(h, out);
   if (t) {
     bool same_class = !!(t->hdr.flags & NTP_F_R2T) ==

@@ -10,6 +10,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "nvme_rdma_host.skel.h"
+#include "nvme_rdma_target.skel.h"
 #include "nvme_tcp_host.skel.h"
 #include "nvme_tcp_target.skel.h"
 #include "util.h"
@@ -66,6 +68,8 @@ struct obj_inst {
 
 SKEL_ADAPTER(nvme_tcp_host)
 SKEL_ADAPTER(nvme_tcp_target)
+SKEL_ADAPTER(nvme_rdma_host)
+SKEL_ADAPTER(nvme_rdma_target)
 
 /* Base names (without the _fe/_fx/_kp/_kr flavour suffix). */
 static const char* const tcp_host_required[] = {
@@ -76,11 +80,22 @@ static const char* const tcp_target_required[] = {
     "ntp_t_io_work", "ntp_t_req_init", "ntp_t_queue_resp", "ntp_t_sendmsg",
     NULL};
 
+static const char* const rdma_host_required[] = {
+    "ntp_hr_queue_rq", "ntp_h_setup_cmd", "ntp_hr_recv_done", "ntp_hr_send_done",
+    "ntp_hr_complete", "ntp_h_blk_done", NULL};
+
+static const char* const rdma_target_required[] = {
+    "ntp_tr_recv_done", "ntp_t_req_init", "ntp_tr_queue_resp", NULL};
+
 static const struct obj_desc objects[] = {
     {"nvme_tcp_host", NTP_ROLE_HOST, NTP_TR_TCP, "nvme_tcp", tcp_host_required,
      open_nvme_tcp_host, destroy_nvme_tcp_host},
     {"nvme_tcp_target", NTP_ROLE_TARGET, NTP_TR_TCP, "nvmet_tcp",
      tcp_target_required, open_nvme_tcp_target, destroy_nvme_tcp_target},
+    {"nvme_rdma_host", NTP_ROLE_HOST, NTP_TR_RDMA, "nvme_rdma",
+     rdma_host_required, open_nvme_rdma_host, destroy_nvme_rdma_host},
+    {"nvme_rdma_target", NTP_ROLE_TARGET, NTP_TR_RDMA, "nvmet_rdma",
+     rdma_target_required, open_nvme_rdma_target, destroy_nvme_rdma_target},
 };
 
 /* ---- /proc/kallsyms ---- */
@@ -227,6 +242,7 @@ static void fill_filter(struct ntp_filter* f, const struct ntp_config* c,
   }
   if (c->ifname[0]) f->ifindex = if_nametoindex(c->ifname);
   f->track_queues = c->exact_queues;
+  f->stamp_always = !!(c->role & NTP_ROLE_TARGET);
 }
 
 static int read_sysfs_u32(const char* path, uint32_t* out) {

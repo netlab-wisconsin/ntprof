@@ -30,7 +30,7 @@ static void usage(FILE* f) {
           "options:\n"
           "  -c, --config FILE     task specification (v1 ini format)\n"
           "  -r, --role ROLE       host | target | both (default host)\n"
-          "  -t, --transport T     tcp (default)\n"
+          "  -t, --transport T     tcp (default) | rdma\n"
           "  -d, --duration SEC    stop after SEC seconds (default: Ctrl-C)\n"
           "  -i, --interval SEC    online report interval (TIME_INTERVAL)\n"
           "  -s, --sample N        record one command in N (FREQUENCY)\n"
@@ -119,6 +119,8 @@ static int apply_option(struct ntp_config* c, int opt, const char* v) {
     case 't':
       if (!strcmp(v, "tcp"))
         c->transport = NTP_TR_TCP;
+      else if (!strcmp(v, "rdma"))
+        c->transport = NTP_TR_RDMA;
       else
         return bad("--transport", v);
       return 0;

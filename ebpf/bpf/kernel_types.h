@@ -171,6 +171,47 @@ struct nvmet_tcp_queue {
   struct nvmet_tcp_cmd* snd_cmd;
 } __core;
 
+/* ---- RDMA verbs (include/rdma/ib_verbs.h) ---- */
+
+struct ib_cqe {
+  void* done;
+} __core;
+
+struct ib_qp {
+  void* qp_context; /* the ULP's queue (nvme_rdma_queue, nvmet_rdma_queue) */
+} __core;
+
+/* wr_cqe shares a union with wr_id; CO-RE finds it by name */
+struct ib_wc {
+  struct ib_cqe* wr_cqe;
+  struct ib_qp* qp;
+} __core;
+
+/* ---- NVMe/RDMA host (drivers/nvme/host/rdma.c) ---- */
+
+struct nvme_rdma_qe {
+  struct ib_cqe cqe; /* first: wc->wr_cqe points at the qe */
+  void* data;        /* the command, or the received completion */
+} __core;
+
+struct nvme_rdma_queue;
+
+struct nvme_rdma_request {
+  struct nvme_rdma_qe sqe;
+  struct nvme_rdma_queue* queue;
+} __core;
+
+/* ---- NVMe/RDMA target (drivers/nvme/target/rdma.c) ---- */
+
+struct nvmet_rdma_rsp {
+  struct ib_cqe send_cqe;
+  struct ib_cqe read_cqe;
+  struct nvmet_req req;
+  u32 flags; /* NVMET_RDMA_REQ_INLINE_DATA */
+} __core;
+
+#define NVMET_RDMA_REQ_INLINE_DATA (1 << 0)
+
 /*
  * ---- wire formats (NVMe base spec, NVMe/TCP transport spec) ----
  *
@@ -221,6 +262,15 @@ struct ntp_tcp_data_pdu {
   u32 data_offset;
   u32 data_length;
   u8 rsvd[4];
+};
+
+/* Completion queue entry, 16 bytes (NVMe base spec) */
+struct ntp_nvme_cqe {
+  u64 result;
+  u16 sq_head;
+  u16 sq_id;
+  u16 command_id;
+  u16 status;
 };
 
 /* Response capsule PDU: header + 16-byte completion queue entry */

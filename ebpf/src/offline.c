@@ -118,7 +118,7 @@ out:
 static const char* const host_ts_names[NTP_H_NR] = {
     "start",      "queue_rq",  "cmd_sent", "r2t_arr",  "r2t_proc",
     "data_start", "data_sent", "c2h_arr",  "c2h_proc", "rsp_arr",
-    "rsp_proc",   "nvme_done", "blk_done",
+    "rsp_proc",   "nvme_done", "blk_done", "send_done",
 };
 
 static const char* const tgt_ts_names[NTP_T_NR] = {

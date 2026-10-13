@@ -13,7 +13,7 @@
 #include "ntprof.h"
 
 #define NTP_FILE_MAGIC "NTPROF2"
-#define NTP_FILE_VERSION 1
+#define NTP_FILE_VERSION 2 /* 2: NTP_H_SEND_DONE added (records of 3dd367a and earlier: 1) */
 
 struct ntp_file_header {
   char magic[8];

@@ -87,7 +87,8 @@ struct {
 struct pending {
   u64 tid;
   u64 rq;
-  u64 queue;
+  u64 hctx;
+  u64 queue; /* read here only when queues are tracked, else in setup_cmd */
   u64 ts;
   u16 qid;
   u16 q_unsent;
@@ -198,11 +199,12 @@ static __always_inline int host_queue_rq(struct blk_mq_hw_ctx* hctx,
   p->tid = ntp_tid();
   p->ts = bpf_ktime_get_ns();
   p->rq = (u64)BPF_CORE_READ(bd, rq);
-  p->queue = (u64)BPF_CORE_READ(hctx, driver_data);
-  p->qid = BPF_CORE_READ(hctx, queue_num) + 1;
+  p->hctx = ntp_scalar((u64)hctx);
+  p->queue = 0;
   p->q_unsent = p->q_inflight = 0;
 
   if (filter.track_queues) {
+    p->queue = (u64)BPF_CORE_READ(hctx, driver_data);
     struct counted c = {.queue = p->queue, .flags = CNT_UNSENT | CNT_INFLIGHT};
     struct qstat* qs = get_qstat(p->queue);
 
@@ -223,6 +225,7 @@ SEC("raw_tp/nvme_setup_cmd")
 int BPF_PROG(ntp_h_setup_cmd, struct request* rq, void* cmd) {
   struct pending* p = NTP_CTX_GET(pend);
   struct ntp_cmd_id id = {};
+  struct blk_mq_hw_ctx* hctx;
   struct ntp_host_rec* rec;
   struct host_entry* e;
   struct nvme_request* nreq;
@@ -257,6 +260,11 @@ int BPF_PROG(ntp_h_setup_cmd, struct request* rq, void* cmd) {
        !(filter.ctrl_mask[(instance >> 6) & 3] & (1ULL << (instance & 63)))))
     return 0;
   if (filter.nsid && id.nsid != filter.nsid) return 0;
+
+  /* the queue and its number, read only for sampled requests */
+  hctx = (void*)p->hctx;
+  if (!p->queue) p->queue = (u64)BPF_CORE_READ(hctx, driver_data);
+  p->qid = BPF_CORE_READ(hctx, queue_num) + 1;
 
   slot = ntp_slot(key, NTP_REC_SLOTS);
   e = bpf_map_lookup_elem(&reqs, &slot);

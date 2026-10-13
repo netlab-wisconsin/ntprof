@@ -198,6 +198,7 @@ int BPF_PROG(ntp_netif_rx, struct sk_buff* skb) {
   u32 slot = ntp_skb_slot((u64)skb);
   struct skb_stamp* s;
 
+  if (!filter.stamp_always && !ntp_inflight) return 0;
   if (filter.ifindex && BPF_CORE_READ(skb, dev, ifindex) != (int)filter.ifindex)
     return 0;
   s = bpf_map_lookup_elem(&skb_arrival, &slot);

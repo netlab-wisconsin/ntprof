@@ -30,7 +30,7 @@ CLANG_BPF_SYS_INCLUDES := $(shell $(CLANG) -v -E - </dev/null 2>&1 \
 BPF_CFLAGS := -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) -Wall -Werror \
               -I$(LIBBPF_INC) -Ilibbpf/include/uapi -Ibpf $(CLANG_BPF_SYS_INCLUDES)
 
-BPF_PROGS := nvme_tcp_host nvme_tcp_target
+BPF_PROGS := nvme_tcp_host nvme_tcp_target nvme_rdma_host nvme_rdma_target
 SKELS := $(patsubst %,$(OUTPUT)/%.skel.h,$(BPF_PROGS))
 
 APP_SRCS := src/main.c src/config.c src/record.c src/offline.c src/loader.c \
@@ -68,7 +68,7 @@ $(LIBBPF_OBJ): $(wildcard $(LIBBPF_SRC)/*.[ch] $(LIBBPF_SRC)/Makefile) | $(OUTPU
 		DESTDIR=$(dir $@) INCLUDEDIR= LIBDIR= UAPIDIR= prefix= \
 		$(if $(V),,-s) install
 
-$(OUTPUT)/%.bpf.o: bpf/%.bpf.c bpf/common.bpf.h bpf/kernel_types.h bpf/ntprof.h $(LIBBPF_OBJ) | $(OUTPUT)
+$(OUTPUT)/%.bpf.o: bpf/%.bpf.c $(wildcard bpf/*.h) $(LIBBPF_OBJ) | $(OUTPUT)
 	$(call msg,BPF,$@)
 	$(Q)$(CLANG) $(BPF_CFLAGS) -c $< -o $@
 	$(Q)llvm-strip -g $@ 2>/dev/null || true

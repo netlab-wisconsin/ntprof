@@ -35,32 +35,34 @@ enum ntp_transport {
 /*
  * Host (initiator) events. The names follow the I/O through the stages of the
  * NSDI'25 model (S1-S9); see ebpf/DESIGN.md for the hook behind each one.
+ * TCP: "handed off" = to the socket; RDMA: posted to the queue pair.
  */
 enum ntp_host_ts {
   NTP_H_START = 0,    /* blk-mq request start (rq->start_time_ns)          */
   NTP_H_QUEUE_RQ,     /* transport ->queue_rq() entered                    */
   NTP_H_CMD_SENT,     /* command capsule (and in-capsule data) handed off  */
-  NTP_H_R2T_ARR,      /* skb carrying the first R2T reached the host stack */
-  NTP_H_R2T_PROC,     /* first R2T parsed by the transport                 */
-  NTP_H_DATA_START,   /* sending of the solicited H2C data began           */
-  NTP_H_DATA_SENT,    /* all solicited H2C data handed off                 */
-  NTP_H_C2H_ARR,      /* skb carrying the first C2H data PDU arrived       */
-  NTP_H_C2H_PROC,     /* first C2H data PDU parsed by the transport        */
-  NTP_H_RSP_ARR,      /* skb carrying the response capsule arrived         */
+  NTP_H_R2T_ARR,      /* TCP: skb carrying the first R2T reached the stack */
+  NTP_H_R2T_PROC,     /* TCP: first R2T parsed by the transport            */
+  NTP_H_DATA_START,   /* TCP: sending of the solicited H2C data began      */
+  NTP_H_DATA_SENT,    /* TCP: all solicited H2C data handed off            */
+  NTP_H_C2H_ARR,      /* TCP: skb carrying the first C2H data PDU arrived  */
+  NTP_H_C2H_PROC,     /* TCP: first C2H data PDU parsed by the transport   */
+  NTP_H_RSP_ARR,      /* response arrived (TCP: its skb; RDMA: its CQE)    */
   NTP_H_RSP_PROC,     /* completion parsed, request handed to blk-mq       */
   NTP_H_NVME_DONE,    /* nvme_complete_rq() (after a possible IPI)         */
   NTP_H_BLK_DONE,     /* block_rq_complete                                 */
+  NTP_H_SEND_DONE,    /* RDMA: send completion of the command capsule      */
   NTP_H_NR,
 };
 
 /* Target events. */
 enum ntp_tgt_ts {
-  NTP_T_CMD_ARR = 0,  /* skb completing the command capsule header arrived */
+  NTP_T_CMD_ARR = 0,  /* command arrived (TCP: its skb; RDMA: its CQE)     */
   NTP_T_CMD_PROC,     /* nvmet_req_init()                                  */
-  NTP_T_R2T_QUEUED,   /* R2T queued for sending                            */
-  NTP_T_R2T_SENT,     /* R2T handed to the socket / posted                 */
-  NTP_T_DATA_ARR,     /* skb with the first solicited data PDU arrived     */
-  NTP_T_DATA_PROC,    /* first solicited data PDU parsed                   */
+  NTP_T_R2T_QUEUED,   /* TCP: R2T queued for sending                       */
+  NTP_T_R2T_SENT,     /* R2T handed to the socket; RDMA: RDMA READ posted  */
+  NTP_T_DATA_ARR,     /* first solicited data arrived (RDMA: READ done)    */
+  NTP_T_DATA_PROC,    /* first solicited data parsed (RDMA: READ done)     */
   NTP_T_EXEC,         /* backend execute (bdev / file / passthru)          */
   NTP_T_BE_ISSUE,     /* backend block request issued (bdev only)          */
   NTP_T_BE_DONE,      /* backend block request completed (bdev only)       */
@@ -96,6 +98,7 @@ struct ntp_rec_hdr {
 #define NTP_F_DATA_SUCCESS (1u << 3) /* read completed by C2H SUCCESS flag */
 #define NTP_F_MULTI_R2T (1u << 4)  /* more than one R2T for this command */
 #define NTP_F_QUEUES (1u << 5)     /* the q_* fields were tracked (exact mode) */
+#define NTP_F_RDMA_READ (1u << 6)  /* RDMA: the target fetched the write data */
 
 struct ntp_host_rec {
   struct ntp_rec_hdr hdr;
@@ -153,6 +156,13 @@ struct ntp_filter {
   __u64 ctrl_mask[4];  /* host: controller instances 0-255 (N of /dev/nvmeN) */
   __u32 nsid;          /* host: 0 = any namespace */
   __u32 ifindex;       /* skb arrival timestamps only from this device; 0 = any */
+  /*
+   * 1: stamp every received skb. A target must: a command's packet arrives
+   * before the command is sampled. A host only needs stamps while one of its
+   * sampled commands is in flight.
+   */
+  __u8 stamp_always;
+  __u8 pad2[3];
 };
 
 /* NVMe opcodes of the I/O command set used here. */
