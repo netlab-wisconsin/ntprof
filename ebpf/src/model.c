@@ -1,0 +1,240 @@
+// SPDX-License-Identifier: GPL-2.0
+#include "model.h"
+
+#include <string.h>
+
+#include "util.h"
+
+const struct ntp_comp_info ntp_comps[NTP_C_NR] = {
+    [NTP_C_BLK_SUB] = {"blk_submission", "S1(S)", "blk-mq submission", false},
+    [NTP_C_TR_SUB] = {"transport_submission", "S2(S)",
+                      "initiator transport submission", false},
+    [NTP_C_NET] = {"network", "S3-S5(S+C)", "network and unaccounted stack time",
+                   false},
+    [NTP_C_TGT_RX] = {"target_rx_stack", "S5(S)", "target receive stack",
+                      false},
+    [NTP_C_TGT_SUB] = {"target_transport_submission", "S6(S)",
+                       "target transport submission", false},
+    [NTP_C_TGT_BE] = {"target_subsystem", "S7-S9(S+C)",
+                      "target block layer and device", false},
+    [NTP_C_TGT_CMPL] = {"target_transport_completion", "S6(C)",
+                        "target transport completion", false},
+    [NTP_C_HOST_RX] = {"host_rx_stack", "S3(C)", "initiator receive stack",
+                       false},
+    [NTP_C_TR_CMPL] = {"transport_completion", "S2(C)",
+                       "initiator transport completion", false},
+    [NTP_C_BLK_CMPL] = {"blk_completion", "S1(C)", "blk-mq completion", false},
+    [NTP_C_REMOTE] = {"remote", "S3-S9(S+C)",
+                      "network and target (no target record)", false},
+    [NTP_C_E2E] = {"end_to_end", "S1-S9", "end to end", false},
+    [NTP_C_TGT_BE_SUB] = {"target_blk_submission", "S7(S)",
+                          "target blk-mq submission", true},
+    [NTP_C_TGT_DEV] = {"target_device", "S8-S9", "target device", true},
+    [NTP_C_TGT_BE_CMPL] = {"target_blk_completion", "S7(C)",
+                           "target blk-mq completion", true},
+    [NTP_C_CMPL_IPI] = {"completion_ipi", "S1(C)",
+                        "CQE parsed to nvme_complete_rq", true},
+};
+
+const char* const ntp_stage_names[NTP_STAGE_NR] = {
+    [NTP_S1] = "S1", [NTP_S2] = "S2", [NTP_S3_S5] = "S3-S5",
+    [NTP_S6] = "S6", [NTP_S7_S9] = "S7-S9",
+};
+
+enum ntp_io_class ntp_io_class_of(const struct ntp_host_rec* h) {
+  if (!(h->hdr.flags & NTP_F_WRITE)) return NTP_IO_CLASS_READ;
+  if (h->hdr.flags & NTP_F_R2T) return NTP_IO_CLASS_WRITE_R2T;
+  return NTP_IO_CLASS_WRITE_INLINE;
+}
+
+static bool have_all(const __u64* ts, const int* idx, size_t n) {
+  for (size_t i = 0; i < n; i++)
+    if (!ts[idx[i]]) return false;
+  return true;
+}
+
+static const int host_req_read[] = {NTP_H_QUEUE_RQ, NTP_H_CMD_SENT,
+                                    NTP_H_C2H_ARR,  NTP_H_C2H_PROC,
+                                    NTP_H_RSP_PROC, NTP_H_BLK_DONE};
+static const int host_req_inline[] = {NTP_H_QUEUE_RQ, NTP_H_CMD_SENT,
+                                      NTP_H_RSP_ARR, NTP_H_RSP_PROC,
+                                      NTP_H_BLK_DONE};
+static const int host_req_r2t[] = {
+    NTP_H_QUEUE_RQ,   NTP_H_CMD_SENT, NTP_H_R2T_ARR,  NTP_H_R2T_PROC,
+    NTP_H_DATA_START, NTP_H_RSP_ARR,  NTP_H_RSP_PROC, NTP_H_BLK_DONE};
+
+static const int tgt_req_read[] = {NTP_T_CMD_ARR, NTP_T_CMD_PROC, NTP_T_EXEC,
+                                   NTP_T_COMPLETE, NTP_T_C2H_SENT};
+static const int tgt_req_inline[] = {NTP_T_CMD_ARR, NTP_T_CMD_PROC, NTP_T_EXEC,
+                                     NTP_T_COMPLETE, NTP_T_RSP_SENT};
+static const int tgt_req_r2t[] = {
+    NTP_T_CMD_ARR,  NTP_T_CMD_PROC, NTP_T_R2T_SENT, NTP_T_DATA_ARR,
+    NTP_T_DATA_PROC, NTP_T_EXEC,    NTP_T_COMPLETE, NTP_T_RSP_SENT};
+
+static bool host_complete(const struct ntp_host_rec* h, enum ntp_io_class c) {
+  switch (c) {
+    case NTP_IO_CLASS_READ:
+      return have_all(h->ts, host_req_read, ARRAY_SIZE(host_req_read));
+    case NTP_IO_CLASS_WRITE_INLINE:
+      return have_all(h->ts, host_req_inline, ARRAY_SIZE(host_req_inline));
+    default:
+      return have_all(h->ts, host_req_r2t, ARRAY_SIZE(host_req_r2t));
+  }
+}
+
+static bool target_complete(const struct ntp_tgt_rec* t, enum ntp_io_class c) {
+  switch (c) {
+    case NTP_IO_CLASS_READ:
+      return have_all(t->ts, tgt_req_read, ARRAY_SIZE(tgt_req_read));
+    case NTP_IO_CLASS_WRITE_INLINE:
+      return have_all(t->ts, tgt_req_inline, ARRAY_SIZE(tgt_req_inline));
+    default:
+      return have_all(t->ts, tgt_req_r2t, ARRAY_SIZE(tgt_req_r2t));
+  }
+}
+
+static void set(struct ntp_breakdown* b, enum ntp_comp c, int64_t v) {
+  b->comp[c] = v;
+  b->valid |= 1u << c;
+}
+
+static int64_t d(uint64_t later, uint64_t earlier) {
+  return (int64_t)(later - earlier);
+}
+
+/*
+ * The host side alone. For each round trip, "wait" runs from the moment the
+ * host handed its PDU to TCP to the arrival of the target's answer at the
+ * host's network stack; it covers network and target.
+ */
+static void host_side(const struct ntp_host_rec* h, struct ntp_breakdown* b) {
+  const __u64* H = h->ts;
+
+  set(b, NTP_C_TR_SUB, d(H[NTP_H_CMD_SENT], H[NTP_H_QUEUE_RQ]));
+  set(b, NTP_C_BLK_CMPL, d(H[NTP_H_BLK_DONE], H[NTP_H_RSP_PROC]));
+  if (H[NTP_H_START] && H[NTP_H_START] <= H[NTP_H_QUEUE_RQ]) {
+    set(b, NTP_C_BLK_SUB, d(H[NTP_H_QUEUE_RQ], H[NTP_H_START]));
+    set(b, NTP_C_E2E, d(H[NTP_H_BLK_DONE], H[NTP_H_START]));
+  } else {
+    set(b, NTP_C_E2E, d(H[NTP_H_BLK_DONE], H[NTP_H_QUEUE_RQ]));
+  }
+  if (H[NTP_H_NVME_DONE])
+    set(b, NTP_C_CMPL_IPI, d(H[NTP_H_NVME_DONE], H[NTP_H_RSP_PROC]));
+
+  switch (b->io_class) {
+    case NTP_IO_CLASS_READ:
+      set(b, NTP_C_REMOTE, d(H[NTP_H_C2H_ARR], H[NTP_H_CMD_SENT]));
+      set(b, NTP_C_HOST_RX, d(H[NTP_H_C2H_PROC], H[NTP_H_C2H_ARR]));
+      set(b, NTP_C_TR_CMPL, d(H[NTP_H_RSP_PROC], H[NTP_H_C2H_PROC]));
+      break;
+    case NTP_IO_CLASS_WRITE_INLINE:
+      set(b, NTP_C_REMOTE, d(H[NTP_H_RSP_ARR], H[NTP_H_CMD_SENT]));
+      set(b, NTP_C_HOST_RX, d(H[NTP_H_RSP_PROC], H[NTP_H_RSP_ARR]));
+      set(b, NTP_C_TR_CMPL, 0);
+      break;
+    default:
+      /*
+       * The second round trip starts when the host starts sending the data:
+       * the target receives it while the host is still sending, so the
+       * transfer is inside both the host's wait and the target's residence.
+       */
+      b->comp[NTP_C_TR_SUB] += d(H[NTP_H_DATA_START], H[NTP_H_R2T_PROC]);
+      set(b, NTP_C_REMOTE, d(H[NTP_H_R2T_ARR], H[NTP_H_CMD_SENT]) +
+                               d(H[NTP_H_RSP_ARR], H[NTP_H_DATA_START]));
+      set(b, NTP_C_HOST_RX, d(H[NTP_H_R2T_PROC], H[NTP_H_R2T_ARR]) +
+                                d(H[NTP_H_RSP_PROC], H[NTP_H_RSP_ARR]));
+      set(b, NTP_C_TR_CMPL, 0);
+      break;
+  }
+}
+
+/* Split NTP_C_REMOTE into network and target components. */
+static void target_side(const struct ntp_tgt_rec* t, struct ntp_breakdown* b) {
+  const __u64* T = t->ts;
+  int64_t residence;
+
+  set(b, NTP_C_TGT_BE, d(T[NTP_T_COMPLETE], T[NTP_T_EXEC]));
+  switch (b->io_class) {
+    case NTP_IO_CLASS_READ:
+      set(b, NTP_C_TGT_RX, d(T[NTP_T_CMD_PROC], T[NTP_T_CMD_ARR]));
+      set(b, NTP_C_TGT_SUB, d(T[NTP_T_EXEC], T[NTP_T_CMD_PROC]));
+      set(b, NTP_C_TGT_CMPL, d(T[NTP_T_C2H_SENT], T[NTP_T_COMPLETE]));
+      residence = d(T[NTP_T_C2H_SENT], T[NTP_T_CMD_ARR]);
+      break;
+    case NTP_IO_CLASS_WRITE_INLINE:
+      set(b, NTP_C_TGT_RX, d(T[NTP_T_CMD_PROC], T[NTP_T_CMD_ARR]));
+      set(b, NTP_C_TGT_SUB, d(T[NTP_T_EXEC], T[NTP_T_CMD_PROC]));
+      set(b, NTP_C_TGT_CMPL, d(T[NTP_T_RSP_SENT], T[NTP_T_COMPLETE]));
+      residence = d(T[NTP_T_RSP_SENT], T[NTP_T_CMD_ARR]);
+      break;
+    default:
+      set(b, NTP_C_TGT_RX, d(T[NTP_T_CMD_PROC], T[NTP_T_CMD_ARR]) +
+                               d(T[NTP_T_DATA_PROC], T[NTP_T_DATA_ARR]));
+      set(b, NTP_C_TGT_SUB, d(T[NTP_T_R2T_SENT], T[NTP_T_CMD_PROC]) +
+                                d(T[NTP_T_EXEC], T[NTP_T_DATA_PROC]));
+      set(b, NTP_C_TGT_CMPL, d(T[NTP_T_RSP_SENT], T[NTP_T_COMPLETE]));
+      residence = d(T[NTP_T_R2T_SENT], T[NTP_T_CMD_ARR]) +
+                  d(T[NTP_T_RSP_SENT], T[NTP_T_DATA_ARR]);
+      break;
+  }
+  set(b, NTP_C_NET, b->comp[NTP_C_REMOTE] - residence);
+  b->valid &= ~(1u << NTP_C_REMOTE);
+  b->comp[NTP_C_REMOTE] = 0;
+
+  if (T[NTP_T_BE_ISSUE] && T[NTP_T_BE_DONE]) {
+    set(b, NTP_C_TGT_BE_SUB, d(T[NTP_T_BE_ISSUE], T[NTP_T_EXEC]));
+    set(b, NTP_C_TGT_DEV, d(T[NTP_T_BE_DONE], T[NTP_T_BE_ISSUE]));
+    set(b, NTP_C_TGT_BE_CMPL, d(T[NTP_T_COMPLETE], T[NTP_T_BE_DONE]));
+  }
+}
+
+static void stage(struct ntp_breakdown* b, enum ntp_stage s,
+                  const enum ntp_comp* parts, size_t n) {
+  int64_t sum = 0;
+
+  for (size_t i = 0; i < n; i++) {
+    if (!ntp_comp_valid(b, parts[i])) return;
+    sum += b->comp[parts[i]];
+  }
+  b->stage[s] = sum;
+  b->stage_valid |= 1u << s;
+}
+
+static void stages(struct ntp_breakdown* b) {
+  static const enum ntp_comp s1[] = {NTP_C_BLK_SUB, NTP_C_BLK_CMPL};
+  static const enum ntp_comp s2[] = {NTP_C_TR_SUB, NTP_C_TR_CMPL};
+  static const enum ntp_comp s3_5[] = {NTP_C_NET, NTP_C_TGT_RX, NTP_C_HOST_RX};
+  static const enum ntp_comp s6[] = {NTP_C_TGT_SUB, NTP_C_TGT_CMPL};
+  static const enum ntp_comp s7_9[] = {NTP_C_TGT_BE};
+
+  stage(b, NTP_S1, s1, ARRAY_SIZE(s1));
+  stage(b, NTP_S2, s2, ARRAY_SIZE(s2));
+  stage(b, NTP_S3_S5, s3_5, ARRAY_SIZE(s3_5));
+  stage(b, NTP_S6, s6, ARRAY_SIZE(s6));
+  stage(b, NTP_S7_S9, s7_9, ARRAY_SIZE(s7_9));
+}
+
+enum ntp_model_err ntp_breakdown(const struct ntp_host_rec* h,
+                                 const struct ntp_tgt_rec* t,
+                                 struct ntp_breakdown* out) {
+  enum ntp_model_err err = NTP_MODEL_OK;
+
+  memset(out, 0, sizeof(*out));
+  out->io_class = ntp_io_class_of(h);
+  if (!host_complete(h, out->io_class)) return NTP_MODEL_INCOMPLETE_HOST;
+
+  host_side(h, out);
+  if (t) {
+    bool same_class = !!(t->hdr.flags & NTP_F_R2T) ==
+                      (out->io_class == NTP_IO_CLASS_WRITE_R2T);
+
+    if (same_class && target_complete(t, out->io_class)) {
+      target_side(t, out);
+      out->joined = true;
+    } else {
+      err = NTP_MODEL_INCOMPLETE_TARGET;
+    }
+  }
+  stages(out);
+  return err;
+}
