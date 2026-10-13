@@ -60,6 +60,9 @@ struct ntp_stats {
   struct ntp_group* groups;
   size_t n, cap;
   bool by_type, by_size, by_session;
+  uint32_t sample_every; /* to scale record counts to command counts */
+  uint64_t first_ns;     /* earliest queue_rq of the records added */
+  uint64_t last_ns;      /* latest completion of the records added */
 };
 
 void ntp_stats_init(struct ntp_stats* s, bool by_type, bool by_size,
@@ -67,6 +70,12 @@ void ntp_stats_init(struct ntp_stats* s, bool by_type, bool by_size,
 void ntp_stats_free(struct ntp_stats* s);
 /* Forget all samples, keep the grouping. */
 void ntp_stats_reset(struct ntp_stats* s);
+
+/*
+ * Commands per second of a group: its records, scaled by the sampling rate,
+ * over the time the records span. 0 when the span is too short to tell.
+ */
+double ntp_group_rate(const struct ntp_stats* s, const struct ntp_group* g);
 
 /* Add one host record and its target record (or NULL). */
 void ntp_stats_add(struct ntp_stats* s, const struct ntp_host_rec* h,

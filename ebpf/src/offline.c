@@ -97,6 +97,7 @@ int cmd_report(const struct ntp_config* c, char* const* files, int nfiles) {
     ret = EXIT_FAILURE;
     goto out;
   }
+  if (r.have_host_hdr) stats.sample_every = r.host_hdr.sample_every;
   if (r.have_host_hdr)
     printf("recorded on %s (kernel %s), sampling 1 of %u\n", r.host_hdr.hostname,
            r.host_hdr.kernel, r.host_hdr.sample_every);
@@ -215,6 +216,8 @@ int cmd_compare(const struct ntp_config* c, const char* base,
   if (!nb || !nl || load_run(&rb, bf, nb, &sb) || load_run(&rl, lf, nl, &sl)) {
     ret = EXIT_FAILURE;
   } else {
+    if (rb.have_host_hdr) sb.sample_every = rb.host_hdr.sample_every;
+    if (rl.have_host_hdr) sl.sample_every = rl.host_hdr.sample_every;
     printf("LAD = mean under load / mean of the baseline (stages with a "
            "baseline below 0.5 us: n/a)\n");
     ntp_report_compare(stdout, &sb, &sl);

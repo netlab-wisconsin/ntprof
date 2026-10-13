@@ -127,6 +127,7 @@ int cmd_record(const struct ntp_config* c) {
                  c->group_by_session);
   ntp_stats_init(&s.total, c->group_by_type, c->group_by_size,
                  c->group_by_session);
+  s.interval.sample_every = s.total.sample_every = c->sample_every;
   if (c->role == NTP_ROLE_BOTH) s.joiner = ntp_joiner_new(TARGETS_PER_KEY);
 
   signal(SIGINT, on_signal);

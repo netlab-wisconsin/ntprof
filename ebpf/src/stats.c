@@ -87,6 +87,14 @@ void ntp_stats_init(struct ntp_stats* s, bool by_type, bool by_size,
   s->by_type = by_type;
   s->by_size = by_size;
   s->by_session = by_session;
+  s->sample_every = 1;
+}
+
+double ntp_group_rate(const struct ntp_stats* s, const struct ntp_group* g) {
+  /* below 10 ms of records the rate is meaningless */
+  if (!s->first_ns || s->last_ns < s->first_ns + 10000000ull) return 0;
+  return (double)g->records * s->sample_every * 1e9 /
+         (double)(s->last_ns - s->first_ns);
 }
 
 static void group_free(struct ntp_group* g) {
@@ -104,9 +112,11 @@ void ntp_stats_free(struct ntp_stats* s) {
 
 void ntp_stats_reset(struct ntp_stats* s) {
   bool t = s->by_type, z = s->by_size, d = s->by_session;
+  uint32_t every = s->sample_every;
 
   ntp_stats_free(s);
   ntp_stats_init(s, t, z, d);
+  s->sample_every = every;
 }
 
 static struct ntp_group* group_for(struct ntp_stats* s,
@@ -137,6 +147,9 @@ void ntp_stats_add(struct ntp_stats* s, const struct ntp_host_rec* h,
   enum ntp_model_err err = ntp_breakdown(h, t, &b);
 
   g->records++;
+  if (h->ts[NTP_H_QUEUE_RQ] && (!s->first_ns || h->ts[NTP_H_QUEUE_RQ] < s->first_ns))
+    s->first_ns = h->ts[NTP_H_QUEUE_RQ];
+  if (h->ts[NTP_H_BLK_DONE] > s->last_ns) s->last_ns = h->ts[NTP_H_BLK_DONE];
   if (err == NTP_MODEL_INCOMPLETE_HOST) {
     g->bad_host++;
     return;
@@ -149,9 +162,12 @@ void ntp_stats_add(struct ntp_stats* s, const struct ntp_host_rec* h,
   for (int i = 0; i < NTP_STAGE_NR; i++)
     if (b.stage_valid & (1u << i)) i64vec_push(&g->stage[i], b.stage[i]);
 
-  i64vec_push(&g->queue[NTP_Q_HOST_UNSENT], h->q_unsent);
-  i64vec_push(&g->queue[NTP_Q_HOST_INFLIGHT], h->q_inflight);
-  if (b.joined) {
+  /* exact occupancy, when it was tracked */
+  if (h->hdr.flags & NTP_F_QUEUES) {
+    i64vec_push(&g->queue[NTP_Q_HOST_UNSENT], h->q_unsent);
+    i64vec_push(&g->queue[NTP_Q_HOST_INFLIGHT], h->q_inflight);
+  }
+  if (b.joined && (t->hdr.flags & NTP_F_QUEUES)) {
     i64vec_push(&g->queue[NTP_Q_TGT_OUTSTANDING], t->q_outstanding);
     i64vec_push(&g->queue[NTP_Q_TGT_RESP_QUEUE], t->q_resp_queue);
   }

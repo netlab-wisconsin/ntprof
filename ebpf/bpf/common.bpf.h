@@ -3,8 +3,14 @@
  * Maps and helpers shared by every ntprof BPF object.
  *
  * Each object (host, target; TCP, RDMA) has its own copy of these maps. When
- * several objects run in one process, user space makes them share
- * skb_arrival (bpf_map__reuse_fd) and loads only one netif_receive_skb hook.
+ * several objects run in one process, user space makes them share `events`
+ * and `skb_arrival` (bpf_map__reuse_fd) and loads one netif_receive_skb hook.
+ *
+ * Function hooks come in two flavours with the same body: fentry/fexit
+ * (programs named *_fe, *_fx), used when the kernel has BTF, and
+ * kprobe/kretprobe (*_kp, *_kr) for kernels without it. The loader keeps one
+ * flavour. fentry/fexit cost a fraction of a kprobe, and fexit sees the
+ * arguments and the return value, so no entry state has to be kept.
  */
 #ifndef NTPROF_COMMON_BPF_H
 #define NTPROF_COMMON_BPF_H
@@ -33,6 +39,23 @@ const volatile struct ntp_filter filter = {
  */
 volatile bool ntp_armed;
 
+/*
+ * Records of this object not yet emitted. Hooks that only add timestamps to
+ * sampled records return at once while it is 0, which is most of the time
+ * when one command in N is sampled. A record lost to a slot collision keeps
+ * it above 0 until the slot is reused (only the shortcut is lost).
+ */
+volatile __s64 ntp_inflight; /* __s64: the skeleton exposes it to user space */
+
+static __always_inline void ntp_inflight_add(s64 d) {
+  __sync_fetch_and_add(&ntp_inflight, d);
+}
+
+/* Is there anything for a timestamp-only hook to do? */
+static __always_inline bool ntp_idle(void) {
+  return !ntp_inflight && !filter.track_queues;
+}
+
 /* Completed records for user space. Size is set by user space. */
 struct {
   __uint(type, BPF_MAP_TYPE_RINGBUF);
@@ -46,14 +69,6 @@ struct {
   __type(value, u64);
 } counters SEC(".maps");
 
-/* skb -> time it entered the network stack (netif_receive_skb). */
-struct {
-  __uint(type, BPF_MAP_TYPE_LRU_HASH);
-  __uint(max_entries, 1 << 16);
-  __type(key, u64);
-  __type(value, u64);
-} skb_arrival SEC(".maps");
-
 static __always_inline void ntp_count(u32 counter, u64 delta) {
   u64* v = bpf_map_lookup_elem(&counters, &counter);
 
@@ -63,20 +78,138 @@ static __always_inline void ntp_count(u32 counter, u64 delta) {
 static __always_inline u64 ntp_tid(void) { return bpf_get_current_pid_tgid(); }
 
 /*
- * An skb address is reused once the skb is freed, and the map keeps the old
- * stamp until it is overwritten or evicted. A stamp older than this is taken
- * to belong to an earlier skb at the same address.
+ * ---- per-thread context in a per-CPU slot ----
+ *
+ * A context set at a function's entry and used by hooks inside that
+ * function, on the same thread, lives in a per-CPU slot tagged with the
+ * thread id: no lock and no hash. Should the thread migrate in between, the
+ * tag no longer matches and the event is lost rather than misattributed.
+ */
+#define NTP_CPU_CTX(name, ctx_type)            \
+  struct {                                     \
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);   \
+    __uint(max_entries, 1);                    \
+    __type(key, u32);                          \
+    __type(value, ctx_type);                   \
+  } name SEC(".maps")
+
+/* The context of this thread, or NULL. @ctx_type must start with `u64 tid`. */
+#define NTP_CTX_GET(map)                                         \
+  ({                                                             \
+    u32 __z = 0;                                                 \
+    typeof(((typeof(map)*)0)->value) __c = NULL;                 \
+    __c = bpf_map_lookup_elem(&map, &__z);                       \
+    (__c && __c->tid == ntp_tid()) ? __c : NULL;                 \
+  })
+
+/*
+ * ---- skb arrival times ----
+ *
+ * A direct-mapped table: slot = hash(skb address). Writes are plain stores,
+ * so stamping every received packet costs no lock. A collision overwrites the
+ * slot; the reader checks the address and falls back to "now".
+ */
+#define NTP_SKB_SLOTS (1 << 16)
+
+struct skb_stamp {
+  u64 skb;
+  u64 ts;
+};
+
+struct {
+  __uint(type, BPF_MAP_TYPE_ARRAY);
+  __uint(max_entries, NTP_SKB_SLOTS);
+  __type(key, u32);
+  __type(value, struct skb_stamp);
+} skb_arrival SEC(".maps");
+
+/*
+ * fentry/fexit arguments are typed pointers, and the verifier refuses any
+ * arithmetic on them but adding offsets. A round trip through map memory
+ * turns the address into a plain number that can be hashed.
+ */
+struct {
+  __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+  __uint(max_entries, 1);
+  __type(key, u32);
+  __type(value, u64);
+} ntp_scalar_slot SEC(".maps");
+
+static __always_inline u64 ntp_scalar(u64 v) {
+  u32 zero = 0;
+  u64* slot = bpf_map_lookup_elem(&ntp_scalar_slot, &zero);
+
+  if (!slot) return 0;
+  *slot = v;
+  return *(volatile u64*)slot;
+}
+
+/* Slot of a kernel address in a direct-mapped table of @nslots (power of 2). */
+static __always_inline u32 ntp_slot(u64 addr, u32 nslots) {
+  /* slab objects: the low bits carry little information */
+  return (u32)(((addr >> 6) ^ (addr >> 26)) * 0x9e3779b1u) & (nslots - 1);
+}
+
+static __always_inline u32 ntp_skb_slot(u64 skb) {
+  return ntp_slot(skb, NTP_SKB_SLOTS);
+}
+
+/*
+ * ---- records in direct-mapped tables ----
+ *
+ * Records of sampled commands live in arrays indexed by a hash of the
+ * command's kernel address (struct request, struct nvmet_req). Every hook
+ * runs for every command, sampled or not; an array lookup and one compare
+ * tell it in a few ns that the command has no record, where a hash map
+ * lookup would take a lock-free search. Two sampled commands in flight on
+ * the same slot are rare (a few hundred in flight against 16384 slots); the
+ * later one takes the slot and the earlier one's record is lost (counted as
+ * NTP_CNT_STALE).
+ */
+#define NTP_REC_SLOTS (1 << 14)
+
+/*
+ * An skb address is reused once the skb is freed, and the slot keeps the old
+ * stamp until it is overwritten. A stamp older than this is taken to belong
+ * to an earlier skb at the same address.
  */
 #define NTP_SKB_STAMP_MAX_AGE_NS 1000000000ULL
 
 /* Arrival time of an skb, or @now when it was not stamped. */
 static __always_inline u64 ntp_skb_arrival(const struct sk_buff* skb, u64 now) {
-  u64 key = (u64)skb;
-  u64* t = bpf_map_lookup_elem(&skb_arrival, &key);
+  u32 slot = ntp_skb_slot(ntp_scalar((u64)skb));
+  struct skb_stamp* s = bpf_map_lookup_elem(&skb_arrival, &slot);
+  u64 ts;
 
-  if (!t || *t > now || now - *t > NTP_SKB_STAMP_MAX_AGE_NS) return now;
-  return *t;
+  if (!s || s->skb != (u64)skb) return now;
+  ts = s->ts;
+  if (s->skb != (u64)skb || ts > now || now - ts > NTP_SKB_STAMP_MAX_AGE_NS)
+    return now;
+  return ts;
 }
+
+/*
+ * The packet is stamped after GRO, where v1 read skb->tstamp; when TCP later
+ * coalesces it into an earlier skb of the receive queue, the earlier skb's
+ * time is used.
+ */
+SEC("raw_tp/netif_receive_skb")
+int BPF_PROG(ntp_netif_rx, struct sk_buff* skb) {
+  u32 slot = ntp_skb_slot((u64)skb);
+  struct skb_stamp* s;
+
+  if (filter.ifindex && BPF_CORE_READ(skb, dev, ifindex) != (int)filter.ifindex)
+    return 0;
+  s = bpf_map_lookup_elem(&skb_arrival, &slot);
+  if (!s) return 0;
+  /* address last: a reader that sees the new address sees the new time */
+  s->skb = 0;
+  s->ts = bpf_ktime_get_ns();
+  s->skb = (u64)skb;
+  return 0;
+}
+
+/* ---- NVMe ---- */
 
 static __always_inline bool ntp_sampled(u16 cid, u64 slba, u16 nlb) {
   if (filter.sample_every <= 1) return true;
@@ -100,25 +233,25 @@ static __always_inline bool ntp_is_rw(u8 opcode) {
   return opcode == NTP_NVME_CMD_READ || opcode == NTP_NVME_CMD_WRITE;
 }
 
+static __always_inline bool ntp_size_matches(u32 bytes) {
+  if (filter.n_sizes) {
+#pragma unroll
+    for (int i = 0; i < NTP_MAX_SIZE_FILTERS; i++)
+      if (i < filter.n_sizes && filter.sizes[i] == bytes) return true;
+    return false;
+  }
+  if (filter.min_bytes && bytes < filter.min_bytes) return false;
+  if (filter.max_bytes && bytes > filter.max_bytes) return false;
+  return true;
+}
+
 /* Set a timestamp only the first time it is seen. */
 static __always_inline void ntp_stamp_once(u64* slot, u64 now) {
   if (!*slot) *slot = now;
 }
 
-/*
- * Arrival timestamps for skbs. The packet is stamped after GRO, where
- * v1 read skb->tstamp; when TCP later coalesces it into an earlier skb of the
- * receive queue, the earlier skb's time is used.
- */
-SEC("raw_tp/netif_receive_skb")
-int BPF_PROG(ntp_netif_rx, struct sk_buff* skb) {
-  u64 key = (u64)skb;
-  u64 now = bpf_ktime_get_ns();
-
-  if (filter.ifindex && BPF_CORE_READ(skb, dev, ifindex) != (int)filter.ifindex)
-    return 0;
-  bpf_map_update_elem(&skb_arrival, &key, &now, BPF_ANY);
-  return 0;
+static __always_inline u16 ntp_clamp_u16(s32 v) {
+  return v < 0 ? 0 : v > 0xffff ? 0xffff : (u16)v;
 }
 
 #endif /* NTPROF_COMMON_BPF_H */

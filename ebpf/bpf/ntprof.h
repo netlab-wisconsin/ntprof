@@ -95,6 +95,7 @@ struct ntp_rec_hdr {
 #define NTP_F_R2T (1u << 2)        /* write solicited by R2T (TCP) */
 #define NTP_F_DATA_SUCCESS (1u << 3) /* read completed by C2H SUCCESS flag */
 #define NTP_F_MULTI_R2T (1u << 4)  /* more than one R2T for this command */
+#define NTP_F_QUEUES (1u << 5)     /* the q_* fields were tracked (exact mode) */
 
 struct ntp_host_rec {
   struct ntp_rec_hdr hdr;
@@ -130,7 +131,7 @@ enum ntp_counter {
   NTP_CNT_TGT_EMITTED,
   NTP_CNT_RB_DROPS,      /* ring buffer full: record lost */
   NTP_CNT_MAP_FULL,      /* record map full: command not sampled */
-  NTP_CNT_STALE,         /* unfinished record replaced by a new command */
+  NTP_CNT_STALE,         /* unfinished record replaced (error path, slot collision) */
   NTP_CNT_NR,
 };
 

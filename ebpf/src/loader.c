@@ -67,13 +67,14 @@ struct obj_inst {
 SKEL_ADAPTER(nvme_tcp_host)
 SKEL_ADAPTER(nvme_tcp_target)
 
+/* Base names (without the _fe/_fx/_kp/_kr flavour suffix). */
 static const char* const tcp_host_required[] = {
-    "ntp_h_queue_rq", "ntp_h_setup_cmd", "ntp_h_recv_skb",
-    "ntp_h_recv_skb_ret", "ntp_h_complete", "ntp_h_blk_done", NULL};
+    "ntp_h_queue_rq", "ntp_h_setup_cmd", "ntp_h_recv_skb", "ntp_h_complete",
+    "ntp_h_blk_done", NULL};
 
 static const char* const tcp_target_required[] = {
-    "ntp_t_io_work", "ntp_t_io_work_ret", "ntp_t_req_init",
-    "ntp_t_queue_resp", "ntp_t_sendmsg", NULL};
+    "ntp_t_io_work", "ntp_t_req_init", "ntp_t_queue_resp", "ntp_t_sendmsg",
+    NULL};
 
 static const struct obj_desc objects[] = {
     {"nvme_tcp_host", NTP_ROLE_HOST, NTP_TR_TCP, "nvme_tcp", tcp_host_required,
@@ -152,10 +153,39 @@ static bool target_present(const struct ksyms* k, const struct bpf_program* prog
   return ksyms_has(k, slash + 1);
 }
 
+/* Length of a program's name without its flavour suffix. */
+static size_t base_len(const char* prog) {
+  static const char* const suffixes[] = {"_fe", "_fx", "_kp", "_kr"};
+  size_t n = strlen(prog);
+
+  for (size_t i = 0; i < ARRAY_SIZE(suffixes); i++)
+    if (n > 3 && !strcmp(prog + n - 3, suffixes[i])) return n - 3;
+  return n;
+}
+
 static bool is_required(const struct obj_desc* d, const char* prog) {
+  size_t n = base_len(prog);
+
   for (const char* const* r = d->required; *r; r++)
-    if (!strcmp(*r, prog)) return true;
+    if (strlen(*r) == n && !strncmp(*r, prog, n)) return true;
   return false;
+}
+
+enum flavour { FL_COMMON, FL_FENTRY, FL_KPROBE };
+
+static enum flavour flavour_of(const struct bpf_program* prog) {
+  const char* sec = bpf_program__section_name(prog);
+
+  if (!strncmp(sec, "fentry/", 7) || !strncmp(sec, "fexit/", 6)) return FL_FENTRY;
+  if (!strncmp(sec, "kprobe/", 7) || !strncmp(sec, "kretprobe/", 10))
+    return FL_KPROBE;
+  return FL_COMMON;
+}
+
+/* fentry/fexit need the kernel's own BTF (module BTF included). */
+static enum flavour choose_flavour(const struct ntp_config* c) {
+  if (c->force_kprobes || access(KERNEL_BTF, R_OK)) return FL_KPROBE;
+  return FL_FENTRY;
 }
 
 /* ---- loader ---- */
@@ -196,7 +226,7 @@ static void fill_filter(struct ntp_filter* f, const struct ntp_config* c,
     f->nsid = host_sel->nsid;
   }
   if (c->ifname[0]) f->ifindex = if_nametoindex(c->ifname);
-  f->track_queues = c->rep_queue_length;
+  f->track_queues = c->exact_queues;
 }
 
 static int read_sysfs_u32(const char* path, uint32_t* out) {
@@ -248,29 +278,73 @@ static int resolve_session(const char* session, struct ntp_filter* sel) {
   return 0;
 }
 
+/*
+ * CO-RE against generated BTF when --btf is given (or must be: the kernel has
+ * none), otherwise against the kernel's own BTF.
+ */
+static int btf_opts(const struct ntp_config* c, const struct obj_desc* d,
+                    char* path, size_t len, struct bpf_object_open_opts* opts) {
+  if (!c->btf_dir[0]) {
+    if (!access(KERNEL_BTF, R_OK)) return 0;
+    ntp_err("this kernel has no BTF (%s). Generate it from the modules' DWARF "
+            "with tools/gen-btf.sh and pass --btf DIR",
+            KERNEL_BTF);
+    return -1;
+  }
+  snprintf(path, len, "%s/%s.btf", c->btf_dir, d->btf_module);
+  if (access(path, R_OK)) {
+    ntp_err("%s: cannot read %s", d->name, path);
+    return -1;
+  }
+  opts->btf_custom_path = path;
+  ntp_debug("%s: CO-RE against %s", d->name, path);
+  return 0;
+}
+
+/*
+ * Keep one flavour of each function hook; programs whose attach point this
+ * kernel lacks are not loaded.
+ */
+static int select_programs(const struct obj_desc* d, struct bpf_object* obj,
+                           const struct ksyms* ks, enum flavour fl,
+                           bool skip_netif, bool quiet) {
+  struct bpf_program* prog;
+
+  bpf_object__for_each_program(prog, obj) {
+    const char* name = bpf_program__name(prog);
+    enum flavour pf = flavour_of(prog);
+    char what[256];
+
+    if ((skip_netif && !strcmp(name, "ntp_netif_rx")) ||
+        (pf != FL_COMMON && pf != fl)) {
+      bpf_program__set_autoload(prog, false);
+      continue;
+    }
+    if (target_present(ks, prog, what, sizeof(what))) continue;
+    if (is_required(d, name)) {
+      if (!quiet)
+        ntp_err("%s: %s not found in /proc/kallsyms; is the %s module loaded?",
+                d->name, what, d->btf_module);
+      return -1;
+    }
+    if (!quiet)
+      ntp_warn("%s: %s not available on this kernel; %s disabled", d->name,
+               what, name);
+    bpf_program__set_autoload(prog, false);
+  }
+  return 0;
+}
+
 static int open_one(struct ntp_loader* l, const struct obj_desc* d,
                     const struct ntp_config* c, const struct ntp_filter* sel,
                     const struct ksyms* ks, struct obj_inst* shared) {
   LIBBPF_OPTS(bpf_object_open_opts, opts);
   struct obj_inst* o = &l->inst[l->ninst];
   char btf_path[512];
-  struct bpf_program* prog;
   uint64_t rb_bytes;
   int err;
 
-  if (access(KERNEL_BTF, R_OK)) {
-    if (!c->btf_dir[0]) {
-      ntp_err("this kernel has no BTF (%s). Generate it from the modules' "
-              "DWARF with tools/gen-btf.sh and pass --btf DIR",
-              KERNEL_BTF);
-      return -1;
-    }
-    snprintf(btf_path, sizeof(btf_path), "%s/%s.btf", c->btf_dir,
-             d->btf_module);
-    opts.btf_custom_path = btf_path;
-    ntp_debug("%s: CO-RE against %s", d->name, btf_path);
-  }
-
+  if (btf_opts(c, d, btf_path, sizeof(btf_path), &opts)) return -1;
   err = d->open(o, &opts);
   if (err) {
     ntp_err("%s: cannot open BPF object: %s", d->name, strerror(-err));
@@ -301,25 +375,8 @@ static int open_one(struct ntp_loader* l, const struct obj_desc* d,
     }
   }
 
-  bpf_object__for_each_program(prog, o->obj) {
-    const char* name = bpf_program__name(prog);
-    char what[256];
-
-    if (shared && !strcmp(name, "ntp_netif_rx")) {
-      bpf_program__set_autoload(prog, false);
-      continue;
-    }
-    if (target_present(ks, prog, what, sizeof(what))) continue;
-    if (is_required(d, name)) {
-      ntp_err("%s: %s not found in /proc/kallsyms; is the %s module loaded?",
-              d->name, what, d->btf_module);
-      return -1;
-    }
-    ntp_warn("%s: %s not available on this kernel; %s disabled", d->name, what,
-             name);
-    bpf_program__set_autoload(prog, false);
-  }
-
+  if (select_programs(d, o->obj, ks, choose_flavour(c), shared != NULL, false))
+    return -1;
   err = bpf_object__load(o->obj);
   if (err) {
     ntp_err("%s: cannot load BPF object: %s (rerun with -v for the verifier log)",
@@ -453,21 +510,23 @@ int ntp_probe(const struct ntp_config* c, FILE* f) {
 
   libbpf_set_print(libbpf_log);
   if (ksyms_load(&ks)) return -1;
-  fprintf(f, "kernel BTF: %s\n",
-          kbtf ? "yes" : "no (CO-RE needs --btf DIR, see tools/gen-btf.sh)");
+  fprintf(f, "kernel BTF: %s\nfunction hooks: %s\n",
+          kbtf ? "yes" : "no (CO-RE needs --btf DIR, see tools/gen-btf.sh)",
+          choose_flavour(c) == FL_FENTRY ? "fentry/fexit" : "kprobe/kretprobe");
 
   for (size_t i = 0; i < ARRAY_SIZE(objects); i++) {
     const struct obj_desc* d = &objects[i];
     struct obj_inst o = {.desc = d};
     LIBBPF_OPTS(bpf_object_open_opts, opts);
+    char btf_mod[256], btf_path[512];
     struct bpf_program* prog;
-    char btf_mod[256];
+    int err;
 
     if (!(c->role & d->role) || c->transport != d->transport) continue;
     snprintf(btf_mod, sizeof(btf_mod), "/sys/kernel/btf/%s", d->btf_module);
     fprintf(f, "\n%s (module BTF %s: %s)\n", d->name, d->btf_module,
             access(btf_mod, R_OK) ? "absent" : "present");
-    if (d->open(&o, &opts)) {
+    if (btf_opts(c, d, btf_path, sizeof(btf_path), &opts) || d->open(&o, &opts)) {
       fprintf(f, "  cannot open object\n");
       continue;
     }
@@ -478,6 +537,14 @@ int ntp_probe(const struct ntp_config* c, FILE* f) {
       fprintf(f, "  %-4s %-22s %-40s%s\n", ok ? "ok" : "--",
               bpf_program__name(prog), what,
               is_required(d, bpf_program__name(prog)) ? " (required)" : "");
+    }
+    /* load (verifier and CO-RE relocations) without attaching */
+    if (select_programs(d, o.obj, &ks, choose_flavour(c), false, true)) {
+      fprintf(f, "  load: skipped, a required attach point is missing\n");
+    } else {
+      err = bpf_object__load(o.obj);
+      fprintf(f, "  load: %s%s\n", err ? "FAILED: " : "ok",
+              err ? strerror(-err) : "");
     }
     d->destroy(&o);
   }

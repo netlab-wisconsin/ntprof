@@ -133,6 +133,16 @@ static int apply(struct ntp_config* c, const char* section, const char* key,
   if (IS("Report", "ENABLE_GROUP_BY_TYPE")) return set_bool(v, &c->group_by_type);
   if (IS("Report", "ENABLE_GROUP_BY_SESSION"))
     return set_bool(v, &c->group_by_session);
+  /* v2: "estimate" (Little's law, default) or "exact" (per-request tracking) */
+  if (IS("Report", "QUEUE_TRACKING")) {
+    if (!strcasecmp(v, "exact"))
+      c->exact_queues = true;
+    else if (!strcasecmp(v, "estimate"))
+      c->exact_queues = false;
+    else
+      return -1;
+    return 0;
+  }
 #undef IS
   ntp_warn("ignoring unknown key [%s] %s", section, key);
   return 0;

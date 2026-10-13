@@ -35,7 +35,7 @@ void ntp_report_tput(FILE* f, const struct ntp_tput* t) {
 
   fprintf(f,
           "throughput: read %.1f kIOPS %.1f MB/s | write %.1f kIOPS %.1f MB/s "
-          "(%.1f s, all commands)\n",
+          "(%.1f s, all commands, as submitted)\n",
           t->read_ios / s / 1e3, t->read_bytes / s / 1e6, t->write_ios / s / 1e3,
           t->write_bytes / s / 1e6, t->seconds);
 }
@@ -59,28 +59,34 @@ static double us(double ns) { return ns / 1e3; }
 static void print_header(FILE* f, const struct ntp_report_opts* o) {
   int q[NTP_NQ], nq = columns(o, q);
 
-  fprintf(f, "  %-36s %-11s %8s %9s", "component", "stage", "n", "mean");
+  fprintf(f, "  %-36s %-11s %8s %9s %7s", "component", "stage", "n", "mean", "L");
   if (o->aggr == NTP_AGG_MIN) fprintf(f, " %9s", "min");
   for (int i = 0; i < nq; i++) fprintf(f, " %9s", ntp_quantile_names[q[i]]);
   if (o->aggr == NTP_AGG_MAX) fprintf(f, " %9s", "max");
   fprintf(f, "   (us)\n");
 }
 
+/* @rate: commands per second, for L = rate x mean (Little's law); 0: none */
 static void print_row(FILE* f, const char* label, int indent,
                       const char* stage, const struct ntp_summary* m,
-                      const struct ntp_report_opts* o) {
+                      double rate, const struct ntp_report_opts* o) {
   int q[NTP_NQ], nq = columns(o, q);
 
   fprintf(f, "  %*s%-*s %-11s %8zu %9.2f", indent, "", 36 - indent, label,
           stage, m->n, us(m->mean));
+  if (rate > 0)
+    fprintf(f, " %7.2f", rate * m->mean / 1e9);
+  else
+    fprintf(f, " %7s", "-");
   if (o->aggr == NTP_AGG_MIN) fprintf(f, " %9.2f", us((double)m->min));
   for (int i = 0; i < nq; i++) fprintf(f, " %9.2f", us((double)m->q[q[i]]));
   if (o->aggr == NTP_AGG_MAX) fprintf(f, " %9.2f", us((double)m->max));
   fputc('\n', f);
 }
 
-static void print_group(FILE* f, struct ntp_group* g,
+static void print_group(FILE* f, const struct ntp_stats* s, struct ntp_group* g,
                         const struct ntp_report_opts* o) {
+  double rate = ntp_group_rate(s, g);
   struct ntp_summary m, e2e;
   char label[96];
 
@@ -103,12 +109,12 @@ static void print_group(FILE* f, struct ntp_group* g,
       ntp_summarize(&g->comp[c], &m);
       if (!m.n) continue;
       print_row(f, ntp_comps[c].desc, display[i].indent, ntp_comps[c].stage, &m,
-                o);
+                rate, o);
     }
   } else {
     print_header(f, o);
     print_row(f, ntp_comps[NTP_C_E2E].desc, 0, ntp_comps[NTP_C_E2E].stage, &e2e,
-              o);
+              rate, o);
   }
 
   fprintf(f, "  stages (mean us, share of end to end):");
@@ -140,7 +146,10 @@ void ntp_report_text(FILE* f, struct ntp_stats* s,
     fprintf(f, "no sampled commands\n");
     return;
   }
-  for (size_t i = 0; i < s->n; i++) print_group(f, &s->groups[i], o);
+  if (o->breakdown)
+    fprintf(f, "(L: mean number of commands in the component, by Little's law "
+               "= command rate x mean time)\n");
+  for (size_t i = 0; i < s->n; i++) print_group(f, s, &s->groups[i], o);
 }
 
 /* ---- JSON ---- */
@@ -198,6 +207,7 @@ int ntp_report_json(const char* path, struct ntp_stats* s,
   fprintf(f, "  \"groups\": [");
   for (size_t gi = 0; gi < s->n; gi++) {
     struct ntp_group* g = &s->groups[gi];
+    double rate = ntp_group_rate(s, g);
     bool first = true;
 
     fprintf(f, "%s\n    {\"type\": ", gi ? "," : "");
@@ -206,14 +216,18 @@ int ntp_report_json(const char* path, struct ntp_stats* s,
     json_str(f, g->key.session);
     fprintf(f,
             ", \"records\": %llu, \"joined\": %llu, \"incomplete_host\": %llu, "
-            "\"incomplete_target\": %llu,\n     \"components\": {",
+            "\"incomplete_target\": %llu, \"rate_per_s\": %.1f,\n"
+            "     \"components\": {",
             (unsigned long long)g->records, (unsigned long long)g->joined,
-            (unsigned long long)g->bad_host, (unsigned long long)g->bad_target);
+            (unsigned long long)g->bad_host, (unsigned long long)g->bad_target,
+            rate);
     for (int c = 0; c < NTP_C_NR; c++) {
       ntp_summarize(&g->comp[c], &m);
       if (!m.n) continue;
-      fprintf(f, "%s\n       \"%s\": {\"stage\": \"%s\", \"summary\": ",
-              first ? "" : ",", ntp_comps[c].name, ntp_comps[c].stage);
+      fprintf(f, "%s\n       \"%s\": {\"stage\": \"%s\", \"occupancy\": %.3f, "
+                 "\"summary\": ",
+              first ? "" : ",", ntp_comps[c].name, ntp_comps[c].stage,
+              rate * m.mean / 1e9);
       json_summary(f, &m);
       fputc('}', f);
       first = false;

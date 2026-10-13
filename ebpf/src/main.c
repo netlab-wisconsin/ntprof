@@ -44,6 +44,10 @@ static void usage(FILE* f) {
           "      --btf DIR         BTF from tools/gen-btf.sh, for kernels "
           "without BTF\n"
           "      --ifname IF       time packet arrivals only on interface IF\n"
+          "      --exact-queues    count queue occupancy per request (map\n"
+          "                        operations on every I/O; default: mean\n"
+          "                        occupancy per stage by Little's law)\n"
+          "      --kprobes         use kprobes even where fentry/fexit work\n"
           "  -v, --verbose         more messages (twice: libbpf debug)\n"
           "  -h, --help\n");
 }
@@ -56,6 +60,8 @@ enum {
   OPT_OFFLINE,
   OPT_BTF,
   OPT_IFNAME,
+  OPT_EXACT_QUEUES,
+  OPT_KPROBES,
 };
 
 static const struct option long_opts[] = {
@@ -74,6 +80,8 @@ static const struct option long_opts[] = {
     {"offline", no_argument, NULL, OPT_OFFLINE},
     {"btf", required_argument, NULL, OPT_BTF},
     {"ifname", required_argument, NULL, OPT_IFNAME},
+    {"exact-queues", no_argument, NULL, OPT_EXACT_QUEUES},
+    {"kprobes", no_argument, NULL, OPT_KPROBES},
     {"verbose", no_argument, NULL, 'v'},
     {"help", no_argument, NULL, 'h'},
     {NULL, 0, NULL, 0},
@@ -140,6 +148,12 @@ static int apply_option(struct ntp_config* c, int opt, const char* v) {
       return 0;
     case OPT_BTF:
       snprintf(c->btf_dir, sizeof(c->btf_dir), "%s", v);
+      return 0;
+    case OPT_EXACT_QUEUES:
+      c->exact_queues = true;
+      return 0;
+    case OPT_KPROBES:
+      c->force_kprobes = true;
       return 0;
     case OPT_IFNAME:
       if (!if_nametoindex(v)) return bad("--ifname", v);
