@@ -23,7 +23,7 @@ struct ntp_spdk_proc {
 };
 
 /*
- * Processes (other than this one) that map one of the comma-separated
+ * Processes (other than this one) that map the first of the comma-separated
  * @paths, with the address of their sampling variable. Returns how many were
  * found (at most @max), or -1 after printing why.
  */

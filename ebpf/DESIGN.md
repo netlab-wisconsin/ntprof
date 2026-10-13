@@ -5,7 +5,9 @@ ntprof v2 measures the same thing as the NSDI'25 ntprof (v1, `src/` and
 I/O, split into the stages of the path from the initiator's block layer to the
 target's device and back (S1-S9 in the paper's Figure 4). v1 did it with 23
 tracepoints patched into `nvme-tcp` / `nvmet-tcp`, a patched `blk-core.c` and
-two kernel modules. v2 does it with eBPF on unmodified kernels.
+two kernel modules. v2 does it with eBPF on unmodified kernels, for NVMe/TCP
+and NVMe/RDMA, and on SPDK's user-space NVMe/TCP through USDT probes
+(section 8).
 
 ## 1. What changed from v1, and why
 
@@ -18,6 +20,7 @@ two kernel modules. v2 does it with eBPF on unmodified kernels.
 | Sampling decision host -> target | `stat.tag` bit in the command PDU | both sides hash (cid, slba, nlb) |
 | Analysis | in the kernel module (`analyzer.c`) | in user space, online or from record files |
 | Output | text in the terminal | text, JSON, raw records (CSV via `dump`), LAD between runs |
+| Transports | NVMe/TCP | NVMe/TCP, NVMe/RDMA; SPDK NVMe/TCP (initiator and target) |
 
 ## 2. Hooks
 
@@ -60,6 +63,25 @@ and tells the NVMe/TCP calls apart with a per-thread context.
 | (none) | `sock_sendmsg`, state `SEND_DATA_PDU` | `NTP_T_C2H_SENT` |
 | NVMET_TCP_TRY_SEND_RESPONSE (inlined) | `sock_sendmsg`, state `SEND_RESPONSE` | `NTP_T_RSP_SENT` |
 
+### NVMe/RDMA (`bpf/nvme_rdma_host.bpf.c`, `bpf/nvme_rdma_target.bpf.c`)
+
+v1 had no RDMA support; the events keep the TCP names where the meaning
+carries over ("sent" = posted to the queue pair). The block-layer and
+nvme-core hooks are the same as for TCP (`bpf/host.bpf.h`,
+`bpf/target.bpf.h`).
+
+| Side | v2 hook | v2 event |
+|---|---|---|
+| initiator | entry of `nvme_rdma_queue_rq` | `NTP_H_QUEUE_RQ` |
+| initiator | `nvme_rdma_post_send` returning 0 | `NTP_H_CMD_SENT` |
+| initiator | `nvme_rdma_send_done` | `NTP_H_SEND_DONE` |
+| initiator | `nvme_rdma_recv_done` (the response's CQE; cid from the CQE) | `NTP_H_RSP_ARR` |
+| initiator | `blk_mq_complete_request_remote` in a completion handler | `NTP_H_RSP_PROC` |
+| target | `nvmet_rdma_recv_done` (the command's CQE) | `NTP_T_CMD_ARR` |
+| target | `nvmet_rdma_execute_command` for a write whose data is not inline | `NTP_T_R2T_SENT` (RDMA READ posted), flag `RDMA_READ` |
+| target | `nvmet_rdma_read_data_done` | `NTP_T_DATA_ARR`, `NTP_T_DATA_PROC` |
+| target | entry / exit of `nvmet_rdma_queue_response` | `NTP_T_RSP_QUEUED` / `NTP_T_C2H_SENT` (reads), `NTP_T_RSP_SENT` |
+
 ### Hook flavours
 
 Every function hook exists twice with the same body: as fentry/fexit
@@ -76,9 +98,10 @@ falls back where it can (section 4).
 
 ## 3. Records and their join
 
-Each side keeps a record per sampled command in a BPF hash map and emits it
-on a ring buffer when the command leaves that side: the target at its
-response, the host at `block_rq_complete` (`bpf/ntprof.h`). Records carry
+Each side keeps a record per sampled command in a direct-mapped BPF array
+(indexed by a hash of the command's address) and emits it on a ring buffer
+when the command leaves that side: the target at its response, the host at
+`block_rq_complete` (`bpf/ntprof.h`). Records carry
 `CLOCK_MONOTONIC` timestamps; only differences of timestamps from the same
 machine are ever taken, so host and target clocks need no synchronisation.
 
@@ -93,8 +116,11 @@ v1 carried in the PDU.
 
 **Order.** Within one process (`--role both`) the host and target programs
 share one ring buffer, so a command's target record (emitted when its response
-is sent) is always consumed before its host record. Across machines, the two
-record files are joined offline (`ntprof report host.ntp target.ntp`).
+is sent) is normally consumed before its host record. With SPDK the host can
+complete first (section 8); a host record without its target record then
+waits up to 100 ms in the joiner before it counts as unmatched. Across
+machines, the two record files are joined offline (`ntprof report host.ntp
+target.ntp`), which is order-independent.
 
 **Arming.** Programs attach one by one. Nothing is recorded or counted until
 every program is attached; a command that started earlier would miss events.
@@ -139,6 +165,14 @@ Without a target record (host only, or a target record that misses events)
 the network and target components are reported together as "network and
 target (no target record)", S3-S9.
 
+**NVMe/RDMA.** The host CPU sees one round trip: the command posted, the
+response's CQE polled; the target moves the data by RDMA WRITE (reads) or
+RDMA READ (writes) without the host CPU. So the host's wait is H_RSP_ARR -
+H_CMD_SENT, its receive stack H_RSP_PROC - H_RSP_ARR, and S2(C) is 0. On the
+target, a write's RDMA READ (T_DATA_PROC - T_R2T_SENT) is wire and remote-NIC
+time seen from the target: it counts as network, not as target residence.
+S6(S) is then (T_R2T_SENT - T_CMD_PROC) + (T_EXEC - T_DATA_PROC).
+
 ## 5. Queue occupancy
 
 v1 had the `ENABLE_QUEUE_LENGTH` switch but did not compute queue lengths.
@@ -179,6 +213,82 @@ kernels run the kprobe flavour (fentry needs real kernel BTF).
 - **Not covered:** NVMe/TCP with TLS (`nvme connect --tls`), polled-mode
   completions on the target, admin commands, and commands other than read and
   write. Data digests are covered on the host (`skb_copy_and_hash_datagram_iter`).
-- **Overhead.** The hooks run for every I/O; sampling only decides which
-  commands get a record. Measured overhead: experiment
-  `2026-10-13_ntprof-v2-ebpf` in the research workspace.
+- **Overhead.** The kernel hooks run for every I/O; sampling only decides
+  which commands get a record, and the hooks that only add timestamps return
+  after one array lookup while no sampled command is in flight. In a 16-vCPU
+  guest running initiator and target together (a worst case: both sides'
+  hooks share the CPUs with the workload), 4 KB random reads at queue depth
+  32 x 4 jobs kept 82 % of their IOPS at 1 in 1000 with fentry, and 52 % with
+  every command recorded (Linux 6.8, 2026-10-13). SPDK's probes fire only for
+  sampled commands (section 8).
+
+## 8. SPDK
+
+SPDK's NVMe/TCP initiator (`lib/nvme/nvme_tcp.c`) and target
+(`lib/nvmf/tcp.c`) run in user space over kernel TCP sockets. ntprof watches
+them through USDT probes (provider `ntprof`) that
+`spdk/ntprof-usdt-v26.05.patch` adds: about 60 lines in five files and the
+header `include/spdk_internal/ntprof.h`.
+
+| Probe | Where | Event(s) |
+|---|---|---|
+| `nvme_tcp_submit(req, cmd, qid, cntlid)` | `nvme_tcp_qpair_submit_request` | `NTP_H_START`, `NTP_H_QUEUE_RQ` |
+| `nvme_tcp_pdu(req, pdu, type)` | command capsule or H2C data PDU queued to the socket | `NTP_H_DATA_START` (first H2C) |
+| `sock_req_sent(cb_arg)` | `spdk_sock_request_pend`: one `sendmsg()` took the whole PDU | `NTP_H_CMD_SENT`, `NTP_H_DATA_SENT`; `NTP_T_R2T_SENT`, `NTP_T_C2H_SENT`, `NTP_T_RSP_SENT` |
+| `nvme_tcp_event(req, C2H / R2T / RSP)` | that PDU's header parsed | `NTP_H_C2H_*`, `NTP_H_R2T_*`, `NTP_H_RSP_ARR` |
+| `nvme_tcp_event(req, DONE)` | `nvme_tcp_req_complete` | `NTP_H_RSP_PROC`, `NTP_H_NVME_DONE`, `NTP_H_BLK_DONE` |
+| `nvmf_tcp_cmd(req, cmd, qid, cntlid)` | the command copied out of the capsule | `NTP_T_CMD_ARR`, `NTP_T_CMD_PROC` |
+| `nvmf_tcp_state(req, state)` | every request state change | EXECUTING: `NTP_T_EXEC`; EXECUTED: `NTP_T_COMPLETE` |
+| `nvmf_tcp_pdu(req, type, flags)` | R2T, C2H data or response queued to the socket | `NTP_T_R2T_QUEUED`, `NTP_T_RSP_QUEUED` |
+| `nvmf_tcp_h2c(req)` | an H2C data header parsed | `NTP_T_DATA_ARR`, `NTP_T_DATA_PROC` |
+
+**Sampling inside SPDK.** An attached USDT probe traps into the kernel on
+every hit, about a microsecond. So SPDK decides per command whether its
+probes run: `ntprof_sampled()` applies `ntp_sample_hash()` with the period in
+`g_ntprof_sample_every` (defined in `lib/sock/sock.c`, 0 by default), and
+the socket layer learns that a PDU belongs to a sampled command from a flag in
+its `spdk_sock_request` (`internal.ntprof`, in existing padding). ntprof finds
+the processes that map the binary it was given, resolves the variable's
+address from the ELF symbol table and the process's mappings, and writes the
+period through `/proc/PID/mem` once its programs are attached; targets first,
+so that a command a host samples is sampled by its target too. It writes 0
+when it stops, hosts first.
+
+**Sent and arrived.** As in v1 and the kernel objects, an initiator PDU
+counts as sent when `sendmsg()` returned (v1's done_send_req), a target PDU
+when `tcp_sendmsg()` was entered (v1's try_send_*): `sock_req_sent` fires
+right after the call, on the same thread, and a kernel hook restricted to
+the SPDK processes remembers the entry. The socket layer's write-completion
+callback is not used: with zero-copy send it waits for the kernel's
+notification, which follows the peer's ACK. For arrival, hooks on
+`tcp_recvmsg()` and `skb_copy_datagram_iter()` keep per SPDK thread the
+`netif_receive_skb` stamp of the first skb the latest `tcp_recvmsg()`
+copied; a PDU parsed afterwards takes it. SPDK reads all queued bytes at
+once, so when one read carries several PDUs the later ones take the first
+skb's time, which moves at most the spread of that read from network time
+to receive-stack time.
+
+**Mapping to the model.** SPDK has no block layer: an initiator command
+starts at submission and ends at its completion to the application, which
+also plays the part of `blk_mq_complete_request_remote()` (`NTP_H_RSP_PROC`),
+so S1 is 0 at both ends. The target's backend (bdev layer and device) is
+S7-S9, without the block-layer split. Records carry `NTP_F_SPDK`; an
+initiator's session is named `spdk-c<cntlid>n<nsid>`. Throughput of an SPDK
+initiator is the sampled commands times the sampling period.
+
+**Order.** The target emits its record when its last PDU (the response, or C2H
+data with the SUCCESS flag) is handed to TCP, and at state COMPLETED for a
+command that ended without one. On one machine the host's completion can
+still come first (section 3).
+
+**Limits.** The patch is for SPDK v26.05; the BPF side uses SPDK's (explicit)
+request state numbers, so another version needs the patch rebased and the
+numbers checked. `sock_req_sent` sits in a socket-layer helper both the
+posix and the uring modules call; only posix was tested. SPDK's NVMe/RDMA is
+not instrumented. Over loopback the receiver's stack runs inside the
+sender's `sendmsg()`, so the network share can be slightly negative (about
+-1 us for 4 KB writes); and a kernel target on the same machine runs its
+`io_work` on the CPU the packet arrived on, which is the SPDK initiator's
+polling reactor: it preempts the reactor, inflates the initiator's S2(S) and
+turns the network share negative by as much. Neither happens across
+machines.

@@ -313,7 +313,9 @@ int ntp_spdk_find(const char* list, struct ntp_spdk_proc* procs, int max) {
     struct maps m;
 
     if (*end || pid <= 0 || pid == self || maps_read((pid_t)pid, &m)) continue;
-    for (int i = 0; i < p.n && !match; i++) match = maps_has(&m, p.v[i]);
+    /* the first file names the application (others may be shared libraries
+     * every SPDK process maps) */
+    match = maps_has(&m, p.v[0]);
     if (match && n == max) {
       ntp_warn("more than %d processes run %s; profiling the first %d", max,
                list, max);
