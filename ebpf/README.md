@@ -124,12 +124,13 @@ sudo ./ntprof record -r both --spdk-target spdk/build/bin/nvmf_tgt   # kernel in
   SPDK's shared libraries, name the transport library first and add the
   socket module: `--spdk-target build/lib/libspdk_nvmf.so,build/lib/libspdk_sock_posix.so`
   (initiator: `libspdk_nvme.so,...`).
-- The probes fire only for sampled commands. SPDK samples nothing until
-  ntprof, once attached, writes its sampling period into the processes; it
-  writes 0 back when it stops. An unsampled command costs SPDK a load and a
-  compare; a sampled one about a dozen probe hits of roughly a microsecond
-  each. If ntprof is killed with SIGKILL, the period stays set (the probes
-  are then no-ops) until the next run.
+- SPDK samples nothing until ntprof, once attached, writes its sampling
+  period into the processes; it writes 0 back when it stops. An unsampled
+  command costs SPDK a load and a compare. A sampled one has its stage times
+  written by SPDK itself (a vDSO clock read each) and one USDT probe per side
+  when it is done, after its last event, so the probe's cost (about a
+  microsecond) stays out of the times. If ntprof is killed with SIGKILL, the
+  period stays set (the probes are then no-ops) until the next run.
 - An SPDK initiator has no block layer: S1 is empty, and the throughput line
   is estimated from the sampled commands.
 

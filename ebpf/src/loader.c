@@ -104,13 +104,9 @@ static const char* const rdma_target_required[] = {
 #define USDT_PREFIX "ntp_u_"
 #define USDT_PROVIDER "ntprof"
 
-static const char* const spdk_host_required[] = {
-    "ntp_u_nvme_tcp_submit", "ntp_u_nvme_tcp_pdu", "ntp_u_nvme_tcp_event",
-    "ntp_u_sock_req_sent", NULL};
+static const char* const spdk_host_required[] = {"ntp_u_nvme_tcp_done", NULL};
 
-static const char* const spdk_target_required[] = {
-    "ntp_u_nvmf_tcp_cmd", "ntp_u_nvmf_tcp_state", "ntp_u_nvmf_tcp_pdu",
-    "ntp_u_nvmf_tcp_h2c", "ntp_u_sock_req_sent", NULL};
+static const char* const spdk_target_required[] = {"ntp_u_nvmf_tcp_done", NULL};
 
 static const struct obj_desc objects[] = {
     {"nvme_tcp_host", NTP_ROLE_HOST, NTP_TR_TCP, "nvme_tcp", tcp_host_required,
@@ -294,7 +290,11 @@ static void fill_filter(struct ntp_filter* f, const struct ntp_config* c,
   }
   if (c->ifname[0]) f->ifindex = if_nametoindex(c->ifname);
   f->track_queues = c->exact_queues;
-  f->stamp_always = !!(c->role & NTP_ROLE_TARGET);
+  /*
+   * A target, and an SPDK initiator (its commands become known only when
+   * they are done), need every packet stamped.
+   */
+  f->stamp_always = (c->role & NTP_ROLE_TARGET) || c->spdk_host[0];
 }
 
 static int read_sysfs_u32(const char* path, uint32_t* out) {

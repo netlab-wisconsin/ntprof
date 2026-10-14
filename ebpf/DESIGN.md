@@ -225,48 +225,67 @@ kernels run the kprobe flavour (fentry needs real kernel BTF).
 ## 8. SPDK
 
 SPDK's NVMe/TCP initiator (`lib/nvme/nvme_tcp.c`) and target
-(`lib/nvmf/tcp.c`) run in user space over kernel TCP sockets. ntprof watches
-them through USDT probes (provider `ntprof`) that
-`spdk/ntprof-usdt-v26.05.patch` adds: about 60 lines in five files and the
-header `include/spdk_internal/ntprof.h`.
+(`lib/nvmf/tcp.c`) run in user space over kernel TCP sockets.
+`spdk/ntprof-usdt-v26.05.patch` (about 110 lines in six files, and the
+header `include/spdk_internal/ntprof.h`) lets ntprof see them.
 
-| Probe | Where | Event(s) |
+**Times recorded by SPDK, one probe per command.** A USDT probe that a tracer
+is attached to traps into the kernel on every hit, about a microsecond, as
+long as a 4 KB command spends in some stages. A first version with a probe
+at every stage boundary (16 per read) inflated the sampled commands by about
+12 us. So SPDK records the times itself: for a sampled command, each stage
+boundary is written into the command's `struct ntprof_times` with
+`clock_gettime(CLOCK_MONOTONIC)` (the vDSO, tens of ns; the same clock as
+`bpf_ktime_get_ns()`), and one probe per side fires when the command is done
+on that side (`nvme_tcp_done` at the completion to the application,
+`nvmf_tcp_done` at request state COMPLETED), handing over the times. The
+probe comes after the command's last event, so its cost stays out of the
+times.
+
+| Event | Where in SPDK | Record |
 |---|---|---|
-| `nvme_tcp_submit(req, cmd, qid, cntlid)` | `nvme_tcp_qpair_submit_request` | `NTP_H_START`, `NTP_H_QUEUE_RQ` |
-| `nvme_tcp_pdu(req, pdu, type)` | command capsule or H2C data PDU queued to the socket | `NTP_H_DATA_START` (first H2C) |
-| `sock_req_sent(cb_arg)` | `spdk_sock_request_pend`: one `sendmsg()` took the whole PDU | `NTP_H_CMD_SENT`, `NTP_H_DATA_SENT`; `NTP_T_R2T_SENT`, `NTP_T_C2H_SENT`, `NTP_T_RSP_SENT` |
-| `nvme_tcp_event(req, C2H / R2T / RSP)` | that PDU's header parsed | `NTP_H_C2H_*`, `NTP_H_R2T_*`, `NTP_H_RSP_ARR` |
-| `nvme_tcp_event(req, DONE)` | `nvme_tcp_req_complete` | `NTP_H_RSP_PROC`, `NTP_H_NVME_DONE`, `NTP_H_BLK_DONE` |
-| `nvmf_tcp_cmd(req, cmd, qid, cntlid)` | the command copied out of the capsule | `NTP_T_CMD_ARR`, `NTP_T_CMD_PROC` |
-| `nvmf_tcp_state(req, state)` | every request state change | EXECUTING: `NTP_T_EXEC`; EXECUTED: `NTP_T_COMPLETE` |
-| `nvmf_tcp_pdu(req, type, flags)` | R2T, C2H data or response queued to the socket | `NTP_T_R2T_QUEUED`, `NTP_T_RSP_QUEUED` |
-| `nvmf_tcp_h2c(req)` | an H2C data header parsed | `NTP_T_DATA_ARR`, `NTP_T_DATA_PROC` |
+| initiator SUBMIT | `nvme_tcp_qpair_submit_request` | `NTP_H_START`, `NTP_H_QUEUE_RQ` |
+| CMD_SENT, H2C_SENT | socket layer: `sendmsg()` took the whole capsule / the last H2C PDU | `NTP_H_CMD_SENT`, `NTP_H_DATA_SENT` |
+| R2T, C2H, RSP | the PDU header parsed | `NTP_H_R2T_PROC`, `NTP_H_C2H_PROC`; arrivals `NTP_H_*_ARR` |
+| H2C_START | the first H2C data PDU queued | `NTP_H_DATA_START` |
+| DONE | `nvme_tcp_req_complete` | `NTP_H_RSP_PROC`, `NTP_H_NVME_DONE`, `NTP_H_BLK_DONE` |
+| target CMD | the command copied out of its capsule | `NTP_T_CMD_PROC`; arrival `NTP_T_CMD_ARR` |
+| R2T_QUEUED, RSP_QUEUED | the first R2T / C2H data or response PDU queued | `NTP_T_R2T_QUEUED`, `NTP_T_RSP_QUEUED` |
+| R2T_SENT, C2H_SENT, RSP_SENT | socket layer took the PDU | `NTP_T_R2T_SENT`, `NTP_T_C2H_SENT`, `NTP_T_RSP_SENT` (see below) |
+| H2C | an H2C data header parsed | `NTP_T_DATA_PROC`; arrival `NTP_T_DATA_ARR` |
+| EXEC, EXECUTED | request states EXECUTING, EXECUTED (bdev layer) | `NTP_T_EXEC`, `NTP_T_COMPLETE` |
 
-**Sampling inside SPDK.** An attached USDT probe traps into the kernel on
-every hit, about a microsecond. So SPDK decides per command whether its
-probes run: `ntprof_sampled()` applies `ntp_sample_hash()` with the period in
-`g_ntprof_sample_every` (defined in `lib/sock/sock.c`, 0 by default), and
-the socket layer learns that a PDU belongs to a sampled command from a flag in
-its `spdk_sock_request` (`internal.ntprof`, in existing padding). ntprof finds
-the processes that map the binary it was given, resolves the variable's
-address from the ELF symbol table and the process's mappings, and writes the
-period through `/proc/PID/mem` once its programs are attached; targets first,
-so that a command a host samples is sampled by its target too. It writes 0
-when it stops, hosts first.
+"The socket layer took the PDU": the transports mark the socket request of a
+sampled command's PDU (`internal.ntprof`); `spdk_sock_request_pend()`, which
+runs when one `sendmsg()` has taken the whole request, then stores the time
+in the request (`internal.ntprof_sent_ns`), and the transport files it when
+the write completes. The write-completion callback itself is not the time:
+with zero-copy send it waits for the kernel's notification, after the peer's
+ACK.
 
-**Sent and arrived.** As in v1 and the kernel objects, an initiator PDU
-counts as sent when `sendmsg()` returned (v1's done_send_req), a target PDU
-when `tcp_sendmsg()` was entered (v1's try_send_*): `sock_req_sent` fires
-right after the call, on the same thread, and a kernel hook restricted to
-the SPDK processes remembers the entry. The socket layer's write-completion
-callback is not used: with zero-copy send it waits for the kernel's
-notification, which follows the peer's ACK. For arrival, hooks on
-`tcp_recvmsg()` and `skb_copy_datagram_iter()` keep per SPDK thread the
-`netif_receive_skb` stamp of the first skb the latest `tcp_recvmsg()`
-copied; a PDU parsed afterwards takes it. SPDK reads all queued bytes at
-once, so when one read carries several PDUs the later ones take the first
-skb's time, which moves at most the spread of that read from network time
-to receive-stack time.
+**Sampling inside SPDK.** `ntprof_sampled()` applies `ntp_sample_hash()`
+with the period in `g_ntprof_sample_every` (defined in `lib/sock/sock.c`, 0
+by default). ntprof finds the processes that map the binary it was given,
+resolves the variable's address from the ELF symbol table and the process's
+mappings, and writes the period through `/proc/PID/mem` once its programs
+are attached; targets first, so that a command a host samples is sampled by
+its target too. It writes 0 when it stops, hosts first.
+
+**What only the kernel sees.** Packet arrival and, on the target, the moment
+a PDU was handed to TCP happen in the kernel. Hooks on `tcp_recvmsg()`,
+`skb_copy_datagram_iter()` and `tcp_sendmsg()`, restricted to the SPDK
+processes, keep per thread two rings (`bpf/spdk.bpf.h`): the start of each
+`tcp_recvmsg()` that copied data with the `netif_receive_skb` stamp of its
+first skb, and the entries of `tcp_sendmsg()`. When the command is done, a
+PDU parsed at time t gets the arrival of the latest read started before t,
+and a target PDU taken by `sendmsg()` at time t gets the latest
+`tcp_sendmsg()` entry before t, as its "sent" time (v1's try_send_* events;
+the initiator's "sent" stays the return of `sendmsg()`, v1's done_send_req).
+SPDK reads all queued bytes at once, so when one read carries several PDUs
+the later ones take the first skb's time, which moves at most the spread of
+that read from network time to receive-stack time. The rings are per CPU and
+tagged with the thread: SPDK's reactors are pinned; a reactor that migrated
+gets the parse time as arrival.
 
 **Mapping to the model.** SPDK has no block layer: an initiator command
 starts at submission and ends at its completion to the application, which
@@ -276,19 +295,16 @@ S7-S9, without the block-layer split. Records carry `NTP_F_SPDK`; an
 initiator's session is named `spdk-c<cntlid>n<nsid>`. Throughput of an SPDK
 initiator is the sampled commands times the sampling period.
 
-**Order.** The target emits its record when its last PDU (the response, or C2H
-data with the SUCCESS flag) is handed to TCP, and at state COMPLETED for a
-command that ended without one. On one machine the host's completion can
-still come first (section 3).
+**Order.** The target's record comes when its request completes, which with
+zero-copy send waits for the kernel's notification; on one machine the host's
+record can come first (section 3).
 
-**Limits.** The patch is for SPDK v26.05; the BPF side uses SPDK's (explicit)
-request state numbers, so another version needs the patch rebased and the
-numbers checked. `sock_req_sent` sits in a socket-layer helper both the
-posix and the uring modules call; only posix was tested. SPDK's NVMe/RDMA is
-not instrumented. Over loopback the receiver's stack runs inside the
-sender's `sendmsg()`, so the network share can be slightly negative (about
--1 us for 4 KB writes); and a kernel target on the same machine runs its
-`io_work` on the CPU the packet arrived on, which is the SPDK initiator's
+**Limits.** The patch is for SPDK v26.05. Only the posix socket module was
+tested (the uring module calls the same `spdk_sock_request_pend()`). SPDK's
+NVMe/RDMA is not instrumented. Over loopback the receiver's stack runs inside
+the sender's `sendmsg()`, so the network share can be slightly negative
+(about -1 us for 4 KB writes); and a kernel target on the same machine runs
+its `io_work` on the CPU the packet arrived on, which is the SPDK initiator's
 polling reactor: it preempts the reactor, inflates the initiator's S2(S) and
 turns the network share negative by as much. Neither happens across
 machines.
