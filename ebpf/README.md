@@ -172,6 +172,10 @@ sudo ntprof record -r both --spdk-target spdk/build/bin/nvmf_tgt   # kernel init
   when the command is done, after its last event, so the probe's cost (about a microsecond) stays out of the
   times. If ntprof is killed with SIGKILL, the period stays set (the probes are then no-ops) until the next
   run.
+- `tests/demo-spdk.sh` (about a minute, no SSD or NIC) runs the steps on one machine: SPDK initiator → SPDK
+  target, with ntprof's mean latency next to `spdk_nvme_perf`'s own; the same with 50 µs added in front of the
+  target's bdev, where `ntprof compare` puts the delay in S7-S9; and the kernel initiator against the SPDK
+  target. `SPDK=` names the SPDK tree (default `~/spdk`); `tests/demo-spdk.sh down` cleans up.
 - An SPDK initiator has no block layer: S1 is not shown, and the throughput line is estimated from the sampled
   commands.
 
@@ -215,5 +219,5 @@ No SSD and no NIC is involved:
 | `src/record.c`, `src/offline.c` | `record`; `report`, `compare`, `dump` |
 | `src/model.c` | the stage model |
 | `src/join.c`, `src/stats.c`, `src/report.c` | join, aggregation, output |
-| `tests/` | unit tests, test beds, the demo |
+| `tests/` | unit tests, test beds, the demos (`demo.sh` kernel, `demo-spdk.sh` SPDK) |
 | `tools/gen-btf.sh` | BTF from module DWARF |

@@ -60,7 +60,8 @@ ntprof report host.ntp target.ntp
 When the initiator and the target are on one machine, `sudo ntprof record -r both -d 10` does it all in one
 command. `ntprof record` alone profiles only the initiator's side and prints the target's side as one stage.
 To try ntprof without an SSD or a NIC, run `ebpf/tests/demo.sh`: it exports a null_blk device over loopback
-NVMe/TCP and walks through the commands below in two minutes.
+NVMe/TCP and walks through the commands below in two minutes. `ebpf/tests/demo-spdk.sh` does the same with SPDK's
+target and initiator (it needs SPDK built with ntprof's patch, see [`ebpf/README.md`](ebpf/README.md#spdk)).
 
 ## What a report looks like
 
