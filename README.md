@@ -1,147 +1,151 @@
 # ntprof
 
-## Introduction
+**Where does the time of an NVMe-over-Fabrics I/O go?** ntprof answers this one stage at a time. For a sample of
+the reads and writes an application issues to a remote NVMe namespace, it measures the time each I/O spends in
+the initiator's block layer, the initiator's transport, the network and the TCP/IP stacks, the target's
+transport, and the target's block layer and device. It reports the share of each stage and how many commands
+wait in it. Comparing two runs, it shows which stage amplifies latency under load.
 
-ntprof is a systematic, informative, and lightweight NVMe/TCP profiler for Linux (Ubuntu). It helps users to understand the performance of NVMe/TCP storage systems. Please take a look at our [projet website](https://ntprof.cs.wisc.edu/).
+ntprof comes from the NSDI'25 paper [*Understanding and Profiling NVMe-over-TCP Using
+ntprof*](https://www.usenix.org/conference/nsdi25/presentation/kang) ([project
+website](https://ntprof.cs.wisc.edu/)). This repository holds two versions:
 
-ntprof introduces new kernel modules at the initiator (ntprof_host) and target side (ntprof_target), which can be easily installed and removed. It also includes a user-space utility (ntprof-cli) to interact with the kernel modules and display the profiling results.
+| | v2, [`ebpf/`](ebpf/README.md) (use this one) | v1, [`src/`](src/README.md) (the paper's artifact) |
+|---|---|---|
+| Kernel | any Linux 6.x with BTF, unmodified, no reboot | Linux 5.15, patched with new tracepoints, rebuilt, rebooted |
+| How | eBPF programs on existing tracepoints and functions | two kernel modules |
+| Transports | NVMe/TCP, NVMe/RDMA, SPDK NVMe/TCP (initiator and target, mixed too) | NVMe/TCP |
+| Output | live per-interval lines, a summary per I/O group, JSON, raw records (CSV), LAD between runs | text |
 
-## Preparation
+## How it works
 
-### Get the Linux kernel source code ready
+The paper models the I/O path as a lossless network of software switches. Each stage is a queue, and a
+command's latency is the sum of the time it spends in each one:
 
-ntprof relies on Linux kernel (5.15.0) tracepoints to collect I/O statistics. However, the tracepoints provided by the current Linux system for the nvme-tcp module are insufficient to meet the profiling requirements. Therefore, we need to download the Linux kernel source code, add new tracepoints to the source, and then compile and install the customized kernel.
-
-``` bash
-$ sudo apt-get update
-$ sudo apt-get install -y linux-source-5.15.0
-$ cd /usr/src
-$ sudo tar -xvf linux-source-5.15.0.tar.bz2
+```
+            initiator                                              target
+ app -> [ S1 blk-mq ] -> [ S2 nvme-tcp ] -> S3-S5 network -> [ S6 nvmet-tcp ] -> [ S7 blk-mq ] -> [ S8-S9 SSD ]
+     <-       S1      <-       S2       <-      S3-S5      <-        S6        <-       S7      <-
 ```
 
-The source code will be extracted to `/usr/src/linux-source-5.15.0`.
+ntprof v2 attaches eBPF programs to tracepoints and functions that the kernel already has (`nvme_setup_cmd`,
+`block_rq_complete`, the nvme-tcp send and receive paths, and so on). Each side records a sampled command's
+timestamps on that machine only. Both sides pick the same commands without exchanging anything: each hashes
+(command id, LBA, length) and keeps one command in N. ntprof then joins each command's initiator and target
+records in user space and turns the timestamps into stage times. SPDK runs NVMe/TCP in user space, where the
+kernel hooks see nothing, so for SPDK a small patch adds USDT probes ([`ebpf/spdk`](ebpf/spdk)).
 
-### Modify the kernel source code
-Please refer to the [kernel source modification document](kernel_change/modify_kernel.md) for details.
+## Quick start
 
-### Compile and install the kernel, and reboot the system
+On Linux 6.x with BTF (tested on 6.8 and 6.11), with clang 12 or later, bpftool, and the libelf and zlib
+development files:
 
-``` bash
-$ sudo apt-get install -y flex, bison, build-essential, libncurses-dev, libssl-dev, libelf-dev, bc, dwarves
-$ cd /usr/src/linux-source-5.15.0
-$ sudo make
-$ sudo make modules_install
-$ sudo make install
-$ sudo reboot
+```bash
+git clone --recurse-submodules -b v2 https://github.com/netlab-wisconsin/ntprof.git
+cd ntprof/ebpf
+make && sudo make install          # /usr/local/sbin/ntprof
 ```
 
-## Getting Started
+The initiator must already be connected (`nvme connect ...`). Profile both sides of a running workload:
 
-### Get and compile the ntprof source code
-
-Clone the ntprof repository on both the initiator and target sides. 
-``` bash
-$ git clone https://github.com/netlab-wisconsin/ntprof.git
-$ cd ntprof
+```bash
+# on the target: start first, stop last
+sudo ntprof record -r target -o target.ntp -d 40
+# on the initiator
+sudo ntprof record -o host.ntp -d 30
+# anywhere, with both files
+ntprof report host.ntp target.ntp
 ```
 
-`src/ntprof_config.ini` is the configuration file for ntprof, which defines the profiling specifications. You can modify the configuration file to customize the profiling requirements. `ntprof` uses the iniparser library to parse the configuration file. You can install the iniparser library by running the following command:
-``` bash
-$ sudo apt-get install libiniparser-dev
+When the initiator and the target are on one machine, `sudo ntprof record -r both -d 10` does it all in one
+command. `ntprof record` alone profiles only the initiator's side and prints the target's side as one stage.
+To try ntprof without an SSD or a NIC, run `ebpf/tests/demo.sh`: it exports a null_blk device over loopback
+NVMe/TCP and walks through the commands below in two minutes.
+
+## What a report looks like
+
+4 KiB random reads at queue depth 1, recorded on both sides, one command in 10 (the demo's test bed: a 16-vCPU
+VM, Linux 6.8, kernel initiator and target over 127.0.0.1, null_blk):
+
+```
+== read 4KiB nvme0n1: 23640 commands sampled (from about 30.3k commands/s), all with the target's side
+  latency (us): mean 25.86, p50 25.39, p99 34.19, p99.9 41.86
+  stage  where the time goes                   mean us  share   avg QD
+  S1     initiator block layer (blk-mq)           1.14     4%     0.03  #
+  S2     initiator transport (nvme-tcp)          11.51    45%     0.35  ###########
+  S3-S5  network and TCP/IP stacks                9.24    36%     0.28  #########
+  S6     target transport (nvmet-tcp)             2.26     9%     0.07  ##
+  S7-S9  target block layer and device            1.71     7%     0.05  ##
+  largest: S2, initiator transport (nvme-tcp), 45 % of the latency
 ```
 
+Reports are grouped by I/O type, size and namespace. `avg QD` is the mean number of commands in the stage
+(Little's law). `--detail` splits the stages into their components (the receive stacks, the device, the
+completion path). While recording, ntprof prints one line per group every second.
 
-- On the initiator side, compile the ntprof-host module and cli tool.
-  ``` bash
-  $ make host && make cli
-  ```
+## Use case: which stage breaks under load?
 
-  You can find the compiled kernel module in  `host/ntprof_host.ko` and the compiled cli tool in `cli/ntprof-cli`.
+A workload slows down when its queue depth goes up. Is the SSD saturated, or is it the fabric, and which part?
+Record the same workload at low and high load and compare: the latency amplification degree (LAD) of a stage is
+its mean latency loaded divided by its mean latency unloaded.
 
-- On the target side, compile the ntprof-target module.
-  ``` bash
-  $ make target
-  ```
+```bash
+sudo ntprof record -r both -s 10 -d 8 --offline -o qd1.ntp     # while fio runs at iodepth=1
+sudo ntprof record -r both -s 10 -d 8 --offline -o qd32.ntp    # while fio runs at iodepth=32
+ntprof compare qd1.ntp qd32.ntp
+```
 
-  The compiled kernel module is `target/ntprof_target.ko`.
+```
+== read 4KiB nvme0n1: baseline 23225 commands sampled, loaded 93441
+  stage      where the time goes                    base us   load us     LAD
+  S1         initiator block layer (blk-mq)            1.08      0.72    0.67
+  S2         initiator transport (nvme-tcp)           11.56     67.73    5.86
+  S3-S5      network and TCP/IP stacks                 9.00    144.62   16.06
+  S6         target transport (nvmet-tcp)              2.25     16.86    7.50
+  S7-S9      target block layer and device             1.74      1.02    0.58
+  S1-S9      end to end                               25.64    230.95    9.01
+  largest LAD: S3-S5, network and TCP/IP stacks, 16.06
+```
 
-### Online profiling
-Assume the current dir is navigated to `ntprof/src/`. 
+On this test bed, the end-to-end latency grows 9× from queue depth 1 to 32, and the device is not the reason:
+S7-S9 does not grow at all. The time goes to the TCP/IP stacks (16×) and to both transports (6× and 7.5×).
+`ntprof report qd32.ntp` shows where the 32 commands wait: 17.6 of them, on average, are in S3-S5. A single fio
+job on one CPU submits every command here, so they all share one nvme-tcp queue and one TCP connection. Spreading
+the load over more CPUs and queues is the thing to try. A faster SSD would not help.
 
-1. **Step 1**: config the `IS_ONLINE` option in `ntprof_config.ini` to `true` for online profiling.
+## What it costs
 
-2. **Step 2**: load the kernel modules on the initiator side
-    ``` bash
-    $ sudo insmod host/ntprof_host.ko
-    ```
+The hooks on the I/O path run for every command, and ntprof records one command in 1000 by default
+(`-s N`). Sampled or not, every command passes the hooks, so the cost depends little on N. Measured in the
+same 16-vCPU VM (Linux 6.8, 2026-10-14):
 
-3. **Step 3**: load the kernel modules on the target side
-    ``` bash
-    $ sudo insmod target/ntprof_target.ko
-    ```
+| workload | not profiled | initiator profiled | target profiled | both profiled |
+|---|---|---|---|---|
+| 4 KiB read, queue depth 1, mean latency | 29.4 us | +0.9 us | +1.4 us | +2.1 us |
+| 4 KiB read, 4 jobs × iodepth 8 on 4 saturated CPUs | 145 kIOPS | −5.0 % | −8.6 % | −12.9 % |
 
-4. **Step 4**: run the cli tool on the initiator side
-    ``` bash
-    $ sudo cli/ntprof-cli start src/ntprof_config.ini & sudo cli/ntprof-cli analyze src/ntprof_config.ini
-    ```
-    The profiling results will be displayed in the terminal.
+Initiator and target shared the CPUs here. On two machines, each machine pays only for its own side. These
+numbers come from a VM, where each eBPF program run costs more than on bare metal. Details, including kprobes
+and SPDK, are in [`ebpf/DESIGN.md`](ebpf/DESIGN.md#7-accuracy-and-its-limits).
 
-5. **Step 5**: using Ctrl+C to stop the cli tool. It will send STOP signal to the kernel modules and make it stop profiling.
+## Documentation
 
-6. **Step 6**: remove the kernel modules on the initiator side
-    ``` bash
-    $ sudo rmmod ntprof_host
-    ```
+- [`ebpf/README.md`](ebpf/README.md): building, every command and option, SPDK, kernels without BTF, the test
+  beds.
+- [`ebpf/DESIGN.md`](ebpf/DESIGN.md): the hooks and how they map to the paper's tracepoints, the stage model,
+  the join, accuracy limits and overhead.
+- [`src/README.md`](src/README.md): v1, the NSDI'25 artifact, with [`kernel_patches/`](kernel_patches/README.md)
+  and [`use_cases/`](use_cases) (run on CloudLab with v1).
 
-7. **Step 7**: remove the kernel modules on the target side
-    ``` bash
-    $ sudo rmmod ntprof_target
-    ```
+## Citation
 
-We also provide sample script to run ntprof in online mode. Navigate to `src` directory and run the `./run_target.sh <duration in seconds>` on the target side. And then run the `./run_host_online.sh <config file>` on the initiator side. The profiling results will be displayed in the terminal. Terminate the script by using Ctrl+C.
-
-
-### Offline profiling
-Assume the current dir is navigated to `ntprof/src/`. 
-
-1. **Step 1**: config the `IS_ONLINE` option in `ntprof_config.ini` to `false` for offline profiling, and also specify the output directory `DATA_DIR` for the profiling data. Please make sure the output directory exists before profiling. It is `/tmp/ntprof_data` by default.s
-
-2. **Step 2**: load the kernel modules on the initiator side
-    ``` bash
-    $ sudo insmod host/ntprof_host.ko
-    ```
-
-3. **Step 3**: load the kernel modules on the target side
-    ``` bash
-    $ sudo insmod target/ntprof_target.ko
-    ```
-
-4. **Step 4**: run the cli tool on the initiator side
-    ``` bash
-    $ sudo cli/ntprof-cli start src/ntprof_config.ini
-    ```
-    The profiling results will be displayed in the terminal.
-
-5. **Step 5**: run the cli tool on the initiator side to stop profiling
-    ``` bash
-    $ sudo cli/ntprof-cli stop
-    ```
-    The profiling data will be saved in the specified output directory.
-    
-6. **Step 6**: run the cli tool on the initiator side to analyze the profiling data
-    ``` bash
-    $ sudo cli/ntprof-cli analyze src/ntprof_config.ini
-    ```
-    The profiling results will be displayed in the terminal.
-
-7. **Step 7**: remove the kernel modules on the initiator side
-    ``` bash
-    $ sudo rmmod ntprof_host
-    ```
-
-8. **Step 8**: remove the kernel modules on the target side
-    ``` bash
-    $ sudo rmmod ntprof_target
-    ```
-
-We also provide sample script to run ntprof in offline mode. Navigate to `src` directory and run the `./run_target.sh <duration in seconds>` on the target side. And then run the `./run_host_offline.sh <config file> <duration in seconds>` on the initiator side. The profiling results will be displayed in the terminal. Terminate the script by using Ctrl+C.
+```bibtex
+@inproceedings{kang2025ntprof,
+  author    = {Yuyuan Kang and Ming Liu},
+  title     = {Understanding and Profiling {NVMe-over-TCP} Using ntprof},
+  booktitle = {22nd USENIX Symposium on Networked Systems Design and Implementation (NSDI 25)},
+  year      = {2025},
+  pages     = {1117--1136},
+  publisher = {USENIX Association},
+}
+```

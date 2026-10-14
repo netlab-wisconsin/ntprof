@@ -36,11 +36,11 @@ and tells the NVMe/TCP calls apart with a per-thread context.
 
 | v1 event (tracepoint position) | v2 hook | v2 event |
 |---|---|---|
-| BLK_SUBMIT (`rq->start_time_ns`) | same field, read at `nvme_tcp_queue_rq` | `NTP_H_START` |
-| NVME_TCP_QUEUE_RQ (after `blk_mq_start_request`) | entry of `nvme_tcp_queue_rq`; `raw_tp/nvme_setup_cmd` for cid, opcode, LBA | `NTP_H_QUEUE_RQ` |
+| BLK_SUBMIT (`rq->start_time_ns`) | same field, read at `nvme_setup_cmd` | `NTP_H_START` |
+| NVME_TCP_QUEUE_RQ (after `blk_mq_start_request`) | `raw_tp/nvme_setup_cmd` (cid, opcode, LBA), inside `nvme_tcp_queue_rq`; the entry of `nvme_tcp_queue_rq` itself only with `--exact-queues` | `NTP_H_QUEUE_RQ` |
 | NVME_TCP_DONE_SEND_REQ (`nvme_tcp_done_send_req`, inlined) | exit of `nvme_tcp_try_send_{cmd_pdu,data,ddgst}` returning 1 with `queue->request` cleared | `NTP_H_CMD_SENT`, `NTP_H_DATA_SENT` |
 | (none) | entry of `nvme_tcp_try_send_data_pdu` after an R2T | `NTP_H_DATA_START` |
-| NVME_TCP_RECV_SKB (`skb->tstamp`, socket timestamps enabled by the patch) | `raw_tp/netif_receive_skb` stamps each skb; looked up at `nvme_tcp_recv_skb` | `NTP_H_*_ARR` |
+| NVME_TCP_RECV_SKB (`skb->tstamp`, socket timestamps enabled by the patch) | `skb->tstamp` read at `nvme_tcp_recv_skb`; ntprof turns receive timestamps on (section 7) | `NTP_H_*_ARR` |
 | NVME_TCP_HANDLE_C2H_DATA (inlined) | first `skb_copy_datagram_iter` while `queue->pdu` holds a C2H header | `NTP_H_C2H_PROC` |
 | NVME_TCP_HANDLE_R2T (inlined on 6.11) | `nvme_tcp_setup_h2c_data_pdu` while receiving | `NTP_H_R2T_PROC` |
 | NVME_TCP_PROCESS_NVME_CQE (inlined) | `blk_mq_complete_request_remote` while receiving | `NTP_H_RSP_PROC` |
@@ -51,10 +51,10 @@ and tells the NVMe/TCP calls apart with a per-thread context.
 
 | v1 event | v2 hook | v2 event |
 |---|---|---|
-| NVMET_TCP_TRY_RECV_PDU (`SO_TIMESTAMP` of `kernel_recvmsg`) | arrival stamp of the last skb copied in `nvmet_tcp_io_work` before the command | `NTP_T_CMD_ARR` |
+| NVMET_TCP_TRY_RECV_PDU (`SO_TIMESTAMP` of `kernel_recvmsg`) | `skb->tstamp` of the last skb this thread copied (`skb_copy_datagram_iter`) from the command's queue socket | `NTP_T_CMD_ARR` |
 | NVMET_TCP_DONE_RECV_PDU (inlined) | `raw_tp/nvmet_req_init` | `NTP_T_CMD_PROC` |
 | (R2T queued) | `nvmet_tcp_queue_response` while data is still due | `NTP_T_R2T_QUEUED` |
-| NVMET_TCP_TRY_SEND_R2T (inlined) | `sock_sendmsg` in `nvmet_tcp_io_work`, `queue->snd_cmd->state == SEND_R2T`, offset 0 | `NTP_T_R2T_SENT` |
+| NVMET_TCP_TRY_SEND_R2T (inlined) | `sock_sendmsg` on a queue socket of a sampled command, `queue->snd_cmd->state == SEND_R2T`, offset 0 | `NTP_T_R2T_SENT` |
 | NVMET_TCP_HANDLE_H2C_DATA_PDU (inlined) | `nvmet_tcp_build_pdu_iovec` after an R2T | `NTP_T_DATA_*` |
 | NVMET_TCP_EXEC_{READ,WRITE}_REQ | `nvmet_{bdev,file}_execute_rw`, `nvmet_passthru_execute_cmd` | `NTP_T_EXEC` |
 | (none) | `raw_tp/block_rq_issue` / `block_rq_complete` of the backing request (`bio->bi_private` is the `nvmet_req`) | `NTP_T_BE_ISSUE`, `NTP_T_BE_DONE` |
@@ -62,6 +62,16 @@ and tells the NVMe/TCP calls apart with a per-thread context.
 | NVMET_TCP_QUEUE_RESPONSE | `nvmet_tcp_queue_response` for the completion | `NTP_T_RSP_QUEUED` |
 | (none) | `sock_sendmsg`, state `SEND_DATA_PDU` | `NTP_T_C2H_SENT` |
 | NVMET_TCP_TRY_SEND_RESPONSE (inlined) | `sock_sendmsg`, state `SEND_RESPONSE` | `NTP_T_RSP_SENT` |
+
+Telling NVMe/TCP apart without a hook on its entry points: `nvme_setup_cmd`
+and `nvmet_req_init` run for every NVMe transport. The initiator follows a
+request's driver PDU to its queue and the target follows the `nvmet_sq` to
+the queue that embeds it. Either way, the command is NVMe/TCP's when the
+queue's socket has `sk_user_data` pointing back to that queue. Both drivers
+set this when they take over a socket. For another transport, the same
+offsets hold unrelated data and the test fails. The target's `sock_sendmsg`
+hook uses the same link (socket to queue) and runs only while a sampled
+command is in flight.
 
 ### NVMe/RDMA (`bpf/nvme_rdma_host.bpf.c`, `bpf/nvme_rdma_target.bpf.c`)
 
@@ -85,16 +95,49 @@ nvme-core hooks are the same as for TCP (`bpf/host.bpf.h`,
 ### Hook flavours
 
 Every function hook exists twice with the same body: as fentry/fexit
-(`*_fe`, `*_fx`) and as kprobe/kretprobe (`*_kp`, `*_kr`). The loader keeps
-fentry/fexit when the kernel has BTF (cheaper, and fexit sees the return value
-without remembering the arguments) and kprobes otherwise or with `--kprobes`.
-Attaching fentry programs is slow (about 5 s for both sides on the
-development guest; each trampoline update waits for an RCU grace period); kprobes
-attach in about 1 s.
+(`*_fe`, `*_fx`) and as kprobe/kretprobe (`*_kp`, `*_kr`). fentry/fexit cost
+less per call (section 7), and fexit sees the return value without
+remembering the arguments. They need the kernel's BTF, and they can only be
+attached when no CPU stays busy (below). The loader keeps fentry/fexit when
+both hold, and kprobes otherwise or with `--kprobes`.
+
+**Busy CPUs.** Attaching an fentry/fexit program goes through
+`register_ftrace_direct()`, which calls `synchronize_rcu_tasks()`; detaching
+waits the same way. That grace period ends only when every runnable task
+has switched out voluntarily. A thread that stays runnable holds it up for
+as long as it runs, for example fio jobs whose completions are always
+ready, or a polling thread. The attaching thread meanwhile sleeps
+uninterruptibly. On the development guest (Linux 6.8,
+`PREEMPT_DYNAMIC`), four fio jobs (4 KB random reads, iodepth 8, CPUs 4-7,
+loopback NVMe/TCP) made attaching wait until fio ended, 60 s later. Stopping
+ntprof during the same load took 27 s. kprobes attached in 0.5 s and
+detached in 1 s. The kernel stack of the waiting thread was
+`link_create -> bpf_trampoline_update -> register_ftrace_direct ->
+synchronize_rcu_tasks`. SPDK's reactors did not hold it up in our runs.
+Even with no load, attaching both sides' fentry programs takes about 5 s,
+because each attach waits for its own grace period. ntprof handles this in
+two places:
+
+- Before choosing fentry, a disposable grandchild process attaches a
+  one-instruction fentry program to `bpf_fentry_test1`, which runs only in
+  BPF selftests. If that does not succeed within 2 s, ntprof warns and uses
+  kprobes. Nobody waits for the grandchild. `--fentry` skips the check.
+- `record` runs in a child process. The child prints the report, tells the
+  parent, and only then detaches. The parent holds no BPF object, so it can
+  return once the hooks are gone or after 3 s, whichever comes first. In
+  the second case, it says that removal continues in the background. A
+  second Ctrl-C while the child is still stuck attaching returns at once.
+  The child ends by itself once the grace period completes.
 
 A program whose attach point is missing on the running kernel is not loaded;
 `ntprof probe` lists them. The records then lack that event, and the model
-falls back where it can (section 4).
+falls back where it can (section 4). For measurements,
+`NTPROF_SKIP=prog,prog` leaves the named programs out.
+
+All objects of one run share a single ring buffer, so records come out in
+emission order. A program wakes the reader only when 64 KB are waiting;
+the reader polls every 100 ms anyway. Throughput counters are one per-CPU
+struct, so each hook does one map lookup for them.
 
 ## 3. Records and their join
 
@@ -183,8 +226,8 @@ nothing at run time and is exact for means in steady state.
 
 `--exact-queues` (ini `QUEUE_TRACKING=exact`) additionally counts, per
 NVMe/TCP queue, the commands not yet sent and not yet completed (host) and
-not yet answered (target), as seen by each arriving command. It needs map
-operations on every I/O, sampled or not.
+not yet answered (target), as seen by each arriving command. It hooks
+`nvme_tcp_queue_rq` and needs map operations on every I/O, sampled or not.
 
 ## 6. CO-RE and BTF
 
@@ -202,29 +245,64 @@ kernels run the kprobe flavour (fentry needs real kernel BTF).
 
 ## 7. Accuracy and its limits
 
-- **Packet arrival.** v1 used `skb->tstamp` (socket timestamps). v2 stamps
-  each skb at `netif_receive_skb`, after GRO, in a direct-mapped table. When
-  TCP coalesces a later skb into an earlier one in the receive queue, the
-  earlier skb's stamp is used (arrival appears earlier). A table collision or
-  an skb address reused within a second falls back to the time of reading.
+- **Packet arrival.** As in v1, the arrival of a PDU is the receive
+  timestamp of its skb (`skb->tstamp`). The kernel stamps every received
+  packet (`net_timestamp_check()`, after GRO) while any socket asks for
+  receive timestamps. v1's patch enabled them; v2 holds a UDP socket with
+  `SO_TIMESTAMPNS` open while it runs. No hook runs per packet. The stamp is
+  `CLOCK_REALTIME`; ntprof converts it with the realtime-to-monotonic offset
+  measured at start, so a clock step during a run (NTP, `date -s`) shifts
+  arrivals until the next run. A stamp that is missing or not within the
+  last second falls back to the time the packet was read. When TCP coalesces
+  a later skb into an earlier one in the receive queue, the earlier skb's
+  stamp is used, so the arrival appears earlier.
 - **Context.** Per-thread context lives in per-CPU slots tagged with the
   thread id; if a thread migrates between a function's entry and the hook
   that uses the context, the event is lost, not misattributed.
 - **Not covered:** NVMe/TCP with TLS (`nvme connect --tls`), polled-mode
   completions on the target, admin commands, and commands other than read and
   write. Data digests are covered on the host (`skb_copy_and_hash_datagram_iter`).
-- **Overhead.** The kernel hooks run for every I/O; sampling only decides
-  which commands get a record, and the hooks that only add timestamps return
-  after one array lookup while no sampled command is in flight. Records wake
-  the reader only in batches. Measured in a 16-vCPU guest running initiator
-  and target together over loopback (Linux 6.8, fentry, 2026-10-14), 4 KB
-  random reads at queue depth 1:
-  - kernel -> kernel: 23.0 us without ntprof, +4.0 us at 1 in 1000, +6.7 us
-    with every command recorded. The per-I/O part is 34 BPF program runs
-    (2.2 us); the context hooks on io_work and `skb_copy_datagram_iter` and
-    the per-packet arrival stamps are most of it.
-  - SPDK -> SPDK: 16.6 us, +1.3 us at 1 in 1000, +4.2 us with every command
-    (section 8). At queue depth 32 SPDK kept 97 % of its IOPS at 1 in 1000.
+- **Overhead.** The kernel hooks run for every I/O. Sampling only decides
+  which commands get a record. The hooks that only add timestamps return
+  after one array lookup while no sampled command is in flight. What is left
+  at 1 in 1000 is mostly the fixed cost of a BPF program run at each hook
+  that every command passes: the sampling decision (`nvme_setup_cmd`,
+  `nvmet_req_init`), the target's copy hook, which notes every skb it
+  copies, and the initiator's receive hooks, which return at once. Measured in a
+  16-vCPU guest with initiator and target together over loopback (Linux 6.8,
+  fentry, null_blk, 2 I/O queues, 2026-10-14): fio, 4 KB random reads at
+  queue depth 1 on one CPU, mean of 3 runs of 8 s:
+
+  | profiled | mean latency | added |
+  |---|---|---|
+  | nothing | 29.4 us | |
+  | initiator, 1 in 1000 | 30.3 us | +0.9 us |
+  | target, 1 in 1000 | 30.7 us | +1.4 us |
+  | both, 1 in 1000 | 31.5 us | +2.1 us |
+  | both, every command | 34.7 us | +5.3 us |
+
+  With `--kprobes`, both sides at 1 in 1000 added 3.8 us. Before the cuts
+  of 2026-10-14 (per-packet stamps, io_work and `nvme_tcp_queue_rq` hooks),
+  fentry added 2.9 us under the same conditions.
+
+  When the CPUs are saturated, the per-I/O cost shows as lost throughput,
+  and the sampling rate barely changes it. Same guest, with the initiator
+  and the target sharing CPUs 4-7: fio, 4 KB random reads, 4 jobs x iodepth
+  8, 3 runs of 12 s, 1 in 1000:
+
+  | profiled | throughput | change |
+  |---|---|---|
+  | nothing | 145 kIOPS | |
+  | initiator | 138 kIOPS | -5.0 % |
+  | target | 133 kIOPS | -8.6 % |
+  | both | 126 kIOPS | -12.9 % |
+  | both, `--kprobes` | 112 kIOPS | -22.7 % |
+
+  On two machines, each pays only its own side. A guest pays more per BPF
+  program run than bare metal does; these numbers have not been measured
+  on bare metal yet. For SPDK -> SPDK, measured before the cuts: 16.6 us,
+  +1.3 us at 1 in 1000, +4.2 us with every command (section 8). At queue
+  depth 32, SPDK kept 97 % of its IOPS at 1 in 1000.
 
 ## 8. SPDK
 
@@ -279,8 +357,8 @@ its target too. It writes 0 when it stops, hosts first.
 a PDU was handed to TCP happen in the kernel. Hooks on `tcp_recvmsg()`,
 `skb_copy_datagram_iter()` and `tcp_sendmsg()`, restricted to the SPDK
 processes, keep per thread two rings (`bpf/spdk.bpf.h`): the start of each
-`tcp_recvmsg()` that copied data with the `netif_receive_skb` stamp of its
-first skb, and the entries of `tcp_sendmsg()`. When the command is done, a
+`tcp_recvmsg()` that copied data with the receive timestamp of its first
+skb, and the entries of `tcp_sendmsg()`. When the command is done, a
 PDU parsed at time t gets the arrival of the latest read started before t,
 and a target PDU taken by `sendmsg()` at time t gets the latest
 `tcp_sendmsg()` entry before t, as its "sent" time (v1's try_send_* events;

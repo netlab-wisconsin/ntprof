@@ -23,7 +23,7 @@ To limit the number of queues to **3**, modify the function as follows:
 ```
 
 
-Since this modification affects only the nvme-tcp module, you do not need to recompile and reinstall the entire Linux kernel. Instead, you can recompile and reload only the nvme-tcp module following the steps in [Setting Up an NVMe-over-TCP Initiator](hardware#setting-up-an-nvme-over-tcp-initiator).
+Since this modification affects only the nvme-tcp module, you do not need to recompile and reinstall the entire Linux kernel. Instead, you can recompile and reload only the nvme-tcp module following the steps in [Setting Up an NVMe-over-TCP Initiator](testbed.md#setting-up-an-nvme-over-tcp-initiator).
 
 ### 2. Run the fio workload
 

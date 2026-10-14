@@ -1,10 +1,10 @@
 # Kernel Patches
 
 ## Create nvme_tcp.h (initiator side)
-Create a new file [`nvme_tcp.h`](kernel_change/include/trace/events/nvme_tcp.h) in the `include/trace/events` directory. This file defines the tracepoints for the nvme-tcp module.
+Create a new file [`nvme_tcp.h`](include/trace/events/nvme_tcp.h) in the `include/trace/events` directory. This file defines the tracepoints for the nvme-tcp module.
 
 ## Create nvmet_tcp.h (target side)
-Create a new file [`nvmet_tcp.h`](kernel_change/drivers/nvme/host/nvme_tcp.c) in the `include/trace/events` directory. This file defines the tracepoints for the nvmet-tcp module.
+Create a new file [`nvmet_tcp.h`](include/trace/events/nvmet_tcp.h) in the `include/trace/events` directory. This file defines the tracepoints for the nvmet-tcp module.
 
 ## Modify block/blk-core.c (initiator side)
 Modify the `block/blk-core.c` file as folows. (Search the unchanged lines as key words in the file to locate the position)
