@@ -8,6 +8,12 @@
 #   loopback.sh tcp|rdma down
 #   loopback.sh tcp|rdma dev                           prints the namespace device
 #
+# On two machines (or guests), the same pieces apart:
+#   loopback.sh tcp|rdma export [completion_ns]        on the target: null_blk exported at ADDR
+#   loopback.sh tcp|rdma connect ADDR [io_queues]      on the initiator; prints the namespace device
+# NETDEV / ADDR name the interface and address (default: the default route's);
+# NULLB_MBPS > 0 limits null_blk's bandwidth (MB/s), a stand-in for a busy drive.
+#
 # tcp runs over 127.0.0.1. rdma runs over soft-RoCE (rdma_rxe) bound to
 # NETDEV (default: the interface of the default route) at its IPv4 address:
 # the traffic loops back inside rxe and never leaves the machine, but rxe is
@@ -21,7 +27,7 @@ TRANSPORT=${1:-}
 ACTION=${2:-}
 case "$TRANSPORT" in
     tcp | rdma) ;;
-    *) echo "usage: $0 tcp|rdma up [completion_ns] [io_queues] | down | dev" >&2; exit 2 ;;
+    *) echo "usage: $0 tcp|rdma up|export|connect|down|dev ..." >&2; exit 2 ;;
 esac
 shift 2 || true
 
@@ -43,11 +49,14 @@ else
 fi
 
 namespace_dev() {
-    local s
+    local s ns
     for s in /sys/class/nvme-subsystem/nvme-subsys*; do
         [[ -e $s/subsysnqn && $(cat "$s/subsysnqn") == "$NQN" ]] || continue
-        # the namespace head: nvme<N>n1 (no path letter)
-        ls "$s" | grep -E '^nvme[0-9]+n[0-9]+$' | head -1
+        # the namespace head: nvme<N>n1 (no path letter); the subsystem can
+        # appear before its namespace does
+        ns=$(ls "$s" | grep -E '^nvme[0-9]+n[0-9]+$' | head -1)
+        [[ -n $ns ]] || return 1
+        echo "$ns"
         return 0
     done
     return 1
@@ -60,7 +69,8 @@ up() {
     modprobe nvmet
     modprobe "nvmet-$TRANSPORT"
     modprobe "nvme-$TRANSPORT"
-    if [[ $TRANSPORT == rdma ]] && ! rdma link show "$RXE/1" > /dev/null 2>&1; then
+    # a soft-RoCE device on NETDEV, unless the machine already has one there
+    if [[ $TRANSPORT == rdma ]] && ! rdma link show | grep -q "netdev $NETDEV\b"; then
         modprobe rdma_rxe
         rdma link add "$RXE" type rxe netdev "$NETDEV"
     fi
@@ -75,6 +85,9 @@ up() {
             echo "$completion_ns" > "$NULLB_CFG/$NULLB/completion_nsec"
         else
             echo 1 > "$NULLB_CFG/$NULLB/irqmode"     # softirq
+        fi
+        if ((${NULLB_MBPS:-0} > 0)); then
+            echo "$NULLB_MBPS" > "$NULLB_CFG/$NULLB/mbps"
         fi
         echo 1 > "$NULLB_CFG/$NULLB/power"
     fi
@@ -101,11 +114,14 @@ up() {
     fi
     [[ -e $NVMET/ports/$PORT_ID/subsystems/$NQN ]] ||
         ln -s "$NVMET/subsystems/$NQN" "$NVMET/ports/$PORT_ID/subsystems/$NQN"
+}
 
+connect() { # addr queues
+    modprobe "nvme-$TRANSPORT"
     [[ -s /etc/nvme/hostnqn ]] || { mkdir -p /etc/nvme; nvme gen-hostnqn > /etc/nvme/hostnqn; }
     if ! namespace_dev > /dev/null; then
-        nvme connect -t "$TRANSPORT" -a "$ADDR" -s "$SVC" -n "$NQN" -i "$queues" > /dev/null
-        for _ in $(seq 50); do namespace_dev > /dev/null && break; sleep 0.1; done
+        nvme connect -t "$TRANSPORT" -a "$1" -s "$SVC" -n "$NQN" -i "$2" > /dev/null
+        for _ in $(seq 150); do namespace_dev > /dev/null && break; sleep 0.1; done
     fi
     namespace_dev
 }
@@ -132,8 +148,17 @@ down() {
 }
 
 case "$ACTION" in
-    up) up "$@" ;;
+    up)
+        up "${1:-0}" "${2:-4}"
+        connect "$ADDR" "${2:-4}"
+        ;;
+    export) up "${1:-0}" 4 ;;
+    connect) connect "${1:?connect ADDR [io_queues]}" "${2:-4}" ;;
     down) down ;;
     dev) namespace_dev ;;
-    *) echo "usage: $0 tcp|rdma up [completion_ns] [io_queues] | down | dev" >&2; exit 2 ;;
+    *)
+        echo "usage: $0 tcp|rdma up [completion_ns] [io_queues] | export [completion_ns] |" \
+            "connect ADDR [io_queues] | down | dev" >&2
+        exit 2
+        ;;
 esac

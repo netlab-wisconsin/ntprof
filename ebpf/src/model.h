@@ -43,6 +43,10 @@ enum ntp_comp {
   NTP_C_TGT_DEV,     /* S8-S9     target device (bdev)                     */
   NTP_C_TGT_BE_CMPL, /* S7 (C)    target blk-mq completion (bdev)          */
   NTP_C_CMPL_IPI,    /*           CQE parsed -> nvme_complete_rq()         */
+  NTP_C_NET_DATA,    /* S3-S5     RDMA: the data over the network, timed by
+                                  the target (write: its RDMA READ; read: the
+                                  RDMA WRITE + response, posting to send
+                                  completion, which includes the ACK back)  */
   NTP_C_NR,
 };
 

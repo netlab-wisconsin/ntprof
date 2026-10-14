@@ -13,7 +13,12 @@
 #include "ntprof.h"
 
 #define NTP_FILE_MAGIC "NTPROF2"
-#define NTP_FILE_VERSION 2 /* 2: NTP_H_SEND_DONE added (records of 3dd367a and earlier: 1) */
+/*
+ * 3: NTP_T_SEND_DONE added at the end of target records; version 2 files are
+ * still read (their target records lack it). 2: NTP_H_SEND_DONE added
+ * (records of 3dd367a and earlier: 1, not read).
+ */
+#define NTP_FILE_VERSION 3
 
 struct ntp_file_header {
   char magic[8];

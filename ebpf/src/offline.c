@@ -132,7 +132,7 @@ static const char* const host_ts_names[NTP_H_NR] = {
 static const char* const tgt_ts_names[NTP_T_NR] = {
     "cmd_arr",  "cmd_proc", "r2t_queued", "r2t_sent", "data_arr",
     "data_proc", "exec",    "be_issue",   "be_done",  "complete",
-    "rsp_queued", "c2h_sent", "rsp_sent",
+    "rsp_queued", "c2h_sent", "rsp_sent", "send_done",
 };
 
 static void dump_id(const struct ntp_rec_hdr* h, const struct ntp_cmd_id* id) {

@@ -104,7 +104,8 @@ static const char* const rdma_host_required[] = {
     "ntp_hr_complete", "ntp_h_blk_done", NULL};
 
 static const char* const rdma_target_required[] = {
-    "ntp_tr_recv_done", "ntp_t_req_init", "ntp_tr_queue_resp", NULL};
+    "ntp_tr_recv_done", "ntp_t_req_init", "ntp_tr_queue_resp", "ntp_tr_send_done",
+    NULL};
 
 /* USDT programs are named USDT_PREFIX + the probe name. */
 #define USDT_PREFIX "ntp_u_"

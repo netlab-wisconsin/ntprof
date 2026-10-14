@@ -20,7 +20,9 @@
 #endif
 
 struct tgt_entry {
-  u64 req; /* struct nvmet_req * owning the slot; 0 = free */
+  u64 req;   /* struct nvmet_req * owning the slot; 0 = free */
+  u32 parts; /* RDMA: which of the response's two ends have been seen */
+  u32 pad;
   struct ntp_tgt_rec rec;
 };
 
@@ -218,6 +220,7 @@ int BPF_PROG(ntp_t_req_init, struct nvmet_req* req, void* cmd) {
   else
     ntp_inflight_add(1);
   e->req = 0;
+  e->parts = 0;
   __builtin_memset(&e->rec, 0, sizeof(e->rec));
   rec = &e->rec;
   now = bpf_ktime_get_ns();
@@ -307,11 +310,15 @@ int BPF_PROG(ntp_t_complete, struct nvmet_req* req) {
 /* ---- response ---- */
 
 /* The command's last message is going out: emit its record and free it. */
-static __always_inline void tgt_finish(u64 req) {
-  struct tgt_entry* e;
-
+/* The response has been handed over: the command leaves the queue counts. */
+static __always_inline void tgt_uncount(u64 req) {
   if (filter.track_queues) uncount(req, CNT_OUTSTANDING | CNT_RESP_QUEUED, true);
-  e = tgt_entry(req);
+}
+
+/* Emit the record of @req, if it has one, and free its slot. */
+static __always_inline void tgt_emit(u64 req) {
+  struct tgt_entry* e = tgt_entry(req);
+
   if (!e) return;
   e->rec.hdr.cpu = bpf_get_smp_processor_id();
   if (bpf_ringbuf_output(&events, &e->rec, sizeof(e->rec), ntp_rb_flags()))
@@ -320,6 +327,11 @@ static __always_inline void tgt_finish(u64 req) {
     ntp_count(NTP_CNT_TGT_EMITTED, 1);
   e->req = 0;
   ntp_inflight_add(-1);
+}
+
+static __always_inline void tgt_finish(u64 req) {
+  tgt_uncount(req);
+  tgt_emit(req);
 }
 
 #endif /* NTPROF_TARGET_BPF_H */

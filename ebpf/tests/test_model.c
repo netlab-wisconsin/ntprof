@@ -228,8 +228,14 @@ static void test_rdma_read(void) {
   t.ts[NTP_T_C2H_SENT] = 5560;
   t.ts[NTP_T_RSP_SENT] = 5560; /* residence 560 */
 
+  /* without the send completion (version 2 records): no data transfer */
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK(!ntp_comp_valid(&b, NTP_C_NET_DATA));
+
+  t.ts[NTP_T_SEND_DONE] = 5960; /* WRITE + SEND posted to completion: 400 */
   CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
   CHECK(b.joined);
+  CHECK_EQ(b.comp[NTP_C_NET_DATA], 400);
   CHECK_EQ(b.io_class, NTP_IO_CLASS_READ);
   CHECK_EQ(b.comp[NTP_C_TR_SUB], 30);
   CHECK_EQ(b.comp[NTP_C_NET], 1000 - 560);
@@ -270,6 +276,7 @@ static void test_rdma_write_fetch(void) {
   CHECK_EQ(b.io_class, NTP_IO_CLASS_WRITE_R2T);
   CHECK_EQ(b.comp[NTP_C_TGT_SUB], 20 + 10);
   CHECK_EQ(b.comp[NTP_C_NET], 1000 - 260);
+  CHECK_EQ(b.comp[NTP_C_NET_DATA], 300); /* the RDMA READ */
   CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
 
   /* the fetch flag without its events: the target record is not used */

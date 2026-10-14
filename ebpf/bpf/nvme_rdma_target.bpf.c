@@ -11,6 +11,12 @@
  *   nvmet_rdma_queue_response entry    -> NTP_T_RSP_QUEUED
  *   nvmet_rdma_queue_response exit     -> NTP_T_C2H_SENT / NTP_T_RSP_SENT
  *                                         (data and response posted)
+ *   nvmet_rdma_send_done               -> NTP_T_SEND_DONE (the response's
+ *                                         send completion; for a read, after
+ *                                         its data's RDMA WRITE)
+ *
+ * The record is emitted at the later of the posting's return and the send
+ * completion: the completion can be handled on another CPU first.
  */
 #define NTP_TRANSPORT NTP_TR_RDMA
 #include "target.bpf.h"
@@ -138,6 +144,17 @@ static __always_inline int on_queue_resp(const struct nvmet_req* req) {
   return 0;
 }
 
+#define RSP_POSTED 1u    /* nvmet_rdma_queue_response() returned */
+#define RSP_SEND_DONE 2u /* the send completion was handled */
+
+/* One end of the response was seen: emit once both were (atomic: two CPUs). */
+static __always_inline void rsp_part_done(u64 req, u32 part) {
+  struct tgt_entry* e = tgt_entry(req);
+
+  if (e && (__sync_fetch_and_or(&e->parts, part) | part) == (RSP_POSTED | RSP_SEND_DONE))
+    tgt_emit(req);
+}
+
 /* Data (RDMA WRITE, for a read) and response (SEND) are posted together. */
 static __always_inline int on_queue_resp_exit(u64 req) {
   struct ntp_tgt_rec* rec;
@@ -149,9 +166,37 @@ static __always_inline int on_queue_resp_exit(u64 req) {
     now = bpf_ktime_get_ns();
     if (!(rec->hdr.flags & NTP_F_WRITE)) rec->ts[NTP_T_C2H_SENT] = now;
     rec->ts[NTP_T_RSP_SENT] = now;
+    rsp_part_done(req, RSP_POSTED);
   }
-  tgt_finish(req);
+  tgt_uncount(req);
   return 0;
+}
+
+/* The response's send completion (signaled on every response). */
+static __always_inline int on_send_done(const struct ib_wc* wc) {
+  struct ntp_tgt_rec* rec;
+  void* rsp;
+  u64 req;
+
+  if (!ntp_inflight) return 0;
+  rsp = (void*)BPF_CORE_READ(wc, wr_cqe) -
+        bpf_core_field_offset(struct nvmet_rdma_rsp, send_cqe);
+  req = req_of_rsp(rsp);
+  rec = tgt_rec(req);
+  if (!rec) return 0;
+  ntp_stamp_once(&rec->ts[NTP_T_SEND_DONE], bpf_ktime_get_ns());
+  rsp_part_done(req, RSP_SEND_DONE);
+  return 0;
+}
+
+SEC("fentry/nvmet_rdma_send_done")
+int BPF_PROG(ntp_tr_send_done_fe, void* cq, struct ib_wc* wc) {
+  return on_send_done(wc);
+}
+
+SEC("kprobe/nvmet_rdma_send_done")
+int BPF_KPROBE(ntp_tr_send_done_kp, void* cq, struct ib_wc* wc) {
+  return on_send_done(wc);
 }
 
 SEC("fentry/nvmet_rdma_queue_response")

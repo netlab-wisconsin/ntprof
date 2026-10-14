@@ -34,6 +34,8 @@ const struct ntp_comp_info ntp_comps[NTP_C_NR] = {
                            "target blk-mq completion", true},
     [NTP_C_CMPL_IPI] = {"completion_ipi", "S1(C)",
                         "CQE parsed to nvme_complete_rq", true},
+    [NTP_C_NET_DATA] = {"net_data_transfer", "S3-S5",
+                        "data transfer (RDMA, at the target)", true},
 };
 
 const char* const ntp_stage_names[NTP_STAGE_NR] = {
@@ -232,9 +234,14 @@ static bool rdma_target_side(const struct ntp_tgt_rec* t, struct ntp_breakdown* 
     set(b, NTP_C_TGT_SUB, d(T[NTP_T_R2T_SENT], T[NTP_T_CMD_PROC]) +
                               d(T[NTP_T_EXEC], T[NTP_T_DATA_PROC]));
     b->io_class = NTP_IO_CLASS_WRITE_R2T;
+    /* the RDMA READ: the dpbench pipeline's NIC stage of a NIC-to-SSD write */
+    set(b, NTP_C_NET_DATA, fetch_ns);
   } else {
     set(b, NTP_C_TGT_SUB, d(T[NTP_T_EXEC], T[NTP_T_CMD_PROC]));
   }
+  /* a read's RDMA WRITE + response, posted until the send completion */
+  if (!(t->hdr.flags & NTP_F_WRITE) && T[NTP_T_C2H_SENT] && T[NTP_T_SEND_DONE])
+    set(b, NTP_C_NET_DATA, d(T[NTP_T_SEND_DONE], T[NTP_T_C2H_SENT]));
   set(b, NTP_C_TGT_BE, d(T[NTP_T_COMPLETE], T[NTP_T_EXEC]));
   set(b, NTP_C_TGT_CMPL, d(T[NTP_T_RSP_SENT], T[NTP_T_COMPLETE]));
   residence = d(T[NTP_T_RSP_SENT], T[NTP_T_CMD_ARR]) - fetch_ns;

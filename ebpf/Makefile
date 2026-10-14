@@ -89,6 +89,9 @@ $(OUTPUT)/%.o: src/%.c $(wildcard src/*.h) bpf/ntprof.h $(LIBBPF_OBJ) | $(OUTPUT
 	$(call msg,CC,$@)
 	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
+# The RDMA target needs atomic fetch-or (BPF ISA v3, Linux 5.12 and later).
+$(OUTPUT)/nvme_rdma_target.bpf.o: BPF_CFLAGS += -mcpu=v3
+
 # The loader includes the generated skeletons.
 $(OUTPUT)/loader.o: $(SKELS)
 

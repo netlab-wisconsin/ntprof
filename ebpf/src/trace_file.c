@@ -2,6 +2,7 @@
 #include "trace_file.h"
 
 #include <errno.h>
+#include <stddef.h>
 #include <string.h>
 #include <sys/utsname.h>
 #include <unistd.h>
@@ -68,6 +69,7 @@ int ntp_read_file(const char* path, struct ntp_file_header* hdr,
     struct ntp_tgt_rec tgt;
   } rec;
   FILE* f = fopen(path, "rb");
+  size_t tgt_size;
   int ret = 0;
 
   if (!f) {
@@ -80,9 +82,14 @@ int ntp_read_file(const char* path, struct ntp_file_header* hdr,
     fclose(f);
     return -1;
   }
-  if (hdr->version != NTP_FILE_VERSION || hdr->header_size != sizeof(*hdr) ||
+  /* version 2: target records end before ts[NTP_T_SEND_DONE] */
+  tgt_size = hdr->version == 2
+                 ? offsetof(struct ntp_tgt_rec, ts) + NTP_T_SEND_DONE * sizeof(__u64)
+                 : sizeof(struct ntp_tgt_rec);
+  if ((hdr->version != NTP_FILE_VERSION && hdr->version != 2) ||
+      hdr->header_size != sizeof(*hdr) ||
       hdr->host_rec_size != sizeof(struct ntp_host_rec) ||
-      hdr->tgt_rec_size != sizeof(struct ntp_tgt_rec)) {
+      hdr->tgt_rec_size != tgt_size) {
     ntp_err("%s: written by another ntprof version (file v%u)", path,
             hdr->version);
     fclose(f);
@@ -97,7 +104,8 @@ int ntp_read_file(const char* path, struct ntp_file_header* hdr,
         size = sizeof(rec.host);
         break;
       case NTP_REC_TARGET:
-        size = sizeof(rec.tgt);
+        memset((char*)&rec + sizeof(rec.hdr), 0, sizeof(rec) - sizeof(rec.hdr));
+        size = tgt_size;
         break;
       default:
         ntp_err("%s: corrupt record (kind %u)", path, rec.hdr.kind);

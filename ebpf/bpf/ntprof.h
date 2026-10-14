@@ -71,6 +71,8 @@ enum ntp_tgt_ts {
   NTP_T_RSP_QUEUED,   /* completion queued to the transport                */
   NTP_T_C2H_SENT,     /* first C2H data PDU handed to the socket / posted  */
   NTP_T_RSP_SENT,     /* response capsule handed to the socket / posted    */
+  NTP_T_SEND_DONE,    /* RDMA: the response's send completion (after the
+                         data's RDMA WRITE, for a read)                     */
   NTP_T_NR,
 };
 
