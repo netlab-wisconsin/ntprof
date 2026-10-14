@@ -29,7 +29,7 @@ CFLAGS ?= -O2 -g
 CFLAGS += -std=gnu11 -Wall -Wextra -Werror -Wno-unused-parameter \
           -Wmissing-prototypes -Wstrict-prototypes
 INCLUDES := -I$(OUTPUT) -Ilibbpf/include/uapi -Ibpf -Isrc
-LDLIBS := $(LIBBPF_OBJ) -lelf -lz -lm
+LDLIBS := $(LIBBPF_OBJ) -lelf -lz -lm -lpthread
 
 # The system include directories clang -target bpf would not search.
 CLANG_BPF_SYS_INCLUDES := $(shell $(CLANG) -v -E - </dev/null 2>&1 \

@@ -9,15 +9,18 @@
  * joined as the host record arrives. A host record that comes first waits
  * up to HOST_WAIT_NS for its target record.
  *
- * The recording runs in a child process. Detaching fentry programs can wait
- * for a busy CPU, uninterruptibly (loader.c); the child prints its report,
- * tells the parent, and only then detaches. The parent holds no BPF object:
- * it returns as soon as the hooks are gone, or after DETACH_WAIT_MS, leaving
- * the child to finish in the background.
+ * The recording runs in a child process. Attaching and detaching fentry
+ * programs can wait for a busy CPU, uninterruptibly (loader.c). The parent
+ * holds no BPF object. If the child has not attached within
+ * ATTACH_DEADLINE_MS, the parent kills it and starts over with kprobes. The
+ * child prints its report, tells the parent, and only then detaches; the
+ * parent returns as soon as the hooks are gone, or after DETACH_WAIT_MS,
+ * leaving the child to finish in the background.
  */
 #define _GNU_SOURCE /* pipe2 */
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,6 +47,12 @@
 #define IDLE_HINT_NS (5ull * 1000000000ull)
 /* How long the parent waits for the hooks to go once the report is out. */
 #define DETACH_WAIT_MS 3000
+/* How long attaching may take before the parent starts over with kprobes. */
+#define ATTACH_DEADLINE_MS 10000
+
+/* What the child tells the parent, one byte each. */
+#define MSG_ATTACHED 'A'
+#define MSG_DONE 'D' /* followed by the exit status */
 
 static volatile sig_atomic_t stop;
 
@@ -214,13 +223,11 @@ static int close_writer(struct session* s, int ret, bool loaded) {
   return ret;
 }
 
-/* Tell the parent that the results are out, and with which exit status. */
-static void report_done(int done_fd, int ret) {
-  unsigned char status = (unsigned char)ret;
-
+/* Tell the parent (record() in cmd_record()); @len bytes of @msg. */
+static void tell_parent(int done_fd, const unsigned char* msg, size_t len) {
   fflush(stdout);
   fflush(stderr);
-  if (done_fd >= 0 && write(done_fd, &status, 1) != 1) {
+  if (done_fd >= 0 && write(done_fd, msg, len) != (ssize_t)len) {
     /* the parent is gone: nobody to tell */
   }
 }
@@ -248,23 +255,26 @@ static int record(const struct ntp_config* c, int done_fd) {
   signal(SIGTERM, on_signal);
 
   ntp_header_init(&hdr, c->role, c->transport, c->sample_every);
+  l = ntp_loader_open(c, on_record, &s);
+  if (!l) {
+    ret = EXIT_FAILURE;
+    goto out_stats;
+  }
+  /* only now: an attempt killed while attaching leaves no file behind */
   if (c->output[0]) {
     if (ntp_writer_open(&s.w, c->output, &hdr)) {
+      ntp_loader_close(l);
       ret = EXIT_FAILURE;
       goto out_stats;
     }
     s.writing = true;
-  }
-  l = ntp_loader_open(c, on_record, &s);
-  if (!l) {
-    ret = EXIT_FAILURE;
-    goto out_writer;
   }
 
   fprintf(stderr,
           "ntprof: profiling as %s, sampling 1 of %u commands%s; Ctrl-C to stop\n",
           role_name(c->role), c->sample_every,
           c->output[0] ? ", saving records" : "");
+  tell_parent(done_fd, (const unsigned char[]){MSG_ATTACHED}, 1);
   if (c->role == NTP_ROLE_TARGET && !c->output[0])
     ntp_warn("a target's records are only reported joined with the "
              "initiator's: save them with -o FILE");
@@ -361,12 +371,9 @@ static int record(const struct ntp_config* c, int done_fd) {
            "same -s)\n",
            c->output);
   ret = close_writer(&s, ret, true);
-  report_done(done_fd, ret);
+  tell_parent(done_fd, (const unsigned char[]){MSG_DONE, (unsigned char)ret}, 2);
   ntp_loader_close(l);
-  goto out_stats;
 
-out_writer:
-  ret = close_writer(&s, ret, false);
 out_stats:
   ntp_joiner_free(s.joiner);
   ntp_stats_free(&s.interval);
@@ -394,50 +401,109 @@ static int reap(pid_t pid, int options) {
   return WIFEXITED(st) ? WEXITSTATUS(st) : EXIT_FAILURE;
 }
 
-int cmd_record(const struct ntp_config* c) {
-  struct sigaction sa = {.sa_handler = forward_signal}; /* no SA_RESTART */
-  unsigned char status;
-  int fds[2], ret;
-  ssize_t n;
+struct child {
   pid_t pid;
+  int fd; /* what it tells us */
+};
 
-  if (pipe2(fds, O_CLOEXEC)) return record(c, -1);
+static int start_child(const struct ntp_config* c, struct child* ch) {
+  int fds[2];
+
+  if (pipe2(fds, O_CLOEXEC)) return -1;
   fflush(NULL);
-  pid = fork();
-  if (pid < 0) {
+  ch->pid = fork();
+  if (ch->pid < 0) {
     close(fds[0]);
     close(fds[1]);
-    return record(c, -1);
+    return -1;
   }
-  if (pid == 0) {
+  if (ch->pid == 0) {
     close(fds[0]);
     exit(record(c, fds[1]));
   }
   close(fds[1]);
-  child_pid = pid;
+  ch->fd = fds[0];
+  child_pid = ch->pid;
+  return 0;
+}
+
+#define NB_TIMEOUT (-1) /* nothing within the time given */
+#define NB_LEFT (-2)    /* the user pressed Ctrl-C twice */
+
+/* The next byte from the child; 0 when it closed the pipe; @timeout_ms < 0: none. */
+static int next_byte(const struct child* ch, int timeout_ms) {
+  uint64_t deadline =
+      timeout_ms < 0 ? 0 : now_mono_ns() + (uint64_t)timeout_ms * 1000000ull;
+  struct pollfd p = {.fd = ch->fd, .events = POLLIN};
+  unsigned char b;
+
+  for (;;) {
+    int wait_ms = -1, r;
+
+    if (interrupts >= 2) return NB_LEFT;
+    if (deadline) {
+      uint64_t now = now_mono_ns();
+
+      if (now >= deadline) return NB_TIMEOUT;
+      wait_ms = (int)((deadline - now) / 1000000) + 1;
+    }
+    r = poll(&p, 1, wait_ms);
+    if (r < 0 && errno == EINTR) continue;
+    if (r == 0) return NB_TIMEOUT;
+    if (r < 0) return 0;
+    r = read(ch->fd, &b, 1);
+    if (r < 0 && errno == EINTR) continue;
+    return r == 1 ? b : 0;
+  }
+}
+
+int cmd_record(const struct ntp_config* c) {
+  struct sigaction sa = {.sa_handler = forward_signal}; /* no SA_RESTART */
+  struct ntp_config with_kprobes;
+  struct child ch;
+  int b, status, ret;
+
+  if (start_child(c, &ch)) return record(c, -1);
   sigaction(SIGINT, &sa, NULL);
   sigaction(SIGTERM, &sa, NULL);
 
-  while ((n = read(fds[0], &status, 1)) < 0 && errno == EINTR) {
-    /* a second Ctrl-C: the child is stuck attaching, do not wait for it */
-    if (interrupts >= 2) {
-      ntp_warn("still attaching in the background (process %d), held up by a "
-               "busy CPU; it stops by itself once attached",
-               (int)pid);
-      return 130;
-    }
+  b = next_byte(&ch, ATTACH_DEADLINE_MS);
+  if (b == NB_TIMEOUT && !c->force_fentry && !c->force_kprobes) {
+    /* stuck in an fentry attachment: it dies once that returns */
+    kill(ch.pid, SIGKILL);
+    close(ch.fd);
+    ntp_warn("attaching the fentry hooks is held up by a busy CPU; starting "
+             "over with kprobes (the first attempt, process %d, ends by itself)",
+             (int)ch.pid);
+    with_kprobes = *c;
+    with_kprobes.force_kprobes = true;
+    if (start_child(&with_kprobes, &ch)) return EXIT_FAILURE;
+    b = next_byte(&ch, -1);
+  } else if (b == NB_TIMEOUT) {
+    ntp_warn("still attaching, held up by a busy CPU; Ctrl-C twice to leave");
+    b = next_byte(&ch, -1);
   }
-  close(fds[0]);
-  if (n != 1) return reap(pid, 0); /* ended without a report: an error */
+  if (b == MSG_ATTACHED) b = next_byte(&ch, -1); /* recording */
+  if (b == NB_LEFT) {
+    ntp_warn("left process %d behind: it ends by itself", (int)ch.pid);
+    return 130;
+  }
+  if (b != MSG_DONE) { /* ended without a report: an error */
+    close(ch.fd);
+    return reap(ch.pid, 0);
+  }
+  status = next_byte(&ch, -1);
+  close(ch.fd);
+  if (status < 0) status = EXIT_FAILURE;
 
   for (int waited = 0; waited < DETACH_WAIT_MS; waited += 50) {
-    ret = reap(pid, WNOHANG);
+    ret = reap(ch.pid, WNOHANG);
     if (ret >= 0) return ret;
     usleep(50 * 1000);
   }
   ntp_warn("the hooks are still being removed in the background (process %d), "
            "held up by a busy CPU; this ends by itself",
-           (int)pid);
+           (int)ch.pid);
   return status;
 }
 

@@ -132,11 +132,12 @@ LAD (loaded ÷ baseline), and the stage with the largest LAD.
 
 Attaching an fentry/fexit program waits for every runnable thread to switch out voluntarily, and so does
 detaching it. Fio jobs whose completions are always ready, or polling threads, can hold that wait up for as
-long as they run ([DESIGN.md](DESIGN.md#hook-flavours)). ntprof therefore checks first, in a throwaway process,
-whether fentry attaches within 2 s. If not, it says so and uses kprobes, which cost more per I/O. When it
-stops, it prints its report first. If removing the hooks then takes longer than 3 s, ntprof returns anyway
-and says that removal continues in the background. A second Ctrl-C leaves an attach that is stuck because of
-`--fentry`.
+long as they run ([DESIGN.md](DESIGN.md#hook-flavours)). ntprof attaches its programs in parallel, so the
+waits overlap. It first checks, in a throwaway process, whether fentry attaches within 2 s, and uses kprobes
+(which cost more per I/O) if not. If attaching still takes more than 10 s, it starts over with kprobes. Each
+time, it says why. When it stops, it prints its report first. If removing the hooks then takes longer than
+3 s, ntprof returns anyway and says that removal continues in the background. With `--fentry` there is no
+fallback; a second Ctrl-C leaves a stuck attach behind.
 
 ## SPDK
 

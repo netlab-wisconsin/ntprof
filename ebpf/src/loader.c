@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <pthread.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
@@ -644,49 +645,135 @@ static int attach_usdt(struct obj_inst* o, struct bpf_program* prog) {
   return n ? 0 : err;
 }
 
-static int attach_all(struct obj_inst* o) {
+/* The USDT probes of one object (SPDK), one link per file and probe. */
+static int attach_usdt_all(struct obj_inst* o) {
   struct bpf_program* prog;
-  size_t n = 0, files = 1;
 
-  if (o->usdt_paths)
-    for (const char* p = o->usdt_paths; *p; p++) files += *p == ',';
-  bpf_object__for_each_program(prog, o->obj) n++;
-  o->links = xcalloc(n * files, sizeof(*o->links));
   bpf_object__for_each_program(prog, o->obj) {
     const char* name = bpf_program__name(prog);
-    struct bpf_link* link = NULL;
+    int err;
 
-    if (!bpf_program__autoload(prog)) continue;
-    if (is_usdt(prog)) {
-      int err = attach_usdt(o, prog);
-
-      if (!err) continue;
-      if (is_required(o->desc, name)) {
-        ntp_err("%s: cannot attach to USDT probe %s:%s in %s: %s; is SPDK "
-                "built with ebpf/spdk's patch and --with-usdt?",
-                o->desc->name, USDT_PROVIDER, name + strlen(USDT_PREFIX),
-                o->usdt_paths, strerror(-err));
-        return -1;
-      }
-      ntp_warn("%s: cannot attach to USDT probe %s (%s); continuing without it",
-               o->desc->name, name + strlen(USDT_PREFIX), strerror(-err));
-      continue;
+    if (!bpf_program__autoload(prog) || !is_usdt(prog)) continue;
+    err = attach_usdt(o, prog);
+    if (!err) continue;
+    if (is_required(o->desc, name)) {
+      ntp_err("%s: cannot attach to USDT probe %s:%s in %s: %s; is SPDK "
+              "built with ebpf/spdk's patch and --with-usdt?",
+              o->desc->name, USDT_PROVIDER, name + strlen(USDT_PREFIX),
+              o->usdt_paths, strerror(-err));
+      return -1;
     }
-    link = bpf_program__attach(prog);
-    if (!link) {
-      int err = -errno;
-
-      if (is_required(o->desc, name)) {
-        ntp_err("%s: cannot attach %s: %s", o->desc->name, name, strerror(-err));
-        return -1;
-      }
-      ntp_warn("%s: cannot attach %s (%s); continuing without it",
-               o->desc->name, name, strerror(-err));
-      continue;
-    }
-    o->links[o->nlinks++] = link;
+    ntp_warn("%s: cannot attach to USDT probe %s (%s); continuing without it",
+             o->desc->name, name + strlen(USDT_PREFIX), strerror(-err));
   }
   return 0;
+}
+
+/*
+ * Each fentry/fexit attachment or detachment waits for an RCU-tasks grace
+ * period (see choose_flavour()), after ftrace has dropped its lock, so the
+ * waits of concurrent ones overlap: links are made and destroyed from a few
+ * threads at once, which takes about one grace period instead of one per
+ * program.
+ */
+#define LINK_THREADS 16
+
+struct pfor {
+  void (*fn)(void* arg, size_t i);
+  void* arg;
+  size_t n;
+  size_t next; /* the next index to take, atomically */
+};
+
+static void* pfor_worker(void* arg) {
+  struct pfor* p = arg;
+  size_t i;
+
+  while ((i = __atomic_fetch_add(&p->next, 1, __ATOMIC_RELAXED)) < p->n)
+    p->fn(p->arg, i);
+  return NULL;
+}
+
+/* fn(arg, i) for i in [0, n), from up to LINK_THREADS threads if @parallel. */
+static void parallel_for(size_t n, bool parallel, void (*fn)(void*, size_t),
+                         void* arg) {
+  struct pfor p = {.fn = fn, .arg = arg, .n = n};
+  pthread_t th[LINK_THREADS];
+  size_t nth = parallel ? (n < LINK_THREADS ? n : LINK_THREADS) : 0;
+  size_t started = 0;
+
+  while (started < nth && !pthread_create(&th[started], NULL, pfor_worker, &p))
+    started++;
+  pfor_worker(&p); /* this thread takes its share too */
+  for (size_t i = 0; i < started; i++) pthread_join(th[i], NULL);
+}
+
+struct attach_job {
+  struct obj_inst* o;
+  struct bpf_program* prog;
+  struct bpf_link* link;
+  int err;
+};
+
+static void attach_one(void* arg, size_t i) {
+  struct attach_job* j = (struct attach_job*)arg + i;
+
+  j->link = bpf_program__attach(j->prog);
+  j->err = j->link ? 0 : -errno;
+}
+
+static void destroy_one(void* arg, size_t i) {
+  bpf_link__destroy(((struct bpf_link**)arg)[i]);
+}
+
+/* Attach every program of every object; @parallel: the fentry flavour. */
+static int attach_all(struct ntp_loader* l, bool parallel) {
+  struct attach_job* jobs;
+  size_t njobs = 0, cap = 0;
+  int ret = 0;
+
+  for (size_t i = 0; i < l->ninst; i++) {
+    struct obj_inst* o = &l->inst[i];
+    struct bpf_program* prog;
+    size_t n = 0, files = 1;
+
+    if (o->usdt_paths)
+      for (const char* p = o->usdt_paths; *p; p++) files += *p == ',';
+    bpf_object__for_each_program(prog, o->obj) n++;
+    o->links = xcalloc(n * files, sizeof(*o->links));
+    cap += n;
+    if (attach_usdt_all(o)) return -1;
+  }
+
+  jobs = xcalloc(cap ? cap : 1, sizeof(*jobs));
+  for (size_t i = 0; i < l->ninst; i++) {
+    struct bpf_program* prog;
+
+    bpf_object__for_each_program(prog, l->inst[i].obj) {
+      if (!bpf_program__autoload(prog) || is_usdt(prog)) continue;
+      jobs[njobs].o = &l->inst[i];
+      jobs[njobs++].prog = prog;
+    }
+  }
+  parallel_for(njobs, parallel, attach_one, jobs);
+
+  for (size_t i = 0; i < njobs; i++) {
+    struct attach_job* j = &jobs[i];
+    const char* name = bpf_program__name(j->prog);
+
+    if (j->link) {
+      j->o->links[j->o->nlinks++] = j->link;
+    } else if (is_required(j->o->desc, name)) {
+      ntp_err("%s: cannot attach %s: %s", j->o->desc->name, name,
+              strerror(-j->err));
+      ret = -1;
+    } else {
+      ntp_warn("%s: cannot attach %s (%s); continuing without it",
+               j->o->desc->name, name, strerror(-j->err));
+    }
+  }
+  free(jobs);
+  return ret;
 }
 
 struct ntp_loader* ntp_loader_open(const struct ntp_config* c, ntp_record_cb cb,
@@ -732,8 +819,7 @@ struct ntp_loader* ntp_loader_open(const struct ntp_config* c, ntp_record_cb cb,
     goto fail;
   }
 
-  for (size_t i = 0; i < l->ninst; i++)
-    if (attach_all(&l->inst[i])) goto fail;
+  if (attach_all(l, choose_flavour(c) == FL_FENTRY)) goto fail;
 
   l->stamp_fd = open_stamp_socket();
   if (l->stamp_fd < 0)
@@ -789,7 +875,7 @@ void ntp_loader_close(struct ntp_loader* l) {
   for (size_t i = 0; i < l->ninst; i++) {
     struct obj_inst* o = &l->inst[i];
 
-    for (size_t k = 0; k < o->nlinks; k++) bpf_link__destroy(o->links[k]);
+    parallel_for(o->nlinks, true, destroy_one, o->links);
     free(o->links);
     o->desc->destroy(o);
   }

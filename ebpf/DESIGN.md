@@ -102,32 +102,41 @@ attached when no CPU stays busy (below). The loader keeps fentry/fexit when
 both hold, and kprobes otherwise or with `--kprobes`.
 
 **Busy CPUs.** Attaching an fentry/fexit program goes through
-`register_ftrace_direct()`, which calls `synchronize_rcu_tasks()`; detaching
-waits the same way. That grace period ends only when every runnable task
-has switched out voluntarily. A thread that stays runnable holds it up for
-as long as it runs, for example fio jobs whose completions are always
-ready, or a polling thread. The attaching thread meanwhile sleeps
-uninterruptibly. On the development guest (Linux 6.8,
-`PREEMPT_DYNAMIC`), four fio jobs (4 KB random reads, iodepth 8, CPUs 4-7,
-loopback NVMe/TCP) made attaching wait until fio ended, 60 s later. Stopping
-ntprof during the same load took 27 s. kprobes attached in 0.5 s and
-detached in 1 s. The kernel stack of the waiting thread was
-`link_create -> bpf_trampoline_update -> register_ftrace_direct ->
-synchronize_rcu_tasks`. SPDK's reactors did not hold it up in our runs.
-Even with no load, attaching both sides' fentry programs takes about 5 s,
-because each attach waits for its own grace period. ntprof handles this in
-two places:
+`register_ftrace_direct()`, which calls `synchronize_rcu_tasks()`;
+detaching waits the same way. That grace period ends only when every
+runnable task has switched out voluntarily. A thread that stays runnable,
+such as a polling thread or a fio job whose completions are always ready,
+holds it up. The attaching thread meanwhile sleeps uninterruptibly. The
+kernel stack of a waiting thread is `link_create -> bpf_trampoline_update
+-> register_ftrace_direct -> synchronize_rcu_tasks`.
 
+On the development guest (Linux 6.8, `PREEMPT_DYNAMIC`), the load was four
+fio jobs (4 KB random reads, iodepth 8, CPUs 4-7, loopback NVMe/TCP). With
+one program attached after the other, attaching both sides took 33 s and
+60 s in two runs, and stopping took 27 s. kprobes attached in 0.5 s and
+detached in 1 s. SPDK's reactors did not hold the grace period up in our
+runs. ntprof handles this in three places:
+
+- Attaching from 16 threads. ftrace drops its lock before it waits, so
+  concurrent waits overlap. Both sides' fentry programs now attach in
+  1.7 s on an idle guest (5 s one after the other) and in 8.5 s under the
+  load above. Detaching is parallel too, but takes 1.8 s idle all the same.
 - Before choosing fentry, a disposable grandchild process attaches a
   one-instruction fentry program to `bpf_fentry_test1`, which runs only in
   BPF selftests. If that does not succeed within 2 s, ntprof warns and uses
-  kprobes. Nobody waits for the grandchild. `--fentry` skips the check.
-- `record` runs in a child process. The child prints the report, tells the
-  parent, and only then detaches. The parent holds no BPF object, so it can
-  return once the hooks are gone or after 3 s, whichever comes first. In
-  the second case, it says that removal continues in the background. A
-  second Ctrl-C while the child is still stuck attaching returns at once.
-  The child ends by itself once the grace period completes.
+  kprobes. Nobody waits for the grandchild. One grace period can be quick
+  even under load, so the check sometimes passes and the attach is then
+  slow.
+- `record` runs in a child process, and the parent holds no BPF object.
+  If the child has not attached within 10 s, the parent kills it and starts
+  over with kprobes. The killed attempt dies once its grace period ends;
+  its programs were never armed, and the record file is opened only after
+  attaching. Under the load above, three starts took 2.5 s, 2.5 s and
+  3.7 s, and all recorded. At the end, the child prints the report, tells
+  the parent, and only then detaches. The parent returns once the hooks are
+  gone or after 3 s, whichever comes first, and in the second case says
+  that removal continues in the background. With `--fentry` there is no
+  restart; a second Ctrl-C leaves a stuck attach behind.
 
 A program whose attach point is missing on the running kernel is not loaded;
 `ntprof probe` lists them. The records then lack that event, and the model
