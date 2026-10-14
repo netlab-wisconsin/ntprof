@@ -8,10 +8,21 @@
  * consumed before its host record (emitted at completion) and the two are
  * joined as the host record arrives. A host record that comes first waits
  * up to HOST_WAIT_NS for its target record.
+ *
+ * The recording runs in a child process. Detaching fentry programs can wait
+ * for a busy CPU, uninterruptibly (loader.c); the child prints its report,
+ * tells the parent, and only then detaches. The parent holds no BPF object:
+ * it returns as soon as the hooks are gone, or after DETACH_WAIT_MS, leaving
+ * the child to finish in the background.
  */
+#define _GNU_SOURCE /* pipe2 */
+#include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include "commands.h"
 #include "join.h"
@@ -31,6 +42,8 @@
 #define HOST_WAIT_NS (100ull * 1000000ull)
 /* Say so when no command at all has been seen after this long. */
 #define IDLE_HINT_NS (5ull * 1000000000ull)
+/* How long the parent waits for the hooks to go once the report is out. */
+#define DETACH_WAIT_MS 3000
 
 static volatile sig_atomic_t stop;
 
@@ -184,7 +197,36 @@ static const char* role_name(enum ntp_role r) {
   return r == NTP_ROLE_BOTH ? "host+target" : r == NTP_ROLE_HOST ? "host" : "target";
 }
 
-int cmd_record(const struct ntp_config* c) {
+/* Close the record file; @loaded: say how many records it got. */
+static int close_writer(struct session* s, int ret, bool loaded) {
+  const struct ntp_config* c = s->c;
+
+  if (!s->writing) return ret;
+  s->writing = false;
+  if (ntp_writer_close(&s->w) || s->write_errors) {
+    ntp_err("writing %s failed (%llu records lost)", c->output,
+            (unsigned long long)s->write_errors);
+    return EXIT_FAILURE;
+  }
+  if (loaded)
+    fprintf(stderr, "ntprof: %llu records written to %s\n",
+            (unsigned long long)s->w.records, c->output);
+  return ret;
+}
+
+/* Tell the parent that the results are out, and with which exit status. */
+static void report_done(int done_fd, int ret) {
+  unsigned char status = (unsigned char)ret;
+
+  fflush(stdout);
+  fflush(stderr);
+  if (done_fd >= 0 && write(done_fd, &status, 1) != 1) {
+    /* the parent is gone: nobody to tell */
+  }
+}
+
+/* The recording itself; @done_fd: where to say that the report is out. */
+static int record(const struct ntp_config* c, int done_fd) {
   struct session s = {.c = c};
   struct ntp_tput start_tput, prev_tput, cur, delta;
   struct ntp_report_opts ro;
@@ -317,24 +359,85 @@ int cmd_record(const struct ntp_config* c) {
   if (c->role == NTP_ROLE_TARGET && c->output[0])
     printf("report: ntprof report HOST.ntp %s (the initiator's recording, same -s)\n",
            c->output);
+  ret = close_writer(&s, ret, true);
+  report_done(done_fd, ret);
   ntp_loader_close(l);
+  goto out_stats;
 
 out_writer:
-  if (s.writing) {
-    if (ntp_writer_close(&s.w) || s.write_errors) {
-      ntp_err("writing %s failed (%llu records lost)", c->output,
-              (unsigned long long)s.write_errors);
-      ret = EXIT_FAILURE;
-    } else if (l) {
-      fprintf(stderr, "ntprof: %llu records written to %s\n",
-              (unsigned long long)s.w.records, c->output);
-    }
-  }
+  ret = close_writer(&s, ret, false);
 out_stats:
   ntp_joiner_free(s.joiner);
   ntp_stats_free(&s.interval);
   ntp_stats_free(&s.total);
   return ret;
+}
+
+/* ---- the parent ---- */
+
+static volatile sig_atomic_t child_pid, interrupts;
+
+static void forward_signal(int sig) {
+  if (sig == SIGINT) interrupts++;
+  if (child_pid > 0) kill(child_pid, sig);
+}
+
+static int reap(pid_t pid, int options) {
+  int st;
+  pid_t r;
+
+  while ((r = waitpid(pid, &st, options)) < 0 && errno == EINTR) {
+  }
+  if (r == 0) return -1; /* still running */
+  if (r < 0) return EXIT_FAILURE;
+  return WIFEXITED(st) ? WEXITSTATUS(st) : EXIT_FAILURE;
+}
+
+int cmd_record(const struct ntp_config* c) {
+  struct sigaction sa = {.sa_handler = forward_signal}; /* no SA_RESTART */
+  unsigned char status;
+  int fds[2], ret;
+  ssize_t n;
+  pid_t pid;
+
+  if (pipe2(fds, O_CLOEXEC)) return record(c, -1);
+  fflush(NULL);
+  pid = fork();
+  if (pid < 0) {
+    close(fds[0]);
+    close(fds[1]);
+    return record(c, -1);
+  }
+  if (pid == 0) {
+    close(fds[0]);
+    exit(record(c, fds[1]));
+  }
+  close(fds[1]);
+  child_pid = pid;
+  sigaction(SIGINT, &sa, NULL);
+  sigaction(SIGTERM, &sa, NULL);
+
+  while ((n = read(fds[0], &status, 1)) < 0 && errno == EINTR) {
+    /* a second Ctrl-C: the child is stuck attaching, do not wait for it */
+    if (interrupts >= 2) {
+      ntp_warn("still attaching in the background (process %d), held up by a "
+               "busy CPU; it stops by itself once attached",
+               (int)pid);
+      return 130;
+    }
+  }
+  close(fds[0]);
+  if (n != 1) return reap(pid, 0); /* ended without a report: an error */
+
+  for (int waited = 0; waited < DETACH_WAIT_MS; waited += 50) {
+    ret = reap(pid, WNOHANG);
+    if (ret >= 0) return ret;
+    usleep(50 * 1000);
+  }
+  ntp_warn("the hooks are still being removed in the background (process %d), "
+           "held up by a busy CPU; this ends by itself",
+           (int)pid);
+  return status;
 }
 
 int cmd_probe(const struct ntp_config* c) {

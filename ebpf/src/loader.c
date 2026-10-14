@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: GPL-2.0
+#define _GNU_SOURCE /* pipe2 */
 #include "loader.h"
 
 #include <bpf/bpf.h>
+#include <bpf/btf.h>
 #include <bpf/libbpf.h>
 #include <errno.h>
-#include <sys/socket.h>
-#include <time.h>
+#include <fcntl.h>
+#include <poll.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "nvme_rdma_host.skel.h"
@@ -268,10 +273,92 @@ static enum flavour flavour_of(const struct bpf_program* prog) {
   return FL_COMMON;
 }
 
-/* fentry/fexit need the kernel's own BTF (module BTF included). */
+/*
+ * Attaching or detaching an fentry/fexit program waits for an RCU-tasks
+ * grace period (the trampoline's ftrace ops are dynamic). A thread that stays
+ * runnable without ever blocking holds that up for as long as it runs: a
+ * polling SPDK reactor, or fio jobs whose completions are always ready. The
+ * attaching thread then waits, uninterruptibly. kprobes do not wait for it.
+ *
+ * So before choosing fentry, a disposable grandchild process attaches a
+ * one-instruction fentry program to a kernel function nothing calls outside
+ * BPF selftests. If it has not succeeded within FENTRY_CHECK_MS, the kprobe
+ * flavour is used. Nobody waits for the grandchild: it ends by itself.
+ */
+#define FENTRY_CHECK_FUNC "bpf_fentry_test1"
+#define FENTRY_CHECK_MS 2000
+
+enum fentry_check { FC_OK = 'y', FC_UNKNOWN = '?', FC_BLOCKED = 'b' };
+
+/* In the grandchild: FC_OK once attached, FC_UNKNOWN if it cannot try. */
+static char fentry_check_attach(int btf_id) {
+  struct bpf_insn insns[] = {
+      {.code = BPF_ALU64 | BPF_MOV | BPF_K, .dst_reg = BPF_REG_0, .imm = 0},
+      {.code = BPF_JMP | BPF_EXIT},
+  };
+  LIBBPF_OPTS(bpf_prog_load_opts, opts, .expected_attach_type = BPF_TRACE_FENTRY,
+              .attach_btf_id = btf_id);
+  int prog = bpf_prog_load(BPF_PROG_TYPE_TRACING, "ntp_fentry_check", "GPL",
+                           insns, ARRAY_SIZE(insns), &opts);
+
+  if (prog < 0) return FC_UNKNOWN;
+  return bpf_link_create(prog, 0, BPF_TRACE_FENTRY, NULL) < 0 ? FC_UNKNOWN : FC_OK;
+}
+
+static enum fentry_check fentry_check(void) {
+  struct pollfd p = {.events = POLLIN};
+  char res = FC_UNKNOWN;
+  struct btf* btf;
+  int fds[2], btf_id;
+  pid_t pid;
+
+  btf = btf__load_vmlinux_btf();
+  if (!btf) return FC_UNKNOWN;
+  btf_id = btf__find_by_name_kind(btf, FENTRY_CHECK_FUNC, BTF_KIND_FUNC);
+  btf__free(btf);
+  if (btf_id < 0 || pipe2(fds, O_CLOEXEC)) return FC_UNKNOWN;
+  fflush(NULL);
+  pid = fork();
+  if (pid == 0) {
+    if (fork() == 0) {
+      res = fentry_check_attach(btf_id);
+      if (write(fds[1], &res, 1) != 1) _exit(1);
+    }
+    _exit(0); /* the grandchild's link goes when it exits, unobserved */
+  }
+  close(fds[1]);
+  if (pid > 0) {
+    waitpid(pid, NULL, 0);
+    p.fd = fds[0];
+    if (poll(&p, 1, FENTRY_CHECK_MS) != 1)
+      res = FC_BLOCKED;
+    else if (read(fds[0], &res, 1) != 1)
+      res = FC_UNKNOWN;
+  }
+  close(fds[0]);
+  return (enum fentry_check)res;
+}
+
+/*
+ * fentry/fexit need the kernel's own BTF (module BTF included), and cost less
+ * per call than kprobes, so they are preferred when they can attach now.
+ */
 static enum flavour choose_flavour(const struct ntp_config* c) {
+  static int checked; /* 0: not yet; else the flavour */
+
   if (c->force_kprobes || access(KERNEL_BTF, R_OK)) return FL_KPROBE;
-  return FL_FENTRY;
+  if (c->force_fentry) return FL_FENTRY;
+  if (!checked) {
+    checked = FL_FENTRY;
+    if (fentry_check() == FC_BLOCKED) {
+      ntp_warn("fentry hooks cannot attach now: a thread that never blocks "
+               "(busy polling, or I/O whose completions are always ready) "
+               "holds up the RCU-tasks grace period they need. Using kprobes, "
+               "which cost more per I/O; --fentry forces fentry (it then waits).");
+      checked = FL_KPROBE;
+    }
+  }
+  return (enum flavour)checked;
 }
 
 /* ---- loader ---- */
@@ -755,7 +842,8 @@ int ntp_probe(const struct ntp_config* c, FILE* f) {
   if (ksyms_load(&ks)) return -1;
   fprintf(f, "kernel BTF: %s\nfunction hooks: %s\n",
           kbtf ? "yes" : "no (CO-RE needs --btf DIR, see tools/gen-btf.sh)",
-          choose_flavour(c) == FL_FENTRY ? "fentry/fexit" : "kprobe/kretprobe");
+          choose_flavour(c) == FL_FENTRY ? "fentry/fexit (they can attach now)"
+                                         : "kprobe/kretprobe");
 
   for (size_t i = 0; i < ARRAY_SIZE(objects); i++) {
     const struct obj_desc* d = &objects[i];

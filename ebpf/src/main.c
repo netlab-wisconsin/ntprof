@@ -58,6 +58,8 @@ static void usage(FILE* f) {
           "                        in each stage, by Little's law)\n"
           "      --btf DIR         BTF from tools/gen-btf.sh, for kernels without BTF\n"
           "      --kprobes         use kprobes even where fentry/fexit work\n"
+          "      --fentry          use fentry/fexit even when a busy CPU would make\n"
+          "                        attaching them wait (default: fall back to kprobes)\n"
           "\n"
           "report options (record, report, compare):\n"
           "      --detail          every component, not only the stages\n"
@@ -81,6 +83,7 @@ enum {
   OPT_BTF,
   OPT_EXACT_QUEUES,
   OPT_KPROBES,
+  OPT_FENTRY,
   OPT_SPDK_HOST,
   OPT_SPDK_TARGET,
   OPT_DETAIL,
@@ -104,6 +107,7 @@ static const struct option long_opts[] = {
     {"btf", required_argument, NULL, OPT_BTF},
     {"exact-queues", no_argument, NULL, OPT_EXACT_QUEUES},
     {"kprobes", no_argument, NULL, OPT_KPROBES},
+    {"fentry", no_argument, NULL, OPT_FENTRY},
     {"spdk-host", required_argument, NULL, OPT_SPDK_HOST},
     {"spdk-target", required_argument, NULL, OPT_SPDK_TARGET},
     {"detail", no_argument, NULL, OPT_DETAIL},
@@ -183,6 +187,9 @@ static int apply_option(struct ntp_config* c, int opt, const char* v) {
       return 0;
     case OPT_KPROBES:
       c->force_kprobes = true;
+      return 0;
+    case OPT_FENTRY:
+      c->force_fentry = true;
       return 0;
     case OPT_SPDK_HOST:
       snprintf(c->spdk_host, sizeof(c->spdk_host), "%s", v);

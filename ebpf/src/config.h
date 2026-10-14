@@ -69,6 +69,7 @@ struct ntp_config {
   char btf_dir[256];   /* BTF generated from module DWARF; empty = kernel BTF */
   bool exact_queues;   /* per-request queue occupancy (costs per-I/O map ops) */
   bool force_kprobes;  /* kprobes even when fentry/fexit are available */
+  bool force_fentry;   /* fentry/fexit without checking they can attach now */
   /*
    * The role runs in SPDK: comma-separated binaries or libraries carrying
    * the ntprof USDT probes; empty = the kernel driver.
