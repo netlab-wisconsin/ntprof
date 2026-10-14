@@ -91,6 +91,12 @@ nvme-core hooks are the same as for TCP (`bpf/host.bpf.h`,
 | target | `nvmet_rdma_execute_command` for a write whose data is not inline | `NTP_T_R2T_SENT` (RDMA READ posted), flag `RDMA_READ` |
 | target | `nvmet_rdma_read_data_done` | `NTP_T_DATA_ARR`, `NTP_T_DATA_PROC` |
 | target | entry / exit of `nvmet_rdma_queue_response` | `NTP_T_RSP_QUEUED` / `NTP_T_C2H_SENT` (reads), `NTP_T_RSP_SENT` |
+| target | `nvmet_rdma_send_done` (the response's send completion; for a read, after its data's RDMA WRITE) | `NTP_T_SEND_DONE` |
+
+The target record is emitted at the later of `nvmet_rdma_queue_response`'s
+return and the send completion: the completion can be handled on another
+CPU first. Each side sets its bit with an atomic fetch-or, and the one that
+completes the pair emits (BPF ISA v3, Linux 5.12, for this object only).
 
 ### Hook flavours
 
@@ -224,6 +230,18 @@ H_CMD_SENT, its receive stack H_RSP_PROC - H_RSP_ARR, and S2(C) is 0. On the
 target, a write's RDMA READ (T_DATA_PROC - T_R2T_SENT) is wire and remote-NIC
 time seen from the target: it counts as network, not as target residence.
 S6(S) is then (T_R2T_SENT - T_CMD_PROC) + (T_EXEC - T_DATA_PROC).
+
+The detail component "data transfer (RDMA, at the target)", under S3-S5, is
+the time the data spends crossing the network as the target sees it: a
+write's RDMA READ (T_DATA_PROC - T_R2T_SENT), and a read's RDMA WRITE with
+its response, from posting to the send completion (T_SEND_DONE -
+T_C2H_SENT). These are the spans a staged pipeline times as its NIC stage:
+an RDMA READ into host memory before a drive write, or an RDMA WRITE after a
+drive read. With S7-S9, the drive stage, one NVMe/RDMA run then shows both
+stages of each request. A read's span includes the initiator NIC's
+acknowledgement on its way back, which the initiator's wait does not, so it
+can exceed the read's share of S3-S5. A write whose data fits in the command
+(inline, 4 KiB by default) has no such span.
 
 ## 5. Queue occupancy
 

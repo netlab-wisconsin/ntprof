@@ -34,7 +34,9 @@ sudo make install       # /usr/local/sbin/ntprof (PREFIX=, DESTDIR= as usual)
 ```
 
 If `bpftool` is not on the PATH, use `make BPFTOOL=/path/to/bpftool`. Ubuntu's `/usr/sbin/bpftool` refuses
-to run on a kernel it has no package for; use `/usr/lib/linux-tools/<any version>/bpftool` instead. At run
+to run on a kernel it has no package for; use `/usr/lib/linux-tools/<any version>/bpftool` instead. The
+bpftool of Ubuntu 22.04 (v5.15) is too old for ntprof's objects ("Error finalizing .BTF"); build a current one
+(`git clone --recurse-submodules -b v7.4.0 https://github.com/libbpf/bpftool && make -C bpftool/src`). At run
 time the binary needs only libelf and zlib.
 
 ## Try it
@@ -124,6 +126,9 @@ law: command rate × mean time). Without the target's records, the target's side
 and target". Groups with under 1 % of the records are listed on one line (udev and partition scans make a few
 such reads). `--detail` adds a table of components: each stage split into its parts (S3-S5 into the two
 receive stacks and the network, S7-S9 into the target's block layer and the device), with p50 and p99.
+Over NVMe/RDMA it also shows "data transfer (RDMA, at the target)": a write's RDMA READ, or a read's RDMA
+WRITE and response until the send completion. That is the request's network stage, measured separately from
+its drive stage (S7-S9), as a staged NIC-and-drive pipeline would time them (DESIGN.md §4).
 
 `ntprof compare` prints, per group present in both runs, each stage's mean in the baseline and under load, its
 LAD (loaded ÷ baseline), and the stage with the largest LAD.
@@ -199,7 +204,9 @@ No SSD and no NIC is involved:
 - `tests/loopback.sh tcp|rdma up [completion_ns] [io_queues]` exports a null_blk device through the kernel
   target and connects to it (stock modules, configfs). `tcp` runs over 127.0.0.1; `rdma` runs over soft-RoCE
   (`rdma_rxe`) bound to the default-route interface. `completion_ns` adds a fixed device latency.
-  `tests/loopback.sh tcp|rdma down` removes everything.
+  `tests/loopback.sh tcp|rdma down` removes everything. On two machines, `export [completion_ns]` sets up
+  only the target side (at `ADDR` on `NETDEV`) and `connect ADDR [io_queues]` only the initiator side;
+  `NULLB_MBPS` limits null_blk's bandwidth, a stand-in for a busy drive.
 - `tests/spdk-target.sh up [delay_us]` starts an SPDK `nvmf_tgt` exporting a null bdev on 127.0.0.1:4421
   (reserving hugepages if needed); `delay_us` puts a delay bdev in front. `tests/spdk-target.sh trid` prints
   the transport ID for `spdk_nvme_perf -r`; `down` stops it.
