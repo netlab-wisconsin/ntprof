@@ -59,8 +59,8 @@ setup() {
 
 step1() {
     say "1. Live breakdown: 4 KiB random reads at queue depth 1, both sides on this machine"
-    echo "   ntprof records 1 command in 10 and prints a report every 5 s; the target's records are"
-    echo "   joined with the initiator's as they arrive. Hooks attach in a few seconds first."
+    echo "   ntprof records 1 command in 10, prints a line every 5 s and a report at the end; the"
+    echo "   target's records are joined with the initiator's as they arrive."
     fio_bg live 1 30
     run sudo ./ntprof record -r both -s 10 -d 10 -i 5
     sudo kill "$FIO" 2> /dev/null || true

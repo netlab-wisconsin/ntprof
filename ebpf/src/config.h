@@ -54,6 +54,8 @@ struct ntp_config {
   bool rep_throughput;
   bool rep_breakdown;
   bool rep_queue_length;
+  bool rep_detail;     /* v2: every component, not only the stages */
+  bool rep_all_groups; /* v2: also groups with under 1 % of the records */
   bool group_by_size;
   bool group_by_type;
   bool group_by_session;

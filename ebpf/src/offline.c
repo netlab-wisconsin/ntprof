@@ -74,11 +74,16 @@ static void free_run(struct run* r) {
 static void print_join(const struct run* r) {
   const struct ntp_join_stats* js = ntp_joiner_stats(r->joiner);
 
-  printf("records: host %zu, target %llu; joined %llu, host without target %llu, "
-         "target without host %zu\n",
-         r->nhosts, (unsigned long long)r->targets,
-         (unsigned long long)js->matched, (unsigned long long)js->host_unmatched,
-         ntp_joiner_pending(r->joiner));
+  printf("\nrecords: %zu initiator", r->nhosts);
+  if (r->targets)
+    printf(", %llu target; %llu matched (%.0f %% of the initiator's)",
+           (unsigned long long)r->targets, (unsigned long long)js->matched,
+           r->nhosts ? 100.0 * js->matched / r->nhosts : 0.0);
+  putchar('\n');
+  if (r->targets && js->host_unmatched)
+    printf("  %llu initiator records found no target record: start the target's "
+           "recording first and stop it last, with the same -s\n",
+           (unsigned long long)js->host_unmatched);
 }
 
 int cmd_report(const struct ntp_config* c, char* const* files, int nfiles) {
@@ -97,15 +102,18 @@ int cmd_report(const struct ntp_config* c, char* const* files, int nfiles) {
     ret = EXIT_FAILURE;
     goto out;
   }
-  if (r.have_host_hdr) stats.sample_every = r.host_hdr.sample_every;
-  if (r.have_host_hdr)
-    printf("recorded on %s (kernel %s), sampling 1 of %u\n", r.host_hdr.hostname,
-           r.host_hdr.kernel, r.host_hdr.sample_every);
+  if (!r.have_host_hdr) {
+    ntp_err("report: none of the files is an initiator (host) recording; "
+            "target records are reported with the initiator's");
+    ret = EXIT_FAILURE;
+    goto out;
+  }
+  stats.sample_every = r.host_hdr.sample_every;
+  printf("recorded on %s (kernel %s), one command in %u sampled\n",
+         r.host_hdr.hostname, r.host_hdr.kernel, r.host_hdr.sample_every);
   ntp_report_text(stdout, &stats, &ro);
   print_join(&r);
-  if (c->json[0] &&
-      ntp_report_json(c->json, &stats, r.have_host_hdr ? &r.host_hdr : NULL,
-                      NULL))
+  if (c->json[0] && ntp_report_json(c->json, &stats, &r.host_hdr, NULL))
     ret = EXIT_FAILURE;
 out:
   free_run(&r);
@@ -205,9 +213,12 @@ int cmd_compare(const struct ntp_config* c, const char* base,
   char* ll = xstrdup(loaded);
   char *bf[2], *lf[2];
   int nb = split_run(bl, bf), nl = split_run(ll, lf);
+  struct ntp_report_opts ro;
   struct ntp_stats sb, sl;
   struct run rb, rl;
   int ret = EXIT_SUCCESS;
+
+  ntp_report_opts_from_config(&ro, c);
 
   ntp_stats_init(&sb, c->group_by_type, c->group_by_size, c->group_by_session);
   ntp_stats_init(&sl, c->group_by_type, c->group_by_size, c->group_by_session);
@@ -218,9 +229,9 @@ int cmd_compare(const struct ntp_config* c, const char* base,
   } else {
     if (rb.have_host_hdr) sb.sample_every = rb.host_hdr.sample_every;
     if (rl.have_host_hdr) sl.sample_every = rl.host_hdr.sample_every;
-    printf("LAD = mean under load / mean of the baseline (stages with a "
-           "baseline below 0.5 us: n/a)\n");
-    ntp_report_compare(stdout, &sb, &sl);
+    printf("LAD (latency amplification degree) = mean under load / mean of the "
+           "baseline;\nn/a where the baseline is below 0.5 us\n");
+    ntp_report_compare(stdout, &sb, &sl, &ro);
   }
   free_run(&rb);
   free_run(&rl);

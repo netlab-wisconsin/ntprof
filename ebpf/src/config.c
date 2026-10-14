@@ -129,6 +129,9 @@ static int apply(struct ntp_config* c, const char* section, const char* key,
     return set_bool(v, &c->rep_breakdown);
   if (IS("Report", "ENABLE_QUEUE_LENGTH"))
     return set_bool(v, &c->rep_queue_length);
+  /* v2 */
+  if (IS("Report", "ENABLE_COMPONENT_DETAIL")) return set_bool(v, &c->rep_detail);
+  if (IS("Report", "SHOW_ALL_GROUPS")) return set_bool(v, &c->rep_all_groups);
   if (IS("Report", "ENABLE_GROUP_BY_SIZE")) return set_bool(v, &c->group_by_size);
   if (IS("Report", "ENABLE_GROUP_BY_TYPE")) return set_bool(v, &c->group_by_type);
   if (IS("Report", "ENABLE_GROUP_BY_SESSION"))

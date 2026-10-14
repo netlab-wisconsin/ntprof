@@ -13,45 +13,63 @@
 #include "commands.h"
 #include "config.h"
 #include "util.h"
+#include "version.h"
 
 static void usage(FILE* f) {
   fprintf(f,
+          "ntprof %s: where the time of each NVMe-over-Fabrics I/O goes, stage by\n"
+          "stage (NVMe/TCP, NVMe/RDMA, SPDK), with eBPF on an unmodified kernel\n"
+          "\n"
           "usage: ntprof <command> [options] [files]\n"
           "\n"
           "commands:\n"
-          "  record             profile the running kernel or SPDK (root)\n"
-          "  report FILE...     analyse record files: the host's, and the "
-          "target's if any\n"
-          "  compare BASE LOAD  LAD per stage; each run is host.ntp[,target.ntp]\n"
-          "  probe              list the hooks this kernel offers\n"
-          "  dump FILE...       print the records of record files as CSV\n"
+          "  record             profile the running kernel or SPDK (needs root)\n"
+          "  report FILE...     report recordings: the initiator's, and the target's\n"
+          "  compare BASE LOAD  latency amplification (LAD) of each stage between two\n"
+          "                     runs; a run is host.ntp or host.ntp,target.ntp\n"
+          "  probe              check which hooks this kernel offers\n"
+          "  dump FILE...       print the records of recordings as CSV\n"
+          "  version            print the version\n"
           "\n"
-          "options:\n"
-          "  -c, --config FILE     task specification (v1 ini format)\n"
-          "  -r, --role ROLE       host | target | both (default host)\n"
+          "examples:\n"
+          "  sudo ntprof record -r both -d 10       initiator and target on one machine\n"
+          "  sudo ntprof record -r target -o t.ntp  on the target (start it first) ...\n"
+          "  sudo ntprof record -o h.ntp -d 30      ... and on the initiator\n"
+          "  ntprof report h.ntp t.ntp              the two joined\n"
+          "\n"
+          "record options:\n"
+          "  -r, --role ROLE       host (the initiator; default) | target | both\n"
           "  -t, --transport T     tcp (default) | rdma\n"
           "  -d, --duration SEC    stop after SEC seconds (default: Ctrl-C)\n"
-          "  -i, --interval SEC    online report interval (TIME_INTERVAL)\n"
-          "  -s, --sample N        record one command in N (FREQUENCY)\n"
+          "  -i, --interval SEC    one line per group every SEC seconds (default 1)\n"
+          "      --offline         no interval lines, only the final report\n"
+          "  -s, --sample N        record one command in N (default 1000); the\n"
+          "                        initiator and the target must use the same N\n"
           "  -o, --output FILE     save the records to FILE\n"
-          "  -j, --json FILE       write the final report as JSON\n"
-          "      --session DEV     namespace to profile, nvmeXnY or all\n"
-          "      --io-type T       read | write | both\n"
-          "      --size LIST       exact I/O sizes, e.g. 4K,128K\n"
-          "      --aggregation A   avg | min | max | dist\n"
-          "      --offline         no interval reports (IS_ONLINE=false)\n"
-          "      --btf DIR         BTF from tools/gen-btf.sh, for kernels "
-          "without BTF\n"
-          "      --exact-queues    count queue occupancy per request (map\n"
-          "                        operations on every I/O; default: mean\n"
-          "                        occupancy per stage by Little's law)\n"
-          "      --kprobes         use kprobes even where fentry/fexit work\n"
-          "      --spdk-host PATH  the initiator is SPDK: the binary with the\n"
-          "                        ntprof probes (shared build: the libraries,\n"
-          "                        comma-separated), e.g. build/bin/spdk_nvme_perf\n"
+          "      --session DEV     namespace to profile, nvmeXnY (default: all)\n"
+          "      --io-type T       read | write | both (default)\n"
+          "      --size LIST       only these I/O sizes, e.g. 4K,128K\n"
+          "      --spdk-host PATH  the initiator is SPDK: the binary with the ntprof\n"
+          "                        probes (shared build: its libraries, comma-\n"
+          "                        separated), e.g. build/bin/spdk_nvme_perf\n"
           "      --spdk-target PATH  the target is SPDK, e.g. build/bin/nvmf_tgt\n"
+          "      --exact-queues    count queue lengths per command (costs map\n"
+          "                        operations on every I/O; default: the mean number\n"
+          "                        in each stage, by Little's law)\n"
+          "      --btf DIR         BTF from tools/gen-btf.sh, for kernels without BTF\n"
+          "      --kprobes         use kprobes even where fentry/fexit work\n"
+          "\n"
+          "report options (record, report, compare):\n"
+          "      --detail          every component, not only the stages\n"
+          "      --all-groups      also groups with under 1 %% of the records\n"
+          "      --aggregation A   avg (mean, p50, p99, p99.9) | min | max | dist\n"
+          "  -j, --json FILE       write the final report as JSON\n"
+          "\n"
+          "  -c, --config FILE     task specification (v1's ini format); options\n"
+          "                        given on the command line override it\n"
           "  -v, --verbose         more messages (twice: libbpf debug)\n"
-          "  -h, --help\n");
+          "  -h, --help            this text; -V, --version: the version\n",
+          NTP_VERSION);
 }
 
 enum {
@@ -65,6 +83,8 @@ enum {
   OPT_KPROBES,
   OPT_SPDK_HOST,
   OPT_SPDK_TARGET,
+  OPT_DETAIL,
+  OPT_ALL_GROUPS,
 };
 
 static const struct option long_opts[] = {
@@ -86,12 +106,15 @@ static const struct option long_opts[] = {
     {"kprobes", no_argument, NULL, OPT_KPROBES},
     {"spdk-host", required_argument, NULL, OPT_SPDK_HOST},
     {"spdk-target", required_argument, NULL, OPT_SPDK_TARGET},
+    {"detail", no_argument, NULL, OPT_DETAIL},
+    {"all-groups", no_argument, NULL, OPT_ALL_GROUPS},
     {"verbose", no_argument, NULL, 'v'},
+    {"version", no_argument, NULL, 'V'},
     {"help", no_argument, NULL, 'h'},
     {NULL, 0, NULL, 0},
 };
 
-static const char short_opts[] = "c:r:t:d:i:s:o:j:vh";
+static const char short_opts[] = "c:r:t:d:i:s:o:j:vVh";
 
 static int parse_uint(const char* v, unsigned* out, unsigned min) {
   char* end;
@@ -167,8 +190,19 @@ static int apply_option(struct ntp_config* c, int opt, const char* v) {
     case OPT_SPDK_TARGET:
       snprintf(c->spdk_target, sizeof(c->spdk_target), "%s", v);
       return 0;
+    case OPT_DETAIL:
+      c->rep_detail = true;
+      return 0;
+    case OPT_ALL_GROUPS:
+      c->rep_all_groups = true;
+      return 0;
   }
   return -1;
+}
+
+static int version(void) {
+  printf("ntprof %s (%s)\n", NTP_VERSION, NTP_REVISION);
+  return EXIT_SUCCESS;
 }
 
 int main(int argc, char** argv) {
@@ -181,6 +215,9 @@ int main(int argc, char** argv) {
     usage(argc < 2 ? stderr : stdout);
     return argc < 2 ? EXIT_FAILURE : EXIT_SUCCESS;
   }
+  if (!strcmp(argv[1], "version") || !strcmp(argv[1], "-V") ||
+      !strcmp(argv[1], "--version"))
+    return version();
   cmd = argv[1];
   argv++;
   argc--;
@@ -194,6 +231,8 @@ int main(int argc, char** argv) {
     else if (opt == 'h') {
       usage(stdout);
       return EXIT_SUCCESS;
+    } else if (opt == 'V') {
+      return version();
     } else if (opt == '?') {
       usage(stderr);
       return EXIT_FAILURE;
@@ -204,7 +243,7 @@ int main(int argc, char** argv) {
 
   optind = 0; /* glibc: rescan from the start */
   while ((opt = getopt_long(argc, argv, short_opts, long_opts, NULL)) != -1) {
-    if (opt == 'c' || opt == 'v') continue;
+    if (opt == 'c' || opt == 'v' || opt == 'V') continue;
     if (apply_option(&c, opt, optarg)) return EXIT_FAILURE;
   }
   if (ntp_verbose) {
@@ -230,7 +269,6 @@ int main(int argc, char** argv) {
   if (!strcmp(cmd, "probe")) return cmd_probe(&c);
   if (!strcmp(cmd, "dump")) return cmd_dump(argv + optind, argc - optind);
 
-  ntp_err("unknown command %s", cmd);
-  usage(stderr);
+  ntp_err("unknown command %s (ntprof --help lists them)", cmd);
   return EXIT_FAILURE;
 }

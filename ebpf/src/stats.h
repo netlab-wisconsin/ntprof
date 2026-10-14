@@ -51,6 +51,9 @@ struct ntp_group {
   uint64_t joined;       /* with a complete target record */
   uint64_t bad_host;     /* host record missing events */
   uint64_t bad_target;   /* target record missing events */
+  uint8_t transport;     /* NTP_TR_* of the host records */
+  bool spdk_host;        /* host records come from SPDK */
+  bool spdk_target;      /* joined target records come from SPDK */
   struct i64vec comp[NTP_C_NR];
   struct i64vec stage[NTP_STAGE_NR];
   struct i64vec queue[NTP_Q_NR];
@@ -84,7 +87,7 @@ void ntp_stats_add(struct ntp_stats* s, const struct ntp_host_rec* h,
 /* nvme1c2n3 -> nvme1n3: name the namespace, not the path. */
 void ntp_session_name(const char* disk, char* out, size_t len);
 
-/* "read 4096B nvme1n1" (parts that are grouped on) */
+/* "read 4KiB nvme1n1" (parts that are grouped on) */
 void ntp_group_label(const struct ntp_group_key* k, char* out, size_t len);
 
 #endif /* NTPROF_STATS_H */

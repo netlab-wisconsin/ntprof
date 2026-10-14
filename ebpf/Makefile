@@ -2,12 +2,18 @@
 # SPDK.
 #
 #   make                 build ./ntprof (libbpf is built from the submodule)
+#   make install         copy it to $(DESTDIR)$(PREFIX)/sbin (PREFIX=/usr/local)
 #   make test            run the user-space unit tests
 #   make BPFTOOL=/path   use a specific bpftool for skeleton generation
 #   make V=1             show the commands
 #
 # Needs clang (>= 12), libelf, zlib and bpftool at build time; the binary
 # needs libelf and zlib at run time.
+
+VERSION := 2.0.0
+# the commit, or the REVISION file of a copy without .git
+REVISION := $(shell git describe --always --dirty 2>/dev/null || cat REVISION 2>/dev/null || echo unknown)
+PREFIX ?= /usr/local
 
 OUTPUT ?= build
 CLANG ?= clang
@@ -53,7 +59,7 @@ Q = @
 msg = @printf '  %-8s %s\n' "$(1)" "$(2)";
 endif
 
-.PHONY: all clean test check-bpftool
+.PHONY: all clean test install check-bpftool FORCE
 .DELETE_ON_ERROR:
 
 all: ntprof
@@ -86,6 +92,14 @@ $(OUTPUT)/%.o: src/%.c $(wildcard src/*.h) bpf/ntprof.h $(LIBBPF_OBJ) | $(OUTPUT
 # The loader includes the generated skeletons.
 $(OUTPUT)/loader.o: $(SKELS)
 
+# Rewritten only when the version or the revision changes.
+$(OUTPUT)/version.h: FORCE | $(OUTPUT)
+	$(Q)printf '#define NTP_VERSION "%s"\n#define NTP_REVISION "%s"\n' \
+		'$(VERSION)' '$(REVISION)' > $@.tmp
+	$(Q)if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv $@.tmp $@; fi
+
+$(OUTPUT)/main.o: $(OUTPUT)/version.h
+
 ntprof: $(APP_OBJS) $(LIBBPF_OBJ)
 	$(call msg,LINK,$@)
 	$(Q)$(CC) $(CFLAGS) $^ $(LDLIBS) -o $@
@@ -96,6 +110,10 @@ $(OUTPUT)/test_%: tests/test_%.c tests/testlib.h $(LIB_OBJS)
 
 test: $(TEST_BINS)
 	$(Q)for t in $(TEST_BINS); do echo "== $$t"; $$t || exit 1; done
+
+install: ntprof
+	$(call msg,INSTALL,$(DESTDIR)$(PREFIX)/sbin/ntprof)
+	$(Q)install -D -m 0755 ntprof $(DESTDIR)$(PREFIX)/sbin/ntprof
 
 clean:
 	$(call msg,CLEAN)

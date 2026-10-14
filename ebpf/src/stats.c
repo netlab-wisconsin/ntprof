@@ -74,8 +74,16 @@ void ntp_group_label(const struct ntp_group_key* k, char* out, size_t len) {
   out[0] = '\0';
   if (k->is_write >= 0)
     n += snprintf(out + n, len - n, "%s", k->is_write ? "write" : "read");
-  if (k->bytes && n < (int)len)
-    n += snprintf(out + n, len - n, "%s%uB", n ? " " : "", k->bytes);
+  if (k->bytes && n < (int)len) {
+    const char* sep = n ? " " : "";
+
+    if (!(k->bytes & ((1u << 20) - 1)))
+      n += snprintf(out + n, len - n, "%s%uMiB", sep, k->bytes >> 20);
+    else if (!(k->bytes & 1023))
+      n += snprintf(out + n, len - n, "%s%uKiB", sep, k->bytes >> 10);
+    else
+      n += snprintf(out + n, len - n, "%s%uB", sep, k->bytes);
+  }
   if (k->session[0] && n < (int)len)
     n += snprintf(out + n, len - n, "%s%s", n ? " " : "", k->session);
   if (!n) snprintf(out, len, "all");
@@ -147,6 +155,9 @@ void ntp_stats_add(struct ntp_stats* s, const struct ntp_host_rec* h,
   enum ntp_model_err err = ntp_breakdown(h, t, &b);
 
   g->records++;
+  g->transport = h->hdr.transport;
+  if (h->hdr.flags & NTP_F_SPDK) g->spdk_host = true;
+  if (t && (t->hdr.flags & NTP_F_SPDK)) g->spdk_target = true;
   if (h->ts[NTP_H_QUEUE_RQ] && (!s->first_ns || h->ts[NTP_H_QUEUE_RQ] < s->first_ns))
     s->first_ns = h->ts[NTP_H_QUEUE_RQ];
   if (h->ts[NTP_H_BLK_DONE] > s->last_ns) s->last_ns = h->ts[NTP_H_BLK_DONE];

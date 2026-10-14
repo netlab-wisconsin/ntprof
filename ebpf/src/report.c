@@ -2,11 +2,12 @@
 #include "report.h"
 
 #include <errno.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "util.h"
 
-/* Display order: path order, details right after the component they split. */
+/* Component table (--detail): path order, details after what they split. */
 static const struct {
   enum ntp_comp comp;
   int indent;
@@ -21,26 +22,247 @@ static const struct {
 
 /* A stage mean below this is too small for a ratio to mean anything. */
 #define LAD_MIN_BASE_NS 500.0
+/* Groups with fewer records than this share are folded into one line. */
+#define MINOR_GROUP_PCT 1
+/* Width of a share bar at 100 %. */
+#define BAR_WIDTH 24
+
+/* quantile indexes in ntp_quantiles */
+#define Q_P50 1
+#define Q_P99 6
+#define Q_P999 7
 
 void ntp_report_opts_from_config(struct ntp_report_opts* o,
                                  const struct ntp_config* c) {
   o->aggr = c->aggr;
   o->distribution = c->rep_distribution;
   o->breakdown = c->rep_breakdown;
+  o->detail = c->rep_detail;
   o->queue_length = c->rep_queue_length;
+  o->all_groups = c->rep_all_groups;
+}
+
+static double us(double ns) { return ns / 1e3; }
+
+/* 950 -> "950", 38712 -> "38.7k", 2.5e6 -> "2.50M" */
+static const char* human(double v, char* buf, size_t len) {
+  if (v < 1e3)
+    snprintf(buf, len, "%.0f", v);
+  else if (v < 1e6)
+    snprintf(buf, len, "%.1fk", v / 1e3);
+  else
+    snprintf(buf, len, "%.2fM", v / 1e6);
+  return buf;
 }
 
 void ntp_report_tput(FILE* f, const struct ntp_tput* t) {
   double s = t->seconds > 0 ? t->seconds : 1;
+  bool any = false;
 
-  fprintf(f,
-          "throughput: read %.1f kIOPS %.1f MB/s | write %.1f kIOPS %.1f MB/s "
-          "(%.1f s, %s)\n",
-          t->read_ios / s / 1e3, t->read_bytes / s / 1e6, t->write_ios / s / 1e3,
-          t->write_bytes / s / 1e6, t->seconds,
-          t->estimated ? "estimated from the sampled commands"
-                       : "all commands, as submitted");
+  fprintf(f, "throughput (%s):", t->estimated ? "estimated from the sampled commands"
+                                              : "all commands");
+  if (t->read_ios || !t->write_ios) {
+    fprintf(f, " read %.1f kIOPS, %.1f MB/s", t->read_ios / s / 1e3,
+            t->read_bytes / s / 1e6);
+    any = true;
+  }
+  if (t->write_ios)
+    fprintf(f, "%s write %.1f kIOPS, %.1f MB/s", any ? " |" : "",
+            t->write_ios / s / 1e3, t->write_bytes / s / 1e6);
+  fputc('\n', f);
 }
+
+/* ---- groups ---- */
+
+static uint64_t total_records(const struct ntp_stats* s) {
+  uint64_t n = 0;
+
+  for (size_t i = 0; i < s->n; i++) n += s->groups[i].records;
+  return n;
+}
+
+/* Group indexes, the most records first (insertion sort: few groups). */
+static size_t* order_groups(const struct ntp_stats* s) {
+  size_t* idx = xcalloc(s->n ? s->n : 1, sizeof(*idx));
+
+  for (size_t i = 0; i < s->n; i++) {
+    size_t j = i;
+
+    while (j && s->groups[idx[j - 1]].records < s->groups[i].records) {
+      idx[j] = idx[j - 1];
+      j--;
+    }
+    idx[j] = i;
+  }
+  return idx;
+}
+
+/* Is the @i-th group in display order folded into the "more groups" line? */
+static bool folded(const struct ntp_stats* s, const size_t* idx, size_t i,
+                   uint64_t total, const struct ntp_report_opts* o) {
+  return i && !o->all_groups &&
+         s->groups[idx[i]].records * 100 < total * MINOR_GROUP_PCT;
+}
+
+/* "+ 2 more groups with 3 records ..." for the groups not shown. */
+static void print_minor(FILE* f, const struct ntp_stats* s, const size_t* idx,
+                        uint64_t total, const struct ntp_report_opts* o) {
+  uint64_t records = 0;
+  size_t n = 0, listed = 0;
+
+  for (size_t i = 0; i < s->n; i++)
+    if (folded(s, idx, i, total, o)) {
+      records += s->groups[idx[i]].records;
+      n++;
+    }
+  if (!n) return;
+  fprintf(f, "+ %zu more group%s with %llu record%s in all (under %d %% each):",
+          n, n > 1 ? "s" : "", (unsigned long long)records, records > 1 ? "s" : "",
+          MINOR_GROUP_PCT);
+  for (size_t i = 0; i < s->n && listed < 4; i++) {
+    char label[96];
+
+    if (!folded(s, idx, i, total, o)) continue;
+    ntp_group_label(&s->groups[idx[i]].key, label, sizeof(label));
+    fprintf(f, "%s %s", listed ? "," : "", label);
+    listed++;
+  }
+  fprintf(f, "%s; --all-groups shows them\n", n > listed ? ", ..." : "");
+}
+
+/* ---- the stages of a group ---- */
+
+/*
+ * The rows of the stage summary. With target records they are the five
+ * stages; without, the target's side is one row. Either way they add up to
+ * the end-to-end latency.
+ */
+struct srow {
+  const char* stage;
+  char desc[48];
+  struct i64vec* v;
+  struct ntp_summary m;
+};
+
+static bool group_joined(const struct ntp_group* g) {
+  return g->stage[NTP_S3_S5].n && 2 * g->stage[NTP_S3_S5].n >= g->comp[NTP_C_E2E].n;
+}
+
+#define MAX_SROWS 5
+
+static int stage_rows(struct ntp_group* g, bool joined, struct srow* rows) {
+  bool rdma = g->transport == NTP_TR_RDMA;
+  const char* host_tr = g->spdk_host ? "SPDK" : rdma ? "nvme-rdma" : "nvme-tcp";
+  const char* tgt_tr = g->spdk_target ? "SPDK" : rdma ? "nvmet-rdma" : "nvmet-tcp";
+  int n = 0;
+
+  /* SPDK has no block layer: S1 is empty */
+  if (!g->spdk_host) {
+    rows[n].stage = "S1";
+    snprintf(rows[n].desc, sizeof(rows[n].desc), "initiator block layer (blk-mq)");
+    rows[n++].v = &g->stage[NTP_S1];
+  }
+  rows[n].stage = "S2";
+  snprintf(rows[n].desc, sizeof(rows[n].desc), "initiator transport (%s)", host_tr);
+  rows[n++].v = &g->stage[NTP_S2];
+
+  if (joined) {
+    rows[n].stage = "S3-S5";
+    snprintf(rows[n].desc, sizeof(rows[n].desc), "%s",
+             rdma ? "network and RDMA receive paths" : "network and TCP/IP stacks");
+    rows[n++].v = &g->stage[NTP_S3_S5];
+    rows[n].stage = "S6";
+    snprintf(rows[n].desc, sizeof(rows[n].desc), "target transport (%s)", tgt_tr);
+    rows[n++].v = &g->stage[NTP_S6];
+    rows[n].stage = "S7-S9";
+    snprintf(rows[n].desc, sizeof(rows[n].desc), "%s",
+             g->spdk_target ? "target bdev layer and device"
+                            : "target block layer and device");
+    rows[n++].v = &g->stage[NTP_S7_S9];
+  } else {
+    rows[n].stage = "S3(C)";
+    snprintf(rows[n].desc, sizeof(rows[n].desc), "initiator receive path");
+    rows[n++].v = &g->comp[NTP_C_HOST_RX];
+    rows[n].stage = "S3-S9";
+    snprintf(rows[n].desc, sizeof(rows[n].desc), "network and target (not recorded)");
+    rows[n++].v = &g->comp[NTP_C_REMOTE];
+  }
+  for (int i = 0; i < n; i++) ntp_summarize(rows[i].v, &rows[i].m);
+  return n;
+}
+
+static double share(double part, double whole) {
+  return whole > 0 ? 100.0 * part / whole : 0;
+}
+
+static void bar(FILE* f, double pct) {
+  int w = (int)(pct * BAR_WIDTH / 100 + 0.5);
+
+  if (w > BAR_WIDTH) w = BAR_WIDTH;
+  for (int i = 0; i < w; i++) fputc('#', f);
+}
+
+static void print_latency(FILE* f, const struct ntp_summary* e,
+                          const struct ntp_report_opts* o) {
+  fprintf(f, "  latency (us): mean %.2f", us(e->mean));
+  if (o->aggr == NTP_AGG_MIN) fprintf(f, ", min %.2f", us((double)e->min));
+  if (o->distribution) {
+    if (o->aggr == NTP_AGG_DIST) {
+      for (int i = 0; i < NTP_NQ; i++)
+        fprintf(f, ", %s %.2f", ntp_quantile_names[i], us((double)e->q[i]));
+    } else {
+      fprintf(f, ", p50 %.2f, p99 %.2f, p99.9 %.2f", us((double)e->q[Q_P50]),
+              us((double)e->q[Q_P99]), us((double)e->q[Q_P999]));
+    }
+  }
+  if (o->aggr == NTP_AGG_MAX || o->aggr == NTP_AGG_DIST)
+    fprintf(f, ", max %.2f", us((double)e->max));
+  fputc('\n', f);
+}
+
+static void print_stages(FILE* f, struct ntp_group* g, double rate,
+                         const struct ntp_summary* e2e,
+                         const struct ntp_report_opts* o) {
+  struct srow rows[MAX_SROWS];
+  int n = stage_rows(g, group_joined(g), rows), top = -1;
+  bool inflight = o->queue_length && rate > 0;
+
+  fprintf(f, "  %-6s %-36s %8s %6s", "stage", "where the time goes", "mean us",
+          "share");
+  if (inflight) fprintf(f, " %8s", "avg QD");
+  fputc('\n', f);
+  for (int i = 0; i < n; i++) {
+    double pct = share(rows[i].m.mean, e2e->mean);
+
+    if (!rows[i].m.n) continue;
+    fprintf(f, "  %-6s %-36s %8.2f %5.0f%%", rows[i].stage, rows[i].desc,
+            us(rows[i].m.mean), pct);
+    if (inflight) fprintf(f, " %8.2f", rate * rows[i].m.mean / 1e9);
+    fputs("  ", f);
+    bar(f, pct);
+    fputc('\n', f);
+    if (top < 0 || rows[i].m.mean > rows[top].m.mean) top = i;
+  }
+  if (top >= 0 && n > 1)
+    fprintf(f, "  largest: %s, %s, %.0f %% of the latency\n", rows[top].stage,
+            rows[top].desc, share(rows[top].m.mean, e2e->mean));
+}
+
+static void print_queues(FILE* f, struct ntp_group* g) {
+  struct ntp_summary m;
+  bool any = false;
+
+  for (int q = 0; q < NTP_Q_NR; q++) {
+    ntp_summarize(&g->queue[q], &m);
+    if (!m.n) continue;
+    fprintf(f, "%s %s %.2f/%lld", any ? "," : "  queue length at arrival (mean/p99):",
+            ntp_queue_names[q], m.mean, (long long)m.q[Q_P99]);
+    any = true;
+  }
+  if (any) fputc('\n', f);
+}
+
+/* ---- the component table (--detail) ---- */
 
 /* Which quantile columns to print. */
 static int columns(const struct ntp_report_opts* o, int* idx) {
@@ -50,13 +272,11 @@ static int columns(const struct ntp_report_opts* o, int* idx) {
   if (o->aggr == NTP_AGG_DIST) {
     for (int i = 0; i < NTP_NQ; i++) idx[n++] = i;
   } else {
-    idx[n++] = 1; /* p50 */
-    idx[n++] = 6; /* p99 */
+    idx[n++] = Q_P50;
+    idx[n++] = Q_P99;
   }
   return n;
 }
-
-static double us(double ns) { return ns / 1e3; }
 
 static void print_header(FILE* f, const struct ntp_report_opts* o) {
   int q[NTP_NQ], nq = columns(o, q);
@@ -86,72 +306,131 @@ static void print_row(FILE* f, const char* label, int indent,
   fputc('\n', f);
 }
 
+static void print_components(FILE* f, struct ntp_group* g, double rate,
+                             const struct ntp_report_opts* o) {
+  struct ntp_summary m;
+
+  fprintf(f, "  components (L: commands in the component, by Little's law)\n");
+  print_header(f, o);
+  for (size_t i = 0; i < ARRAY_SIZE(display); i++) {
+    enum ntp_comp c = display[i].comp;
+
+    ntp_summarize(&g->comp[c], &m);
+    if (!m.n) continue;
+    print_row(f, ntp_comps[c].desc, display[i].indent, ntp_comps[c].stage, &m,
+              rate, o);
+  }
+}
+
+/* ---- a group ---- */
+
 static void print_group(FILE* f, const struct ntp_stats* s, struct ntp_group* g,
                         const struct ntp_report_opts* o) {
   double rate = ntp_group_rate(s, g);
-  struct ntp_summary m, e2e;
-  char label[96];
+  uint64_t usable = g->records - g->bad_host;
+  struct ntp_summary e2e;
+  char label[96], num[16];
 
   ntp_group_label(&g->key, label, sizeof(label));
-  fprintf(f, "== %s: %llu records, %llu joined with the target", label,
-          (unsigned long long)g->records, (unsigned long long)g->joined);
-  if (g->bad_host || g->bad_target)
-    fprintf(f, ", incomplete: %llu host / %llu target",
-            (unsigned long long)g->bad_host, (unsigned long long)g->bad_target);
+  fprintf(f, "\n== %s: %llu commands sampled", label, (unsigned long long)g->records);
+  if (rate > 0) fprintf(f, " (of about %s/s)", human(rate, num, sizeof(num)));
+  if (g->joined == usable && usable)
+    fprintf(f, ", all with the target's side");
+  else if (g->joined)
+    fprintf(f, ", %.0f %% with the target's side", share((double)g->joined, (double)usable));
+  else
+    fprintf(f, ", initiator side only");
   fputc('\n', f);
+  if (g->bad_host || g->bad_target)
+    fprintf(f, "  incomplete records left out: %llu initiator, %llu target "
+               "(events missed; see ntprof probe)\n",
+            (unsigned long long)g->bad_host, (unsigned long long)g->bad_target);
 
   ntp_summarize(&g->comp[NTP_C_E2E], &e2e);
   if (!e2e.n) return;
-
-  if (o->breakdown) {
-    print_header(f, o);
-    for (size_t i = 0; i < ARRAY_SIZE(display); i++) {
-      enum ntp_comp c = display[i].comp;
-
-      ntp_summarize(&g->comp[c], &m);
-      if (!m.n) continue;
-      print_row(f, ntp_comps[c].desc, display[i].indent, ntp_comps[c].stage, &m,
-                rate, o);
-    }
-  } else {
-    print_header(f, o);
-    print_row(f, ntp_comps[NTP_C_E2E].desc, 0, ntp_comps[NTP_C_E2E].stage, &e2e,
-              rate, o);
-  }
-
-  fprintf(f, "  stages (mean us, share of end to end):");
-  for (int s = 0; s < NTP_STAGE_NR; s++) {
-    ntp_summarize(&g->stage[s], &m);
-    if (!m.n) continue;
-    fprintf(f, " %s %.2f (%.0f%%)", ntp_stage_names[s], us(m.mean),
-            e2e.mean > 0 ? 100.0 * m.mean / e2e.mean : 0.0);
-  }
-  fputc('\n', f);
-
-  if (o->queue_length) {
-    bool any = false;
-
-    for (int q = 0; q < NTP_Q_NR; q++) {
-      ntp_summarize(&g->queue[q], &m);
-      if (!m.n) continue;
-      fprintf(f, "%s %s %.2f/%lld", any ? "," : "  queue length at arrival (mean/p99):",
-              ntp_queue_names[q], m.mean, (long long)m.q[6]);
-      any = true;
-    }
-    if (any) fputc('\n', f);
-  }
+  print_latency(f, &e2e, o);
+  if (o->breakdown) print_stages(f, g, rate, &e2e, o);
+  if (o->queue_length) print_queues(f, g);
+  if (o->detail) print_components(f, g, rate, o);
 }
 
 void ntp_report_text(FILE* f, struct ntp_stats* s,
                      const struct ntp_report_opts* o) {
+  uint64_t total = total_records(s);
+  size_t* idx;
+
   if (!s->n) {
-    fprintf(f, "no sampled commands\n");
+    fprintf(f, "no NVMe-oF read or write was sampled: was I/O running on the "
+               "profiled device? (one command in -s N is sampled)\n");
     return;
   }
-  if (o->breakdown)
-    fprintf(f, "(L: mean number of commands in the component, by Little's law "
-               "= command rate x mean time)\n");
-  for (size_t i = 0; i < s->n; i++) print_group(f, s, &s->groups[i], o);
+  idx = order_groups(s);
+  for (size_t i = 0; i < s->n; i++) {
+    struct ntp_group* g = &s->groups[idx[i]];
+
+    if (folded(s, idx, i, total, o)) continue;
+    print_group(f, s, g, o);
+  }
+  print_minor(f, s, idx, total, o);
+  free(idx);
+}
+
+/* ---- online intervals ---- */
+
+void ntp_report_interval_header(FILE* f) {
+  fprintf(f, "%8s  %-22s %6s %8s %9s %9s  %5s %5s %5s %5s %5s\n", "time", "group",
+          "n", "cmds/s", "mean us", "p99 us", "S1", "S2", "S3-S5", "S6", "S7-S9");
+}
+
+void ntp_report_interval(FILE* f, struct ntp_stats* s,
+                         const struct ntp_report_opts* o, double t_s) {
+  uint64_t total = total_records(s);
+  size_t* idx;
+
+  if (o->detail) {
+    fprintf(f, "\n--- %.1f s ---\n", t_s);
+    ntp_report_text(f, s, o);
+    return;
+  }
+  if (!s->n) {
+    fprintf(f, "%7.1fs  %-22s\n", t_s, "(no sampled commands)");
+    return;
+  }
+  idx = order_groups(s);
+  for (size_t i = 0; i < s->n; i++) {
+    struct ntp_group* g = &s->groups[idx[i]];
+    double rate = ntp_group_rate(s, g);
+    struct ntp_summary e2e, m;
+    char label[96], num[16];
+    bool joined = group_joined(g);
+
+    if (folded(s, idx, i, total, o)) continue;
+    ntp_summarize(&g->comp[NTP_C_E2E], &e2e);
+    if (!e2e.n) continue;
+    ntp_group_label(&g->key, label, sizeof(label));
+    fprintf(f, "%7.1fs  %-22.22s %6llu %8s %9.2f %9.2f", t_s, label,
+            (unsigned long long)g->records,
+            rate > 0 ? human(rate, num, sizeof(num)) : "-",
+            us(e2e.mean), us((double)e2e.q[Q_P99]));
+    for (int st = 0; st < NTP_STAGE_NR; st++) {
+      ntp_summarize(&g->stage[st], &m);
+      if (!joined && st == NTP_S3_S5) {
+        /* no target records: the rest of the round trip in one column */
+        struct ntp_summary rx, rem;
+
+        ntp_summarize(&g->comp[NTP_C_HOST_RX], &rx);
+        ntp_summarize(&g->comp[NTP_C_REMOTE], &rem);
+        fprintf(f, " %4.0f%%*", share(rx.mean + rem.mean, e2e.mean));
+        break;
+      }
+      if (m.n)
+        fprintf(f, " %4.0f%%", share(m.mean, e2e.mean));
+      else
+        fprintf(f, " %5s", "-");
+    }
+    fputc('\n', f);
+  }
+  free(idx);
 }
 
 /* ---- JSON ---- */
@@ -273,57 +552,90 @@ static struct ntp_group* find_group(struct ntp_stats* s,
   return NULL;
 }
 
-static void lad_row(FILE* f, const char* label, const char* stage,
-                    struct i64vec* bv, struct i64vec* lv, double* best,
-                    const char** best_label) {
+/* One row; returns the LAD, or 0 when either side is missing or too small. */
+static double lad_row(FILE* f, const char* stage, const char* desc, int indent,
+                      struct i64vec* bv, struct i64vec* lv) {
   struct ntp_summary b, l;
+  double lad = 0;
 
   ntp_summarize(bv, &b);
   ntp_summarize(lv, &l);
-  if (!b.n || !l.n) return;
-  fprintf(f, "  %-36s %-11s %10.2f %10.2f", label, stage, us(b.mean), us(l.mean));
+  if (!b.n || !l.n) return 0;
+  fprintf(f, "  %-10s %*s%-*s %9.2f %9.2f", stage, indent, "", 36 - indent, desc,
+          us(b.mean), us(l.mean));
   if (b.mean >= LAD_MIN_BASE_NS) {
-    double lad = l.mean / b.mean;
-
-    fprintf(f, " %8.2f\n", lad);
-    if (best && lad > *best) {
-      *best = lad;
-      *best_label = stage;
-    }
+    lad = l.mean / b.mean;
+    fprintf(f, " %7.2f\n", lad);
   } else {
-    fprintf(f, " %8s\n", "n/a");
+    fprintf(f, " %7s\n", "n/a");
+  }
+  return lad;
+}
+
+static void compare_group(FILE* f, struct ntp_group* bg, struct ntp_group* lg,
+                          const struct ntp_report_opts* o) {
+  bool joined = group_joined(bg) && group_joined(lg);
+  struct srow br[MAX_SROWS], lr[MAX_SROWS];
+  int nb = stage_rows(bg, joined, br), nl = stage_rows(lg, joined, lr);
+  const struct srow* best_row = NULL;
+  double best = 0;
+  char label[96];
+
+  ntp_group_label(&lg->key, label, sizeof(label));
+  fprintf(f, "\n== %s: baseline %llu commands sampled, loaded %llu\n", label,
+          (unsigned long long)bg->records, (unsigned long long)lg->records);
+  fprintf(f, "  %-10s %-36s %9s %9s %7s\n", "stage", "where the time goes",
+          "base us", "load us", "LAD");
+  for (int i = 0; i < nb && i < nl; i++) {
+    double lad;
+
+    if (strcmp(br[i].stage, lr[i].stage)) continue;
+    lad = lad_row(f, lr[i].stage, lr[i].desc, 0, br[i].v, lr[i].v);
+    if (lad > best) {
+      best = lad;
+      best_row = &lr[i];
+    }
+  }
+  lad_row(f, ntp_comps[NTP_C_E2E].stage, ntp_comps[NTP_C_E2E].desc, 0,
+          &bg->comp[NTP_C_E2E], &lg->comp[NTP_C_E2E]);
+  if (best_row)
+    fprintf(f, "  largest LAD: %s, %s, %.2f\n", best_row->stage, best_row->desc,
+            best);
+  if (!o->detail) return;
+  fprintf(f, "  components\n");
+  for (size_t d = 0; d < ARRAY_SIZE(display); d++) {
+    enum ntp_comp c = display[d].comp;
+
+    if (c == NTP_C_E2E) continue;
+    lad_row(f, ntp_comps[c].stage, ntp_comps[c].desc, display[d].indent,
+            &bg->comp[c], &lg->comp[c]);
   }
 }
 
 void ntp_report_compare(FILE* f, struct ntp_stats* base,
-                        struct ntp_stats* loaded) {
-  int shown = 0;
+                        struct ntp_stats* loaded,
+                        const struct ntp_report_opts* o) {
+  uint64_t total = total_records(loaded);
+  size_t* idx = order_groups(loaded);
+  int shown = 0, skipped = 0;
 
   for (size_t i = 0; i < loaded->n; i++) {
-    struct ntp_group* lg = &loaded->groups[i];
+    struct ntp_group* lg = &loaded->groups[idx[i]];
     struct ntp_group* bg = find_group(base, &lg->key);
-    const char* best_label = NULL;
-    double best = 0;
-    char label[96];
 
     if (!bg) continue;
-    ntp_group_label(&lg->key, label, sizeof(label));
-    fprintf(f, "== %s: baseline %llu records, loaded %llu records\n", label,
-            (unsigned long long)bg->records, (unsigned long long)lg->records);
-    fprintf(f, "  %-36s %-11s %10s %10s %8s\n", "stage / component", "",
-            "base(us)", "load(us)", "LAD");
-    for (int s = 0; s < NTP_STAGE_NR; s++)
-      lad_row(f, "stage", ntp_stage_names[s], &bg->stage[s], &lg->stage[s],
-              &best, &best_label);
-    for (size_t d = 0; d < ARRAY_SIZE(display); d++) {
-      enum ntp_comp c = display[d].comp;
-
-      lad_row(f, ntp_comps[c].desc, ntp_comps[c].stage, &bg->comp[c],
-              &lg->comp[c], NULL, NULL);
+    if (folded(loaded, idx, i, total, o)) {
+      skipped++;
+      continue;
     }
-    if (best_label)
-      fprintf(f, "  largest stage LAD: %s (%.2f)\n", best_label, best);
+    compare_group(f, bg, lg, o);
     shown++;
   }
-  if (!shown) fprintf(f, "no group is present in both runs\n");
+  if (!shown)
+    fprintf(f, "no group (I/O type, size, device) is present in both runs\n");
+  else if (skipped)
+    fprintf(f, "+ %d more group%s in both runs, under %d %% of the records "
+               "each; --all-groups shows them\n",
+            skipped, skipped > 1 ? "s" : "", MINOR_GROUP_PCT);
+  free(idx);
 }

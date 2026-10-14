@@ -79,7 +79,15 @@ static void test_grouping(void) {
   CHECK_EQ(s.groups[2].records, 1);
   CHECK_EQ(s.groups[2].comp[NTP_C_E2E].n, 1);
   ntp_group_label(&s.groups[0].key, label, sizeof(label));
-  CHECK(!strcmp(label, "read 4096B nvme1n1"));
+  CHECK(!strcmp(label, "read 4KiB nvme1n1"));
+  ntp_group_label(&s.groups[1].key, label, sizeof(label));
+  CHECK(!strcmp(label, "read 8KiB nvme1n1"));
+  s.groups[1].key.bytes = 3 << 20;
+  ntp_group_label(&s.groups[1].key, label, sizeof(label));
+  CHECK(!strcmp(label, "read 3MiB nvme1n1"));
+  s.groups[1].key.bytes = 4608;
+  ntp_group_label(&s.groups[1].key, label, sizeof(label));
+  CHECK(!strcmp(label, "read 4608B nvme1n1"));
   ntp_stats_free(&s);
 
   ntp_stats_init(&s, false, false, false);
