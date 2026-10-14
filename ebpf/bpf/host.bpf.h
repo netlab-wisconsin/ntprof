@@ -5,10 +5,12 @@
  * the block layer and nvme-core.
  *
  * A transport object defines NTP_TRANSPORT and includes this file once, then
- * adds its hooks: the transport's ->queue_rq() calls host_queue_rq(), the
- * code that finishes sending the command stamps NTP_H_CMD_SENT, and the code
- * that receives completions sets the receive context (host_rx_enter/exit)
- * around the call that completes the request.
+ * defines host_queue_of() and adds its hooks: its ->queue_rq() calls
+ * host_queue_rq() where host_queue_of() cannot recognise the transport's
+ * requests (or queues are counted exactly), the code that finishes sending the
+ * command stamps NTP_H_CMD_SENT, and the code that receives completions sets
+ * the receive context (host_rx_enter) before the call that completes the
+ * request.
  */
 #ifndef NTPROF_HOST_BPF_H
 #define NTPROF_HOST_BPF_H
@@ -17,6 +19,15 @@
 
 #ifndef NTP_TRANSPORT
 #error "define NTP_TRANSPORT before including host.bpf.h"
+#endif
+
+/*
+ * 1 where the transport always hooks ->queue_rq() (host_queue_of() cannot
+ * recognise its requests); 0 where the hook is loaded only to count queues
+ * exactly, so nvme_setup_cmd looks for its context only then.
+ */
+#ifndef NTP_HOST_HOOKS_QUEUE_RQ
+#define NTP_HOST_HOOKS_QUEUE_RQ 0
 #endif
 
 /* A record under construction and what the BPF side keeps beside it. */
@@ -83,17 +94,15 @@ struct {
   __type(value, struct counted);
 } counted SEC(".maps");
 
-/* ->queue_rq() -> nvme_setup_cmd, on this thread */
+/* ->queue_rq() -> nvme_setup_cmd, on this thread (when the hook is loaded) */
 struct pending {
   u64 tid;
   u64 rq;
-  u64 hctx;
   u64 queue; /* read here only when queues are tracked, else in setup_cmd */
   u64 ts;
-  u16 qid;
   u16 q_unsent;
   u16 q_inflight;
-  u16 pad;
+  u32 pad;
 };
 NTP_CPU_CTX(pend, struct pending);
 
@@ -189,7 +198,11 @@ static __always_inline int host_rx_exit(void) {
 
 /* ---- submission ---- */
 
-/* The transport's ->queue_rq(): hctx i drives the transport's queue i + 1. */
+/*
+ * The transport's ->queue_rq(), hooked only where nvme_setup_cmd cannot tell
+ * the transport's requests apart (host_queue_of() returns 0) or to count
+ * queue occupancy exactly.
+ */
 static __always_inline int host_queue_rq(struct blk_mq_hw_ctx* hctx,
                                          const struct blk_mq_queue_data* bd) {
   u32 zero = 0;
@@ -199,7 +212,6 @@ static __always_inline int host_queue_rq(struct blk_mq_hw_ctx* hctx,
   p->tid = ntp_tid();
   p->ts = bpf_ktime_get_ns();
   p->rq = (u64)BPF_CORE_READ(bd, rq);
-  p->hctx = ntp_scalar((u64)hctx);
   p->queue = 0;
   p->q_unsent = p->q_inflight = 0;
 
@@ -220,10 +232,21 @@ static __always_inline int host_queue_rq(struct blk_mq_hw_ctx* hctx,
   return 0;
 }
 
+/*
+ * The transport's queue of @rq if @rq is this transport's request, else 0.
+ * Defined by the transport object; it lets nvme_setup_cmd tell its requests
+ * apart without a hook on ->queue_rq(). A transport that cannot tell returns
+ * 0 and keeps its ->queue_rq() hook (host_queue_rq()).
+ */
+static __always_inline u64 host_queue_of(struct request* rq);
+
 /* nvme_setup_cmd() runs inside ->queue_rq(): the cid is known, sample here. */
 SEC("raw_tp/nvme_setup_cmd")
 int BPF_PROG(ntp_h_setup_cmd, struct request* rq, void* cmd) {
-  struct pending* p = NTP_CTX_GET(pend);
+  struct pending* p = NTP_HOST_HOOKS_QUEUE_RQ || filter.track_queues
+                          ? NTP_CTX_GET(pend)
+                          : NULL;
+  struct ntp_counters* cnt;
   struct ntp_cmd_id id = {};
   struct blk_mq_hw_ctx* hctx;
   struct ntp_host_rec* rec;
@@ -232,21 +255,32 @@ int BPF_PROG(ntp_h_setup_cmd, struct request* rq, void* cmd) {
   struct nvme_ctrl* ctrl;
   struct cid_slot* cs;
   u32 bytes, instance, slot;
-  u64 key = (u64)rq;
+  u64 key = (u64)rq, queue, ts = 0;
+  u16 q_unsent = 0, q_inflight = 0;
 
-  /* Only requests that came through this transport's ->queue_rq(). */
-  if (!p || p->rq != key) return 0;
-  p->tid = 0;
+  if (p && p->rq == key) {
+    /* came through the transport's ->queue_rq() hook (exact queues, RDMA) */
+    p->tid = 0;
+    queue = p->queue;
+    ts = p->ts;
+    q_unsent = p->q_unsent;
+    q_inflight = p->q_inflight;
+  } else {
+    /* nvme_setup_cmd also runs for other transports (PCIe, RDMA, FC) */
+    if (!ntp_armed) return 0;
+    queue = host_queue_of(rq);
+    if (!queue) return 0;
+  }
 
   if (ntp_read_cmd(cmd, &id) || !ntp_is_rw(id.opcode)) return 0;
   /* throughput over all commands, counted as they are submitted */
   bytes = BPF_CORE_READ(rq, __data_len);
-  if (id.opcode == NTP_NVME_CMD_WRITE) {
-    ntp_count(NTP_CNT_HOST_WRITE_IOS, 1);
-    ntp_count(NTP_CNT_HOST_WRITE_BYTES, bytes);
-  } else {
-    ntp_count(NTP_CNT_HOST_READ_IOS, 1);
-    ntp_count(NTP_CNT_HOST_READ_BYTES, bytes);
+  cnt = ntp_counters();
+  if (cnt) {
+    bool w = id.opcode == NTP_NVME_CMD_WRITE;
+
+    cnt->c[w ? NTP_CNT_HOST_WRITE_IOS : NTP_CNT_HOST_READ_IOS] += 1;
+    cnt->c[w ? NTP_CNT_HOST_WRITE_BYTES : NTP_CNT_HOST_READ_BYTES] += bytes;
   }
   if (filter.io_type != 2 && filter.io_type != (id.opcode == NTP_NVME_CMD_WRITE))
     return 0;
@@ -261,10 +295,10 @@ int BPF_PROG(ntp_h_setup_cmd, struct request* rq, void* cmd) {
     return 0;
   if (filter.nsid && id.nsid != filter.nsid) return 0;
 
-  /* the queue and its number, read only for sampled requests */
-  hctx = (void*)p->hctx;
-  if (!p->queue) p->queue = (u64)BPF_CORE_READ(hctx, driver_data);
-  p->qid = BPF_CORE_READ(hctx, queue_num) + 1;
+  /* the queue and its number (hctx i drives queue i + 1), for sampled requests */
+  hctx = BPF_CORE_READ(rq, mq_hctx);
+  if (!queue) queue = (u64)BPF_CORE_READ(hctx, driver_data);
+  if (!ts) ts = bpf_ktime_get_ns();
 
   slot = ntp_slot(key, NTP_REC_SLOTS);
   e = bpf_map_lookup_elem(&reqs, &slot);
@@ -276,7 +310,7 @@ int BPF_PROG(ntp_h_setup_cmd, struct request* rq, void* cmd) {
     ntp_inflight_add(1);
   e->rq = 0;
   __builtin_memset(&e->rec, 0, sizeof(e->rec));
-  e->queue = p->queue;
+  e->queue = queue;
   rec = &e->rec;
   rec->id = id;
   rec->bytes = bytes;
@@ -286,18 +320,18 @@ int BPF_PROG(ntp_h_setup_cmd, struct request* rq, void* cmd) {
   if (id.opcode == NTP_NVME_CMD_WRITE) rec->hdr.flags |= NTP_F_WRITE;
   if (filter.track_queues) rec->hdr.flags |= NTP_F_QUEUES;
   rec->id.cntlid = BPF_CORE_READ(ctrl, cntlid);
-  rec->id.qid = p->qid;
-  rec->q_unsent = p->q_unsent;
-  rec->q_inflight = p->q_inflight;
+  rec->id.qid = BPF_CORE_READ(hctx, queue_num) + 1;
+  rec->q_unsent = q_unsent;
+  rec->q_inflight = q_inflight;
   BPF_CORE_READ_STR_INTO(&rec->disk, rq, q, disk, disk_name);
   rec->ts[NTP_H_START] = BPF_CORE_READ(rq, start_time_ns);
-  rec->ts[NTP_H_QUEUE_RQ] = p->ts;
+  rec->ts[NTP_H_QUEUE_RQ] = ts;
   e->rq = key; /* last: the slot is ours from here on */
 
-  slot = cid_slot_of(p->queue, id.cid);
+  slot = cid_slot_of(queue, id.cid);
   cs = bpf_map_lookup_elem(&cid_idx, &slot);
   if (cs) {
-    cs->queue = p->queue;
+    cs->queue = queue;
     cs->cid = id.cid;
     cs->rq = key;
   }

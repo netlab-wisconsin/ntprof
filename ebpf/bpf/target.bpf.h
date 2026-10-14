@@ -4,10 +4,11 @@
  * its arrival to its response, keyed by the command's struct nvmet_req, and
  * the hooks in nvmet-core, the backends and the block layer.
  *
- * A transport object defines NTP_TRANSPORT and includes this file once, then
- * sets the target context (tgt_ctx_enter/exit) around the code that receives
- * commands, so that the nvmet_req_init tracepoint knows the command is its
- * own and when it arrived, and stamps the transport's own events.
+ * A transport object defines NTP_TRANSPORT, includes this file once, defines
+ * tgt_is_ours() and tgt_sampled() (which tell the nvmet_req_init tracepoint
+ * whether a command is the transport's and when it arrived), and stamps the
+ * transport's own events. The RDMA transport sets the target context
+ * (tgt_ctx_enter/exit) around the code that receives commands for that.
  */
 #ifndef NTPROF_TARGET_BPF_H
 #define NTPROF_TARGET_BPF_H
@@ -164,9 +165,18 @@ static __always_inline void count_resp_queued(u64 req) {
 
 /* ---- command arrival ---- */
 
+/* Is @req (its queue @sq) this transport's command? Defined by the transport. */
+static __always_inline bool tgt_is_ours(struct nvmet_req* req, struct nvmet_sq* sq);
+
+/*
+ * @req was sampled: when did it reach this machine (@now if not known)? The
+ * transport may also note the queue for its send hooks.
+ */
+static __always_inline u64 tgt_sampled(struct nvmet_req* req, struct nvmet_sq* sq,
+                                       u64 now);
+
 SEC("raw_tp/nvmet_req_init")
 int BPF_PROG(ntp_t_req_init, struct nvmet_req* req, void* cmd) {
-  struct tgt_ctx* c = NTP_CTX_GET(tgt_ctx);
   struct ntp_cmd_id id = {};
   struct ntp_tgt_rec* rec;
   struct tgt_entry* e;
@@ -175,9 +185,10 @@ int BPF_PROG(ntp_t_req_init, struct nvmet_req* req, void* cmd) {
   u64 now, key = (u64)req;
   u32 slot;
 
-  if (!c || !ntp_armed) return 0; /* not this transport, or not armed yet */
+  if (!ntp_armed) return 0;
   sq = BPF_CORE_READ(req, sq);
   if (!BPF_CORE_READ(sq, qid)) return 0; /* admin queue */
+  if (!tgt_is_ours(req, sq)) return 0;   /* another transport's command */
 
   if (filter.track_queues) {
     struct tcounted tc = {.sq = (u64)sq, .flags = CNT_OUTSTANDING};
@@ -219,7 +230,7 @@ int BPF_PROG(ntp_t_req_init, struct nvmet_req* req, void* cmd) {
   rec->id.qid = BPF_CORE_READ(sq, qid);
   rec->q_outstanding = q_outstanding;
   rec->q_resp_queue = q_resp_queue;
-  rec->ts[NTP_T_CMD_ARR] = tgt_arrival(c, now);
+  rec->ts[NTP_T_CMD_ARR] = tgt_sampled(req, sq, now);
   rec->ts[NTP_T_CMD_PROC] = now;
   e->req = key; /* last: the slot is ours from here on */
   ntp_count(NTP_CNT_TGT_SAMPLED, 1);

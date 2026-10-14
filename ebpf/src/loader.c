@@ -4,7 +4,8 @@
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 #include <errno.h>
-#include <net/if.h>
+#include <sys/socket.h>
+#include <time.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,7 +49,6 @@ struct obj_inst {
   volatile bool* armed;      /* .bss */
   struct bpf_map* events;
   struct bpf_map* counters;
-  struct bpf_map* skb_arrival;
   struct bpf_link** links;
   size_t nlinks;
   /* SPDK */
@@ -70,7 +70,6 @@ struct obj_inst {
     o->armed = &s->bss->ntp_armed;                                           \
     o->events = s->maps.events;                                              \
     o->counters = s->maps.counters;                                          \
-    o->skb_arrival = s->maps.skb_arrival;                                    \
     return 0;                                                                \
   }                                                                          \
   static void destroy_##prefix(struct obj_inst* o) {                         \
@@ -86,12 +85,13 @@ SKEL_ADAPTER(spdk_tcp_target)
 
 /* Base names (without the _fe/_fx/_kp/_kr flavour suffix). */
 static const char* const tcp_host_required[] = {
-    "ntp_h_queue_rq", "ntp_h_setup_cmd", "ntp_h_recv_skb", "ntp_h_complete",
-    "ntp_h_blk_done", NULL};
+    "ntp_h_setup_cmd", "ntp_h_recv_skb", "ntp_h_complete", "ntp_h_blk_done", NULL};
 
 static const char* const tcp_target_required[] = {
-    "ntp_t_io_work", "ntp_t_req_init", "ntp_t_queue_resp", "ntp_t_sendmsg",
-    NULL};
+    "ntp_t_copy", "ntp_t_req_init", "ntp_t_queue_resp", "ntp_t_sendmsg", NULL};
+
+/* Hooks that only count queue occupancy exactly (--exact-queues). */
+static const char* const exact_only[] = {"ntp_h_queue_rq", NULL};
 
 static const char* const rdma_host_required[] = {
     "ntp_hr_queue_rq", "ntp_h_setup_cmd", "ntp_hr_recv_done", "ntp_hr_send_done",
@@ -226,11 +226,34 @@ static size_t base_len(const char* prog) {
   return n;
 }
 
-static bool is_required(const struct obj_desc* d, const char* prog) {
+static bool in_list(const char* const* list, const char* prog) {
   size_t n = base_len(prog);
 
-  for (const char* const* r = d->required; *r; r++)
+  for (const char* const* r = list; *r; r++)
     if (strlen(*r) == n && !strncmp(*r, prog, n)) return true;
+  return false;
+}
+
+static bool is_required(const struct obj_desc* d, const char* prog) {
+  return in_list(d->required, prog);
+}
+
+/*
+ * NTPROF_SKIP=name,name...: do not load these programs (base names). A
+ * diagnostic for measuring what each hook costs; the records then lack what
+ * those hooks provide.
+ */
+static bool skipped(const char* prog) {
+  const char* list = getenv("NTPROF_SKIP");
+  size_t n = base_len(prog);
+
+  while (list && *list) {
+    const char* end = strchr(list, ',');
+    size_t len = end ? (size_t)(end - list) : strlen(list);
+
+    if (len == n && !strncmp(list, prog, n)) return true;
+    list = end ? end + 1 : NULL;
+  }
   return false;
 }
 
@@ -259,7 +282,50 @@ struct ntp_loader {
   struct ring_buffer* rb;
   ntp_record_cb cb;
   void* cb_ctx;
+  int stamp_fd; /* keeps the kernel's receive timestamps on; -1: none */
 };
+
+/*
+ * CLOCK_REALTIME - CLOCK_MONOTONIC: skb->tstamp is realtime, the records are
+ * monotonic. The narrowest of a few reads wins.
+ */
+static int64_t real_minus_mono(void) {
+  int64_t best = 0, best_gap = INT64_MAX;
+
+  for (int i = 0; i < 16; i++) {
+    struct timespec m1, r, m2;
+    int64_t a, b, gap;
+
+    clock_gettime(CLOCK_MONOTONIC, &m1);
+    clock_gettime(CLOCK_REALTIME, &r);
+    clock_gettime(CLOCK_MONOTONIC, &m2);
+    a = m1.tv_sec * 1000000000LL + m1.tv_nsec;
+    b = m2.tv_sec * 1000000000LL + m2.tv_nsec;
+    gap = b - a;
+    if (gap < best_gap) {
+      best_gap = gap;
+      best = r.tv_sec * 1000000000LL + r.tv_nsec - (a + gap / 2);
+    }
+  }
+  return best;
+}
+
+/*
+ * A socket with SO_TIMESTAMPNS turns the kernel's receive timestamps on for
+ * every packet (net_enable_timestamp()), as long as it stays open; the BPF
+ * programs read them from skb->tstamp instead of stamping packets themselves.
+ */
+static int open_stamp_socket(void) {
+  int one = 1;
+  int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+
+  if (fd < 0) return -1;
+  if (setsockopt(fd, SOL_SOCKET, SO_TIMESTAMPNS, &one, sizeof(one))) {
+    close(fd);
+    return -1;
+  }
+  return fd;
+}
 
 static int libbpf_log(enum libbpf_print_level level, const char* fmt,
                       va_list ap) {
@@ -288,13 +354,8 @@ static void fill_filter(struct ntp_filter* f, const struct ntp_config* c,
     memcpy(f->ctrl_mask, host_sel->ctrl_mask, sizeof(f->ctrl_mask));
     f->nsid = host_sel->nsid;
   }
-  if (c->ifname[0]) f->ifindex = if_nametoindex(c->ifname);
   f->track_queues = c->exact_queues;
-  /*
-   * A target, and an SPDK initiator (its commands become known only when
-   * they are done), need every packet stamped.
-   */
-  f->stamp_always = (c->role & NTP_ROLE_TARGET) || c->spdk_host[0];
+  f->real_minus_mono = real_minus_mono();
 }
 
 static int read_sysfs_u32(const char* path, uint32_t* out) {
@@ -374,8 +435,8 @@ static int btf_opts(const struct ntp_config* c, const struct obj_desc* d,
  * kernel lacks are not loaded.
  */
 static int select_programs(const struct obj_desc* d, struct bpf_object* obj,
-                           const struct ksyms* ks, enum flavour fl,
-                           bool skip_netif, bool quiet) {
+                           const struct ksyms* ks, enum flavour fl, bool exact,
+                           bool quiet) {
   struct bpf_program* prog;
 
   bpf_object__for_each_program(prog, obj) {
@@ -383,8 +444,12 @@ static int select_programs(const struct obj_desc* d, struct bpf_object* obj,
     enum flavour pf = flavour_of(prog);
     char what[256];
 
-    if ((skip_netif && !strcmp(name, "ntp_netif_rx")) ||
-        (pf != FL_COMMON && pf != fl)) {
+    if ((pf != FL_COMMON && pf != fl) || (!exact && in_list(exact_only, name))) {
+      bpf_program__set_autoload(prog, false);
+      continue;
+    }
+    if (skipped(name)) {
+      if (!quiet) ntp_warn("%s: %s skipped (NTPROF_SKIP)", d->name, name);
       bpf_program__set_autoload(prog, false);
       continue;
     }
@@ -446,19 +511,17 @@ static int open_one(struct ntp_loader* l, const struct obj_desc* d,
 
   if (shared) {
     /*
-     * One ring buffer, one skb arrival map and one netif_receive_skb hook per
-     * process. A single ring buffer keeps records in emission order: a
-     * command's target record always comes before its host record.
+     * One ring buffer per process keeps records in emission order: a
+     * command's target record normally comes before its host record.
      */
-    err = bpf_map__reuse_fd(o->skb_arrival, bpf_map__fd(shared->skb_arrival));
-    if (!err) err = bpf_map__reuse_fd(o->events, bpf_map__fd(shared->events));
+    err = bpf_map__reuse_fd(o->events, bpf_map__fd(shared->events));
     if (err) {
       ntp_err("%s: cannot share maps: %s", d->name, strerror(-err));
       return -1;
     }
   }
 
-  if (select_programs(d, o->obj, ks, choose_flavour(c), shared != NULL, false))
+  if (select_programs(d, o->obj, ks, choose_flavour(c), c->exact_queues, false))
     return -1;
   err = bpf_object__load(o->obj);
   if (err) {
@@ -542,6 +605,8 @@ static int attach_all(struct obj_inst* o) {
 struct ntp_loader* ntp_loader_open(const struct ntp_config* c, ntp_record_cb cb,
                                    void* cb_ctx) {
   struct ntp_loader* l = xcalloc(1, sizeof(*l));
+
+  l->stamp_fd = -1;
   struct obj_inst* shared = NULL;
   struct ntp_filter sel;
   struct ksyms ks;
@@ -583,6 +648,11 @@ struct ntp_loader* ntp_loader_open(const struct ntp_config* c, ntp_record_cb cb,
   for (size_t i = 0; i < l->ninst; i++)
     if (attach_all(&l->inst[i])) goto fail;
 
+  l->stamp_fd = open_stamp_socket();
+  if (l->stamp_fd < 0)
+    ntp_warn("cannot turn on receive timestamps (%s): packet arrival times "
+             "fall back to the time the packet was read",
+             strerror(errno));
   l->rb = ring_buffer__new(bpf_map__fd(l->inst[0].events), rb_cb, l, NULL);
   if (!l->rb) {
     ntp_err("cannot create ring buffer: %s", strerror(errno));
@@ -627,6 +697,7 @@ static void ungate(struct obj_inst* o) {
 void ntp_loader_close(struct ntp_loader* l) {
   if (!l) return;
   for (size_t i = 0; i < l->ninst; i++) ungate(&l->inst[i]);
+  if (l->stamp_fd >= 0) close(l->stamp_fd);
   ring_buffer__free(l->rb);
   for (size_t i = 0; i < l->ninst; i++) {
     struct obj_inst* o = &l->inst[i];
@@ -658,16 +729,17 @@ int ntp_loader_poll(struct ntp_loader* l, int timeout_ms) {
 
 uint64_t ntp_loader_counter(struct ntp_loader* l, enum ntp_counter c) {
   int ncpu = libbpf_num_possible_cpus();
+  struct ntp_counters* vals;
   uint64_t total = 0;
-  uint64_t* vals;
-  uint32_t key = c;
+  uint32_t zero = 0;
 
-  if (ncpu <= 0) return 0;
+  if (ncpu <= 0 || c >= NTP_CNT_NR) return 0;
+  /* a per-CPU value per possible CPU (sizeof is a multiple of 8) */
   vals = xcalloc(ncpu, sizeof(*vals));
   for (size_t i = 0; i < l->ninst; i++) {
-    if (bpf_map_lookup_elem(bpf_map__fd(l->inst[i].counters), &key, vals))
+    if (bpf_map_lookup_elem(bpf_map__fd(l->inst[i].counters), &zero, vals))
       continue;
-    for (int k = 0; k < ncpu; k++) total += vals[k];
+    for (int k = 0; k < ncpu; k++) total += vals[k].c[c];
   }
   free(vals);
   return total;
@@ -731,7 +803,7 @@ int ntp_probe(const struct ntp_config* c, FILE* f) {
               is_required(d, bpf_program__name(prog)) ? " (required)" : "");
     }
     /* load (verifier and CO-RE relocations) without attaching */
-    if (select_programs(d, o.obj, &ks, choose_flavour(c), false, true)) {
+    if (select_programs(d, o.obj, &ks, choose_flavour(c), c->exact_queues, true)) {
       fprintf(f, "  load: skipped, a required attach point is missing\n");
     } else {
       err = bpf_object__load(o.obj);

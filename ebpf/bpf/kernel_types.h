@@ -52,6 +52,7 @@ struct net_device {
 struct sk_buff {
   struct sock* sk;
   struct net_device* dev;
+  s64 tstamp; /* ktime_t: receive time (CLOCK_REALTIME) when stamping is on */
 } __core;
 
 struct socket {
@@ -72,8 +73,11 @@ struct bio {
   void* bi_private;
 } __core;
 
+struct blk_mq_hw_ctx;
+
 struct request {
   struct request_queue* q;
+  struct blk_mq_hw_ctx* mq_hctx;
   unsigned int cmd_flags;
   unsigned int __data_len;
   int tag;

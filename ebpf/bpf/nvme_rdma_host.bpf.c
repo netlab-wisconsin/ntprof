@@ -20,7 +20,11 @@
  * wait covers network, target and data transfer.
  */
 #define NTP_TRANSPORT NTP_TR_RDMA
+#define NTP_HOST_HOOKS_QUEUE_RQ 1
 #include "host.bpf.h"
+
+/* No cheap test tells an RDMA request apart: the ->queue_rq() hook does. */
+static __always_inline u64 host_queue_of(struct request* rq) { return 0; }
 
 /* post_send entry -> return (kretprobe flavour only) */
 struct post_ctx {

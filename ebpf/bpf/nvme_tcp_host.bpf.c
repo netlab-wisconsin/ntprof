@@ -6,7 +6,8 @@
  * NVMe/TCP hooks here (see ebpf/DESIGN.md for the mapping to v1's
  * tracepoints):
  *
- *   nvme_tcp_queue_rq                  -> NTP_H_QUEUE_RQ, queue, qid
+ *   (nvme_setup_cmd, host.bpf.h)       -> NTP_H_QUEUE_RQ, queue, qid
+ *   nvme_tcp_queue_rq                  -> only with --exact-queues
  *   nvme_tcp_try_send_{cmd_pdu,data,ddgst} returning 1
  *                                      -> NTP_H_CMD_SENT / NTP_H_DATA_SENT
  *   nvme_tcp_try_send_data_pdu         -> NTP_H_DATA_START
@@ -20,6 +21,22 @@
  */
 #define NTP_TRANSPORT NTP_TR_TCP
 #include "host.bpf.h"
+
+/*
+ * nvme_setup_cmd runs for every NVMe transport. A request is NVMe/TCP's when
+ * the queue in its driver PDU has a socket whose sk_user_data points back to
+ * that queue (nvme_tcp_setup_sock_ops()); for another transport the same
+ * offsets hold unrelated data and the test fails. So ->queue_rq() needs no
+ * hook (it is hooked only to count queue occupancy exactly).
+ */
+static __always_inline u64 host_queue_of(struct request* rq) {
+  struct nvme_tcp_request* req = (void*)rq + bpf_core_type_size(struct request);
+  struct nvme_tcp_queue* queue = BPF_CORE_READ(req, queue);
+
+  if (!queue) return 0;
+  return (u64)BPF_CORE_READ(queue, sock, sk, sk_user_data) == (u64)queue ? (u64)queue
+                                                                        : 0;
+}
 
 /* try_send_* entry -> return (kretprobe flavour only) */
 struct send_ctx {
@@ -183,12 +200,14 @@ int BPF_KRETPROBE(ntp_h_recv_skb_kr) { return host_rx_exit(); }
 
 /* First data copy of a C2H data PDU: the PDU header in queue->pdu names it. */
 static __always_inline int on_copy(const struct sk_buff* skb) {
-  struct host_rx* c = NTP_CTX_GET(rx_ctx);
   struct ntp_tcp_data_pdu pdu;
   struct nvme_tcp_queue* queue;
   struct ntp_host_rec* rec;
+  struct host_rx* c;
   void* hdr;
 
+  if (ntp_idle()) return 0;
+  c = NTP_CTX_GET(rx_ctx);
   if (!c || c->skb != (u64)skb) return 0;
   queue = (void*)c->queue;
   hdr = BPF_CORE_READ(queue, pdu);

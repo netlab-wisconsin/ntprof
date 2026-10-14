@@ -6,7 +6,6 @@
  * command line override it.
  */
 #include <getopt.h>
-#include <net/if.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,7 +42,6 @@ static void usage(FILE* f) {
           "      --offline         no interval reports (IS_ONLINE=false)\n"
           "      --btf DIR         BTF from tools/gen-btf.sh, for kernels "
           "without BTF\n"
-          "      --ifname IF       time packet arrivals only on interface IF\n"
           "      --exact-queues    count queue occupancy per request (map\n"
           "                        operations on every I/O; default: mean\n"
           "                        occupancy per stage by Little's law)\n"
@@ -63,7 +61,6 @@ enum {
   OPT_AGGR,
   OPT_OFFLINE,
   OPT_BTF,
-  OPT_IFNAME,
   OPT_EXACT_QUEUES,
   OPT_KPROBES,
   OPT_SPDK_HOST,
@@ -85,7 +82,6 @@ static const struct option long_opts[] = {
     {"aggregation", required_argument, NULL, OPT_AGGR},
     {"offline", no_argument, NULL, OPT_OFFLINE},
     {"btf", required_argument, NULL, OPT_BTF},
-    {"ifname", required_argument, NULL, OPT_IFNAME},
     {"exact-queues", no_argument, NULL, OPT_EXACT_QUEUES},
     {"kprobes", no_argument, NULL, OPT_KPROBES},
     {"spdk-host", required_argument, NULL, OPT_SPDK_HOST},
@@ -170,10 +166,6 @@ static int apply_option(struct ntp_config* c, int opt, const char* v) {
       return 0;
     case OPT_SPDK_TARGET:
       snprintf(c->spdk_target, sizeof(c->spdk_target), "%s", v);
-      return 0;
-    case OPT_IFNAME:
-      if (!if_nametoindex(v)) return bad("--ifname", v);
-      snprintf(c->ifname, sizeof(c->ifname), "%s", v);
       return 0;
   }
   return -1;

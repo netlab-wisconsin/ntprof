@@ -140,6 +140,11 @@ enum ntp_counter {
   NTP_CNT_NR,
 };
 
+/* The value of the one-entry per-CPU counters map: one lookup per program. */
+struct ntp_counters {
+  __u64 c[NTP_CNT_NR];
+};
+
 /*
  * Filter and sampling, set by user space in .rodata before the programs load.
  * A command is sampled when hash(cid, slba, nlb) % sample_every == 0; both
@@ -157,15 +162,13 @@ struct ntp_filter {
   __u32 sizes[NTP_MAX_SIZE_FILTERS];
   __u64 ctrl_mask[4];  /* host: controller instances 0-255 (N of /dev/nvmeN) */
   __u32 nsid;          /* host: 0 = any namespace */
-  __u32 ifindex;       /* skb arrival timestamps only from this device; 0 = any */
   /*
-   * 1: stamp every received skb. A target must: a command's packet arrives
-   * before the command is sampled. A host only needs stamps while one of its
-   * sampled commands is in flight.
+   * CLOCK_REALTIME - CLOCK_MONOTONIC when ntprof started, in ns: turns an
+   * skb's receive timestamp (realtime) into the clock of the records.
    */
-  __u8 stamp_always;
+  __s64 real_minus_mono;
   __u8 npids;          /* SPDK: entries in pids[] */
-  __u8 pad2[2];
+  __u8 pad2[3];
   __u32 pids[NTP_MAX_PIDS]; /* SPDK: processes whose socket reads are watched */
 };
 

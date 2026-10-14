@@ -15,6 +15,18 @@
 #define NTP_TRANSPORT NTP_TR_RDMA
 #include "target.bpf.h"
 
+/* Commands arrive under the receive completion handler's context. */
+static __always_inline bool tgt_is_ours(struct nvmet_req* req, struct nvmet_sq* sq) {
+  return NTP_CTX_GET(tgt_ctx) != NULL;
+}
+
+static __always_inline u64 tgt_sampled(struct nvmet_req* req, struct nvmet_sq* sq,
+                                       u64 now) {
+  struct tgt_ctx* c = NTP_CTX_GET(tgt_ctx);
+
+  return c ? tgt_arrival(c, now) : now;
+}
+
 /* queue_response entry -> return (kretprobe flavour only) */
 struct resp_ctx {
   u64 tid;

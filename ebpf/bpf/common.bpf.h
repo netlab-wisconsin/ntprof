@@ -2,9 +2,9 @@
 /*
  * Maps and helpers shared by every ntprof BPF object.
  *
- * Each object (host, target; TCP, RDMA) has its own copy of these maps. When
- * several objects run in one process, user space makes them share `events`
- * and `skb_arrival` (bpf_map__reuse_fd) and loads one netif_receive_skb hook.
+ * Each object (host, target; TCP, RDMA; SPDK) has its own copy of these maps.
+ * When several objects run in one process, user space makes them share
+ * `events` (bpf_map__reuse_fd), so records come out in emission order.
  *
  * Function hooks come in two flavours with the same body: fentry/fexit
  * (programs named *_fe, *_fx), used when the kernel has BTF, and
@@ -77,15 +77,22 @@ static __always_inline u64 ntp_rb_flags(void) {
 
 struct {
   __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-  __uint(max_entries, NTP_CNT_NR);
+  __uint(max_entries, 1);
   __type(key, u32);
-  __type(value, u64);
+  __type(value, struct ntp_counters);
 } counters SEC(".maps");
 
-static __always_inline void ntp_count(u32 counter, u64 delta) {
-  u64* v = bpf_map_lookup_elem(&counters, &counter);
+/* This CPU's counters; a hook that bumps several looks them up once. */
+static __always_inline struct ntp_counters* ntp_counters(void) {
+  u32 zero = 0;
 
-  if (v) *v += delta;
+  return bpf_map_lookup_elem(&counters, &zero);
+}
+
+static __always_inline void ntp_count(u32 counter, u64 delta) {
+  struct ntp_counters* c = ntp_counters();
+
+  if (c && counter < NTP_CNT_NR) c->c[counter] += delta;
 }
 
 static __always_inline u64 ntp_tid(void) { return bpf_get_current_pid_tgid(); }
@@ -116,27 +123,6 @@ static __always_inline u64 ntp_tid(void) { return bpf_get_current_pid_tgid(); }
   })
 
 /*
- * ---- skb arrival times ----
- *
- * A direct-mapped table: slot = hash(skb address). Writes are plain stores,
- * so stamping every received packet costs no lock. A collision overwrites the
- * slot; the reader checks the address and falls back to "now".
- */
-#define NTP_SKB_SLOTS (1 << 16)
-
-struct skb_stamp {
-  u64 skb;
-  u64 ts;
-};
-
-struct {
-  __uint(type, BPF_MAP_TYPE_ARRAY);
-  __uint(max_entries, NTP_SKB_SLOTS);
-  __type(key, u32);
-  __type(value, struct skb_stamp);
-} skb_arrival SEC(".maps");
-
-/*
  * fentry/fexit arguments are typed pointers, and the verifier refuses any
  * arithmetic on them but adding offsets. A round trip through map memory
  * turns the address into a plain number that can be hashed.
@@ -163,10 +149,6 @@ static __always_inline u32 ntp_slot(u64 addr, u32 nslots) {
   return (u32)(((addr >> 6) ^ (addr >> 26)) * 0x9e3779b1u) & (nslots - 1);
 }
 
-static __always_inline u32 ntp_skb_slot(u64 skb) {
-  return ntp_slot(skb, NTP_SKB_SLOTS);
-}
-
 /*
  * ---- records in direct-mapped tables ----
  *
@@ -182,45 +164,31 @@ static __always_inline u32 ntp_skb_slot(u64 skb) {
 #define NTP_REC_SLOTS (1 << 14)
 
 /*
- * An skb address is reused once the skb is freed, and the slot keeps the old
- * stamp until it is overwritten. A stamp older than this is taken to belong
- * to an earlier skb at the same address.
+ * ---- skb arrival times ----
+ *
+ * As v1 did, ntprof reads the kernel's receive timestamp of each skb: while
+ * ntprof runs, user space holds a socket with SO_TIMESTAMPNS, and the stack
+ * then stamps every received packet with CLOCK_REALTIME in skb->tstamp
+ * (net_timestamp_check(), after GRO). No hook runs per packet. When TCP
+ * coalesces a packet into an earlier skb, the earlier skb's time is used.
  */
 #define NTP_SKB_STAMP_MAX_AGE_NS 1000000000ULL
 
-/* Arrival time of an skb, or @now when it was not stamped. */
-static __always_inline u64 ntp_skb_arrival(const struct sk_buff* skb, u64 now) {
-  u32 slot = ntp_skb_slot(ntp_scalar((u64)skb));
-  struct skb_stamp* s = bpf_map_lookup_elem(&skb_arrival, &slot);
-  u64 ts;
-
-  if (!s || s->skb != (u64)skb) return now;
-  ts = s->ts;
-  if (s->skb != (u64)skb || ts > now || now - ts > NTP_SKB_STAMP_MAX_AGE_NS)
-    return now;
-  return ts;
+static __always_inline bool ntp_plausible(u64 ts, u64 now) {
+  return ts && ts <= now && now - ts < NTP_SKB_STAMP_MAX_AGE_NS;
 }
 
-/*
- * The packet is stamped after GRO, where v1 read skb->tstamp; when TCP later
- * coalesces it into an earlier skb of the receive queue, the earlier skb's
- * time is used.
- */
-SEC("raw_tp/netif_receive_skb")
-int BPF_PROG(ntp_netif_rx, struct sk_buff* skb) {
-  u32 slot = ntp_skb_slot((u64)skb);
-  struct skb_stamp* s;
+/* Arrival time of an skb, or @now when it carries no usable timestamp. */
+static __always_inline u64 ntp_skb_arrival(const struct sk_buff* skb, u64 now) {
+  s64 t = BPF_CORE_READ(skb, tstamp);
+  u64 mono;
 
-  if (!filter.stamp_always && !ntp_inflight) return 0;
-  if (filter.ifindex && BPF_CORE_READ(skb, dev, ifindex) != (int)filter.ifindex)
-    return 0;
-  s = bpf_map_lookup_elem(&skb_arrival, &slot);
-  if (!s) return 0;
-  /* address last: a reader that sees the new address sees the new time */
-  s->skb = 0;
-  s->ts = bpf_ktime_get_ns();
-  s->skb = (u64)skb;
-  return 0;
+  if (t <= 0) return now;
+  mono = (u64)(t - filter.real_minus_mono);
+  if (ntp_plausible(mono, now)) return mono;
+  /* a stack that kept a monotonic delivery time in it */
+  if (ntp_plausible((u64)t, now)) return (u64)t;
+  return now;
 }
 
 /* ---- NVMe ---- */

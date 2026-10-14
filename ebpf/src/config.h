@@ -65,7 +65,6 @@ struct ntp_config {
   char output[256];    /* record file; empty = none */
   char json[256];      /* JSON report file; empty = none */
   char btf_dir[256];   /* BTF generated from module DWARF; empty = kernel BTF */
-  char ifname[32];     /* stamp skb arrivals only from this device */
   bool exact_queues;   /* per-request queue occupancy (costs per-I/O map ops) */
   bool force_kprobes;  /* kprobes even when fentry/fexit are available */
   /*
