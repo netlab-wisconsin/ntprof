@@ -41,6 +41,23 @@ make test               # unit tests (no root, no BPF)
 `/usr/sbin/bpftool` refuses to run on a kernel it has no package for; use
 `/usr/lib/linux-tools/<any version>/bpftool` instead).
 
+## Try it
+
+On any Linux 6.x machine with the stock `nvme-tcp`, `nvmet-tcp` and `null_blk`
+modules, fio and nvme-cli (no SSD or NIC is used):
+
+```sh
+make
+tests/demo.sh          # about two minutes; tests/demo.sh down removes the test bed
+```
+
+It exports a null_blk device through the kernel target on 127.0.0.1, connects
+to it, and shows (1) the live breakdown of 4 KiB random reads with initiator
+and target profiled together, (2) the two sides recorded separately, as on two
+machines, and joined offline, and (3) the LAD per stage between queue depth 1
+and 32, which names the stage that amplifies latency under load. Each command
+is printed before it runs.
+
 ## Run
 
 ntprof needs root (or `CAP_BPF` + `CAP_PERFMON`). The NVMe-oF modules must be
