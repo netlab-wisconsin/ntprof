@@ -62,6 +62,19 @@ struct {
   __uint(max_entries, 1 << 24);
 } events SEC(".maps");
 
+/*
+ * Waking the reader for every record costs the emitting CPU an interrupt and
+ * a wake-up, inside the I/O path. User space polls every 100 ms anyway, so
+ * the reader is woken only once this much is waiting.
+ */
+#define NTP_RB_WAKEUP_BYTES (64 << 10)
+
+static __always_inline u64 ntp_rb_flags(void) {
+  return bpf_ringbuf_query(&events, BPF_RB_AVAIL_DATA) >= NTP_RB_WAKEUP_BYTES
+             ? BPF_RB_FORCE_WAKEUP
+             : BPF_RB_NO_WAKEUP;
+}
+
 struct {
   __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
   __uint(max_entries, NTP_CNT_NR);

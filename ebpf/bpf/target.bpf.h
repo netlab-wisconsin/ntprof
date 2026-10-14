@@ -303,7 +303,7 @@ static __always_inline void tgt_finish(u64 req) {
   e = tgt_entry(req);
   if (!e) return;
   e->rec.hdr.cpu = bpf_get_smp_processor_id();
-  if (bpf_ringbuf_output(&events, &e->rec, sizeof(e->rec), 0))
+  if (bpf_ringbuf_output(&events, &e->rec, sizeof(e->rec), ntp_rb_flags()))
     ntp_count(NTP_CNT_RB_DROPS, 1);
   else
     ntp_count(NTP_CNT_TGT_EMITTED, 1);

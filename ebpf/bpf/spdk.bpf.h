@@ -253,7 +253,7 @@ static __always_inline u64 spdk_arrival(u64 parsed, u64 floor) {
 /* ---- records ---- */
 
 static __always_inline void spdk_submit(void* rec, u32 emitted) {
-  bpf_ringbuf_submit(rec, 0);
+  bpf_ringbuf_submit(rec, ntp_rb_flags());
   ntp_count(emitted, 1);
 }
 

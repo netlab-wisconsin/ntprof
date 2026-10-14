@@ -647,8 +647,13 @@ void ntp_loader_disarm(struct ntp_loader* l) {
 
 int ntp_loader_poll(struct ntp_loader* l, int timeout_ms) {
   int n = ring_buffer__poll(l->rb, timeout_ms);
+  int m;
 
-  return n == -EINTR ? 0 : n;
+  if (n == -EINTR) n = 0;
+  if (n < 0) return n;
+  /* the programs wake the reader only for batches: take what waits anyway */
+  m = ring_buffer__consume(l->rb);
+  return m < 0 ? m : n + m;
 }
 
 uint64_t ntp_loader_counter(struct ntp_loader* l, enum ntp_counter c) {

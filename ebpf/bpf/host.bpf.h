@@ -358,7 +358,7 @@ int BPF_PROG(ntp_h_blk_done, struct request* rq) {
     rec->hdr.flags |= NTP_F_INLINE_DATA;
   rec->hdr.cpu = bpf_get_smp_processor_id();
 
-  if (bpf_ringbuf_output(&events, rec, sizeof(*rec), 0))
+  if (bpf_ringbuf_output(&events, rec, sizeof(*rec), ntp_rb_flags()))
     ntp_count(NTP_CNT_RB_DROPS, 1);
   else
     ntp_count(NTP_CNT_HOST_EMITTED, 1);
