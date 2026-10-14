@@ -215,12 +215,16 @@ kernels run the kprobe flavour (fentry needs real kernel BTF).
   write. Data digests are covered on the host (`skb_copy_and_hash_datagram_iter`).
 - **Overhead.** The kernel hooks run for every I/O; sampling only decides
   which commands get a record, and the hooks that only add timestamps return
-  after one array lookup while no sampled command is in flight. In a 16-vCPU
-  guest running initiator and target together (a worst case: both sides'
-  hooks share the CPUs with the workload), 4 KB random reads at queue depth
-  32 x 4 jobs kept 82 % of their IOPS at 1 in 1000 with fentry, and 52 % with
-  every command recorded (Linux 6.8, 2026-10-13). SPDK's probes fire only for
-  sampled commands (section 8).
+  after one array lookup while no sampled command is in flight. Records wake
+  the reader only in batches. Measured in a 16-vCPU guest running initiator
+  and target together over loopback (Linux 6.8, fentry, 2026-10-14), 4 KB
+  random reads at queue depth 1:
+  - kernel -> kernel: 23.0 us without ntprof, +4.0 us at 1 in 1000, +6.7 us
+    with every command recorded. The per-I/O part is 34 BPF program runs
+    (2.2 us); the context hooks on io_work and `skb_copy_datagram_iter` and
+    the per-packet arrival stamps are most of it.
+  - SPDK -> SPDK: 16.6 us, +1.3 us at 1 in 1000, +4.2 us with every command
+    (section 8). At queue depth 32 SPDK kept 97 % of its IOPS at 1 in 1000.
 
 ## 8. SPDK
 

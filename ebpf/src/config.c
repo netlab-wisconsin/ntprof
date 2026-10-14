@@ -229,4 +229,6 @@ void config_print(const struct ntp_config* c, FILE* f) {
   fprintf(f, " min=%llu max=%llu sample=1/%u interval=%us aggr=%s\n",
           (unsigned long long)c->min_size, (unsigned long long)c->max_size,
           c->sample_every, c->interval_s, aggr[c->aggr]);
+  if (c->spdk_host[0]) fprintf(f, "  SPDK initiator: %s\n", c->spdk_host);
+  if (c->spdk_target[0]) fprintf(f, "  SPDK target: %s\n", c->spdk_target);
 }
