@@ -357,7 +357,8 @@ static int record(const struct ntp_config* c, int done_fd) {
   }
   print_counters(l, &s);
   if (c->role == NTP_ROLE_TARGET && c->output[0])
-    printf("report: ntprof report HOST.ntp %s (the initiator's recording, same -s)\n",
+    printf("report: ntprof report HOST.ntp %s (the initiator's recording, "
+           "same -s)\n",
            c->output);
   ret = close_writer(&s, ret, true);
   report_done(done_fd, ret);

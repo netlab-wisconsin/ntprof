@@ -59,8 +59,8 @@ void ntp_report_tput(FILE* f, const struct ntp_tput* t) {
   double s = t->seconds > 0 ? t->seconds : 1;
   bool any = false;
 
-  fprintf(f, "throughput (%s):", t->estimated ? "estimated from the sampled commands"
-                                              : "all commands");
+  fprintf(f, "throughput (%s):",
+          t->estimated ? "estimated from the sampled commands" : "all commands");
   if (t->read_ios || !t->write_ios) {
     fprintf(f, " read %.1f kIOPS, %.1f MB/s", t->read_ios / s / 1e3,
             t->read_bytes / s / 1e6);
@@ -184,7 +184,8 @@ static int stage_rows(struct ntp_group* g, bool joined, struct srow* rows) {
     snprintf(rows[n].desc, sizeof(rows[n].desc), "initiator receive path");
     rows[n++].v = &g->comp[NTP_C_HOST_RX];
     rows[n].stage = "S3-S9";
-    snprintf(rows[n].desc, sizeof(rows[n].desc), "network and target (not recorded)");
+    snprintf(rows[n].desc, sizeof(rows[n].desc),
+             "network and target (not recorded)");
     rows[n++].v = &g->comp[NTP_C_REMOTE];
   }
   for (int i = 0; i < n; i++) ntp_summarize(rows[i].v, &rows[i].m);
@@ -255,7 +256,8 @@ static void print_queues(FILE* f, struct ntp_group* g) {
   for (int q = 0; q < NTP_Q_NR; q++) {
     ntp_summarize(&g->queue[q], &m);
     if (!m.n) continue;
-    fprintf(f, "%s %s %.2f/%lld", any ? "," : "  queue length at arrival (mean/p99):",
+    fprintf(f, "%s %s %.2f/%lld",
+            any ? "," : "  queue length at arrival (mean/p99):",
             ntp_queue_names[q], m.mean, (long long)m.q[Q_P99]);
     any = true;
   }
@@ -332,12 +334,15 @@ static void print_group(FILE* f, const struct ntp_stats* s, struct ntp_group* g,
   char label[96], num[16];
 
   ntp_group_label(&g->key, label, sizeof(label));
-  fprintf(f, "\n== %s: %llu commands sampled", label, (unsigned long long)g->records);
-  if (rate > 0) fprintf(f, " (of about %s/s)", human(rate, num, sizeof(num)));
+  fprintf(f, "\n== %s: %llu commands sampled", label,
+          (unsigned long long)g->records);
+  if (rate > 0)
+    fprintf(f, " (from about %s commands/s)", human(rate, num, sizeof(num)));
   if (g->joined == usable && usable)
     fprintf(f, ", all with the target's side");
   else if (g->joined)
-    fprintf(f, ", %.0f %% with the target's side", share((double)g->joined, (double)usable));
+    fprintf(f, ", %.0f %% with the target's side",
+            share((double)g->joined, (double)usable));
   else
     fprintf(f, ", initiator side only");
   fputc('\n', f);

@@ -80,7 +80,7 @@ static void print_join(const struct run* r) {
            (unsigned long long)r->targets, (unsigned long long)js->matched,
            r->nhosts ? 100.0 * js->matched / r->nhosts : 0.0);
   putchar('\n');
-  if (r->targets && js->host_unmatched)
+  if (r->targets && js->host_unmatched * 100 > r->nhosts)
     printf("  %llu initiator records found no target record: start the target's "
            "recording first and stop it last, with the same -s\n",
            (unsigned long long)js->host_unmatched);

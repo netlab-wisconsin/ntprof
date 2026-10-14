@@ -15,7 +15,7 @@
  * Two times only the kernel sees are kept per SPDK thread, in rings, and
  * matched with the command's times when it is done:
  *  - packet arrival: for each tcp_recvmsg() that copied data, its start and
- *    the netif_receive_skb stamp of its first skb. A PDU parsed at time t
+ *    the receive timestamp of its first skb. A PDU parsed at time t
  *    arrived with the first skb of the latest such call started before t.
  *    Exact while a read carries one PDU (light load); when one read carries
  *    several, the later ones take the first skb's time, which moves at most
