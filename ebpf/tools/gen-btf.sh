@@ -44,7 +44,9 @@ for m in "${modules[@]}"; do
         *.gz) gzip -d -c "$f" > "$tmp/$m.ko" ;;
         *) cp "$f" "$tmp/$m.ko" ;;
     esac
-    if ! readelf -S "$tmp/$m.ko" | grep -q '\.debug_info'; then
+    # grep -c reads all of readelf's output: grep -q would exit at the first
+    # match, and readelf's SIGPIPE would then fail the pipe (pipefail)
+    if ! readelf -S "$tmp/$m.ko" | grep -c '\.debug_info' > /dev/null; then
         echo "skip $m: no DWARF in $f" >&2
         continue
     fi
