@@ -74,14 +74,14 @@ static void free_run(struct run* r) {
 static void print_join(const struct run* r) {
   const struct ntp_join_stats* js = ntp_joiner_stats(r->joiner);
 
-  printf("\nrecords: %zu initiator", r->nhosts);
+  printf("\nrecords: %zu host", r->nhosts);
   if (r->targets)
-    printf(", %llu target; %llu matched (%.0f %% of the initiator's)",
+    printf(", %llu target; %llu matched (%.0f %% of the host's)",
            (unsigned long long)r->targets, (unsigned long long)js->matched,
            r->nhosts ? 100.0 * js->matched / r->nhosts : 0.0);
   putchar('\n');
   if (r->targets && js->host_unmatched * 100 > r->nhosts)
-    printf("  %llu initiator records found no target record: start the target's "
+    printf("  %llu host records found no target record: start the target's "
            "recording first and stop it last, with the same -s\n",
            (unsigned long long)js->host_unmatched);
 }
@@ -103,8 +103,8 @@ int cmd_report(const struct ntp_config* c, char* const* files, int nfiles) {
     goto out;
   }
   if (!r.have_host_hdr) {
-    ntp_err("report: none of the files is an initiator (host) recording; "
-            "target records are reported with the initiator's");
+    ntp_err("report: none of the files is a host recording; "
+            "target records are reported with the host's");
     ret = EXIT_FAILURE;
     goto out;
   }

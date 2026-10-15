@@ -52,24 +52,28 @@ enum ntp_comp {
 
 struct ntp_comp_info {
   const char* name;  /* stable identifier, used in JSON */
-  const char* stage; /* stage label of the NSDI'25 model */
-  const char* desc;
+  const char* stage; /* the stage it belongs to (ntp_stage_keys), used in JSON */
+  const char* desc;  /* what users read */
   bool detail;       /* splits another component */
 };
 
 extern const struct ntp_comp_info ntp_comps[NTP_C_NR];
 
-/* Stage groups for LAD: each is a sum of components. */
+/*
+ * Stage groups for LAD: each is a sum of components. The NSDI'25 paper calls
+ * them S1, S2, S3-S5, S6 and S7-S9; users see the names in ntp_stage_keys.
+ */
 enum ntp_stage {
-  NTP_S1 = 0,   /* blk-mq (initiator)         */
-  NTP_S2,       /* transport (initiator)      */
-  NTP_S3_S5,    /* stacks + network           */
-  NTP_S6,       /* transport (target)         */
-  NTP_S7_S9,    /* block layer + device       */
+  NTP_S1 = 0,   /* host block layer            */
+  NTP_S2,       /* host driver                 */
+  NTP_S3_S5,    /* network (and receive paths) */
+  NTP_S6,       /* target driver               */
+  NTP_S7_S9,    /* storage: target block layer + drive */
   NTP_STAGE_NR,
 };
 
-extern const char* const ntp_stage_names[NTP_STAGE_NR];
+/* host_block_layer, host_driver, network, target_driver, storage */
+extern const char* const ntp_stage_keys[NTP_STAGE_NR];
 
 struct ntp_breakdown {
   enum ntp_io_class io_class;

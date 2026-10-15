@@ -138,11 +138,14 @@ static void print_minor(FILE* f, const struct ntp_stats* s, const size_t* idx,
  * the end-to-end latency.
  */
 struct srow {
-  const char* stage;
-  char desc[48];
+  const char* key; /* which stage: compared between runs */
+  char desc[48];   /* what users read */
   struct i64vec* v;
   struct ntp_summary m;
 };
+
+/* Width of a stage name in the stage, compare and component tables. */
+#define NAME_W 38
 
 static bool group_joined(const struct ntp_group* g) {
   return g->stage[NTP_S3_S5].n && 2 * g->stage[NTP_S3_S5].n >= g->comp[NTP_C_E2E].n;
@@ -156,34 +159,34 @@ static int stage_rows(struct ntp_group* g, bool joined, struct srow* rows) {
   const char* tgt_tr = g->spdk_target ? "SPDK" : rdma ? "nvmet-rdma" : "nvmet-tcp";
   int n = 0;
 
-  /* SPDK has no block layer: S1 is empty */
+  /* SPDK has no block layer: the host block layer is empty */
   if (!g->spdk_host) {
-    rows[n].stage = "S1";
-    snprintf(rows[n].desc, sizeof(rows[n].desc), "initiator block layer (blk-mq)");
+    rows[n].key = ntp_stage_keys[NTP_S1];
+    snprintf(rows[n].desc, sizeof(rows[n].desc), "host block layer");
     rows[n++].v = &g->stage[NTP_S1];
   }
-  rows[n].stage = "S2";
-  snprintf(rows[n].desc, sizeof(rows[n].desc), "initiator transport (%s)", host_tr);
+  rows[n].key = ntp_stage_keys[NTP_S2];
+  snprintf(rows[n].desc, sizeof(rows[n].desc), "host driver (%s)", host_tr);
   rows[n++].v = &g->stage[NTP_S2];
 
   if (joined) {
-    rows[n].stage = "S3-S5";
+    rows[n].key = ntp_stage_keys[NTP_S3_S5];
     snprintf(rows[n].desc, sizeof(rows[n].desc), "%s",
-             rdma ? "network and RDMA receive paths" : "network and TCP/IP stacks");
+             rdma ? "network (RDMA, NICs, wire)" : "network (TCP/IP, NICs, wire)");
     rows[n++].v = &g->stage[NTP_S3_S5];
-    rows[n].stage = "S6";
-    snprintf(rows[n].desc, sizeof(rows[n].desc), "target transport (%s)", tgt_tr);
+    rows[n].key = ntp_stage_keys[NTP_S6];
+    snprintf(rows[n].desc, sizeof(rows[n].desc), "target driver (%s)", tgt_tr);
     rows[n++].v = &g->stage[NTP_S6];
-    rows[n].stage = "S7-S9";
+    rows[n].key = ntp_stage_keys[NTP_S7_S9];
     snprintf(rows[n].desc, sizeof(rows[n].desc), "%s",
-             g->spdk_target ? "target bdev layer and device"
-                            : "target block layer and device");
+             g->spdk_target ? "storage (SPDK bdev, drive)"
+                            : "storage (target block layer, drive)");
     rows[n++].v = &g->stage[NTP_S7_S9];
   } else {
-    rows[n].stage = "S3(C)";
-    snprintf(rows[n].desc, sizeof(rows[n].desc), "initiator receive path");
+    rows[n].key = "host_receive";
+    snprintf(rows[n].desc, sizeof(rows[n].desc), "host receive path");
     rows[n++].v = &g->comp[NTP_C_HOST_RX];
-    rows[n].stage = "S3-S9";
+    rows[n].key = "network_and_target";
     snprintf(rows[n].desc, sizeof(rows[n].desc),
              "network and target (not recorded)");
     rows[n++].v = &g->comp[NTP_C_REMOTE];
@@ -228,16 +231,14 @@ static void print_stages(FILE* f, struct ntp_group* g, double rate,
   int n = stage_rows(g, group_joined(g), rows), top = -1;
   bool inflight = o->queue_length && rate > 0;
 
-  fprintf(f, "  %-6s %-36s %8s %6s", "stage", "where the time goes", "mean us",
-          "share");
+  fprintf(f, "  %-*s %8s %6s", NAME_W, "stage", "mean us", "share");
   if (inflight) fprintf(f, " %8s", "avg QD");
   fputc('\n', f);
   for (int i = 0; i < n; i++) {
     double pct = share(rows[i].m.mean, e2e->mean);
 
     if (!rows[i].m.n) continue;
-    fprintf(f, "  %-6s %-36s %8.2f %5.0f%%", rows[i].stage, rows[i].desc,
-            us(rows[i].m.mean), pct);
+    fprintf(f, "  %-*s %8.2f %5.0f%%", NAME_W, rows[i].desc, us(rows[i].m.mean), pct);
     if (inflight) fprintf(f, " %8.2f", rate * rows[i].m.mean / 1e9);
     fputs("  ", f);
     bar(f, pct);
@@ -245,8 +246,8 @@ static void print_stages(FILE* f, struct ntp_group* g, double rate,
     if (top < 0 || rows[i].m.mean > rows[top].m.mean) top = i;
   }
   if (top >= 0 && n > 1)
-    fprintf(f, "  largest: %s, %s, %.0f %% of the latency\n", rows[top].stage,
-            rows[top].desc, share(rows[top].m.mean, e2e->mean));
+    fprintf(f, "  largest: %s, %.0f %% of the latency\n", rows[top].desc,
+            share(rows[top].m.mean, e2e->mean));
 }
 
 static void print_queues(FILE* f, struct ntp_group* g) {
@@ -283,7 +284,7 @@ static int columns(const struct ntp_report_opts* o, int* idx) {
 static void print_header(FILE* f, const struct ntp_report_opts* o) {
   int q[NTP_NQ], nq = columns(o, q);
 
-  fprintf(f, "  %-36s %-11s %8s %9s %7s", "component", "stage", "n", "mean", "L");
+  fprintf(f, "  %-*s %8s %9s %7s", NAME_W, "component", "n", "mean", "L");
   if (o->aggr == NTP_AGG_MIN) fprintf(f, " %9s", "min");
   for (int i = 0; i < nq; i++) fprintf(f, " %9s", ntp_quantile_names[q[i]]);
   if (o->aggr == NTP_AGG_MAX) fprintf(f, " %9s", "max");
@@ -292,12 +293,12 @@ static void print_header(FILE* f, const struct ntp_report_opts* o) {
 
 /* @rate: commands per second, for L = rate x mean (Little's law); 0: none */
 static void print_row(FILE* f, const char* label, int indent,
-                      const char* stage, const struct ntp_summary* m,
-                      double rate, const struct ntp_report_opts* o) {
+                      const struct ntp_summary* m, double rate,
+                      const struct ntp_report_opts* o) {
   int q[NTP_NQ], nq = columns(o, q);
 
-  fprintf(f, "  %*s%-*s %-11s %8zu %9.2f", indent, "", 36 - indent, label,
-          stage, m->n, us(m->mean));
+  fprintf(f, "  %*s%-*s %8zu %9.2f", indent, "", NAME_W - indent, label, m->n,
+          us(m->mean));
   if (rate > 0)
     fprintf(f, " %7.2f", rate * m->mean / 1e9);
   else
@@ -312,15 +313,14 @@ static void print_components(FILE* f, struct ntp_group* g, double rate,
                              const struct ntp_report_opts* o) {
   struct ntp_summary m;
 
-  fprintf(f, "  components (L: commands in the component, by Little's law)\n");
+  fprintf(f, "  components, in path order (L: commands in each, by Little's law)\n");
   print_header(f, o);
   for (size_t i = 0; i < ARRAY_SIZE(display); i++) {
     enum ntp_comp c = display[i].comp;
 
     ntp_summarize(&g->comp[c], &m);
     if (!m.n) continue;
-    print_row(f, ntp_comps[c].desc, display[i].indent, ntp_comps[c].stage, &m,
-              rate, o);
+    print_row(f, ntp_comps[c].desc, display[i].indent, &m, rate, o);
   }
 }
 
@@ -344,15 +344,16 @@ static void print_group(FILE* f, const struct ntp_stats* s, struct ntp_group* g,
     fprintf(f, ", %.0f %% with the target's side",
             share((double)g->joined, (double)usable));
   else
-    fprintf(f, ", initiator side only");
+    fprintf(f, ", host side only");
   fputc('\n', f);
   if (g->bad_host || g->bad_target)
-    fprintf(f, "  incomplete records left out: %llu initiator, %llu target "
+    fprintf(f, "  incomplete records left out: %llu host, %llu target "
                "(events missed; see ntprof probe)\n",
             (unsigned long long)g->bad_host, (unsigned long long)g->bad_target);
   if (g->post_estimated)
     fprintf(f, "  %llu target records lack the response's posting (a kprobe that "
-               "did not run): nvmet_req_complete's time stands in, S6(C) reads 0\n",
+               "did not run): nvmet_req_complete's time stands in, so their target "
+               "driver completion reads 0\n",
             (unsigned long long)g->post_estimated);
 
   ntp_summarize(&g->comp[NTP_C_E2E], &e2e);
@@ -386,9 +387,13 @@ void ntp_report_text(FILE* f, struct ntp_stats* s,
 
 /* ---- online intervals ---- */
 
+/* Two header lines: the machine over each share column, then the stage. */
 void ntp_report_interval_header(FILE* f) {
-  fprintf(f, "%8s  %-22s %6s %8s %9s %9s  %5s %5s %5s %5s %5s\n", "time", "group",
-          "n", "cmds/s", "mean us", "p99 us", "S1", "S2", "S3-S5", "S6", "S7-S9");
+  fprintf(f, "%8s  %-22s %6s %8s %9s %9s %-15s %7s %-15s\n", "", "", "", "",
+          "", "", "     host", "", "    target");
+  fprintf(f, "%8s  %-22s %6s %8s %9s %9s %7s %7s %7s %7s %7s\n", "time", "group",
+          "n", "cmds/s", "mean us", "p99 us", "block", "driver", "network",
+          "driver", "storage");
 }
 
 void ntp_report_interval(FILE* f, struct ntp_stats* s,
@@ -429,13 +434,13 @@ void ntp_report_interval(FILE* f, struct ntp_stats* s,
 
         ntp_summarize(&g->comp[NTP_C_HOST_RX], &rx);
         ntp_summarize(&g->comp[NTP_C_REMOTE], &rem);
-        fprintf(f, " %4.0f%%*", share(rx.mean + rem.mean, e2e.mean));
+        fprintf(f, " %5.0f%%*", share(rx.mean + rem.mean, e2e.mean));
         break;
       }
       if (m.n)
-        fprintf(f, " %4.0f%%", share(m.mean, e2e.mean));
+        fprintf(f, " %6.0f%%", share(m.mean, e2e.mean));
       else
-        fprintf(f, " %5s", "-");
+        fprintf(f, " %7s", "-");
     }
     fputc('\n', f);
   }
@@ -477,7 +482,7 @@ int ntp_report_json(const char* path, struct ntp_stats* s,
     ntp_err("cannot create %s: %s", path, strerror(errno));
     return -1;
   }
-  fprintf(f, "{\n  \"tool\": \"ntprof v2\",\n");
+  fprintf(f, "{\n  \"tool\": \"ntprof\",\n");
   if (meta) {
     fprintf(f, "  \"host\": ");
     json_str(f, meta->hostname);
@@ -517,10 +522,10 @@ int ntp_report_json(const char* path, struct ntp_stats* s,
     for (int c = 0; c < NTP_C_NR; c++) {
       ntp_summarize(&g->comp[c], &m);
       if (!m.n) continue;
-      fprintf(f, "%s\n       \"%s\": {\"stage\": \"%s\", \"occupancy\": %.3f, "
-                 "\"summary\": ",
-              first ? "" : ",", ntp_comps[c].name, ntp_comps[c].stage,
-              rate * m.mean / 1e9);
+      fprintf(f, "%s\n       \"%s\": {\"stage\": \"%s\", \"description\": ",
+              first ? "" : ",", ntp_comps[c].name, ntp_comps[c].stage);
+      json_str(f, ntp_comps[c].desc);
+      fprintf(f, ", \"occupancy\": %.3f, \"summary\": ", rate * m.mean / 1e9);
       json_summary(f, &m);
       fputc('}', f);
       first = false;
@@ -530,7 +535,7 @@ int ntp_report_json(const char* path, struct ntp_stats* s,
     for (int st = 0; st < NTP_STAGE_NR; st++) {
       ntp_summarize(&g->stage[st], &m);
       if (!m.n) continue;
-      fprintf(f, "%s\n       \"%s\": ", first ? "" : ",", ntp_stage_names[st]);
+      fprintf(f, "%s\n       \"%s\": ", first ? "" : ",", ntp_stage_keys[st]);
       json_summary(f, &m);
       first = false;
     }
@@ -563,16 +568,16 @@ static struct ntp_group* find_group(struct ntp_stats* s,
 }
 
 /* One row; returns the LAD, or 0 when either side is missing or too small. */
-static double lad_row(FILE* f, const char* stage, const char* desc, int indent,
-                      struct i64vec* bv, struct i64vec* lv) {
+static double lad_row(FILE* f, const char* desc, int indent, struct i64vec* bv,
+                      struct i64vec* lv) {
   struct ntp_summary b, l;
   double lad = 0;
 
   ntp_summarize(bv, &b);
   ntp_summarize(lv, &l);
   if (!b.n || !l.n) return 0;
-  fprintf(f, "  %-10s %*s%-*s %9.2f %9.2f", stage, indent, "", 36 - indent, desc,
-          us(b.mean), us(l.mean));
+  fprintf(f, "  %*s%-*s %9.2f %9.2f", indent, "", NAME_W - indent, desc, us(b.mean),
+          us(l.mean));
   if (b.mean >= LAD_MIN_BASE_NS) {
     lad = l.mean / b.mean;
     fprintf(f, " %7.2f\n", lad);
@@ -594,31 +599,27 @@ static void compare_group(FILE* f, struct ntp_group* bg, struct ntp_group* lg,
   ntp_group_label(&lg->key, label, sizeof(label));
   fprintf(f, "\n== %s: baseline %llu commands sampled, loaded %llu\n", label,
           (unsigned long long)bg->records, (unsigned long long)lg->records);
-  fprintf(f, "  %-10s %-36s %9s %9s %7s\n", "stage", "where the time goes",
-          "base us", "load us", "LAD");
+  fprintf(f, "  %-*s %9s %9s %7s\n", NAME_W, "stage", "base us", "load us", "LAD");
   for (int i = 0; i < nb && i < nl; i++) {
     double lad;
 
-    if (strcmp(br[i].stage, lr[i].stage)) continue;
-    lad = lad_row(f, lr[i].stage, lr[i].desc, 0, br[i].v, lr[i].v);
+    if (strcmp(br[i].key, lr[i].key)) continue;
+    lad = lad_row(f, lr[i].desc, 0, br[i].v, lr[i].v);
     if (lad > best) {
       best = lad;
       best_row = &lr[i];
     }
   }
-  lad_row(f, ntp_comps[NTP_C_E2E].stage, ntp_comps[NTP_C_E2E].desc, 0,
-          &bg->comp[NTP_C_E2E], &lg->comp[NTP_C_E2E]);
-  if (best_row)
-    fprintf(f, "  largest LAD: %s, %s, %.2f\n", best_row->stage, best_row->desc,
-            best);
+  lad_row(f, ntp_comps[NTP_C_E2E].desc, 0, &bg->comp[NTP_C_E2E],
+          &lg->comp[NTP_C_E2E]);
+  if (best_row) fprintf(f, "  largest LAD: %s, %.2f\n", best_row->desc, best);
   if (!o->detail) return;
   fprintf(f, "  components\n");
   for (size_t d = 0; d < ARRAY_SIZE(display); d++) {
     enum ntp_comp c = display[d].comp;
 
     if (c == NTP_C_E2E) continue;
-    lad_row(f, ntp_comps[c].stage, ntp_comps[c].desc, display[d].indent,
-            &bg->comp[c], &lg->comp[c]);
+    lad_row(f, ntp_comps[c].desc, display[d].indent, &bg->comp[c], &lg->comp[c]);
   }
 }
 

@@ -169,14 +169,14 @@ static void print_counters(struct ntp_loader* l, const struct session* s) {
   }
   printf("\nrecords:");
   if (c->role & NTP_ROLE_HOST)
-    printf(" %llu initiator", (unsigned long long)s->host_records);
+    printf(" %llu host", (unsigned long long)s->host_records);
   if (c->role & NTP_ROLE_TARGET)
     printf("%s %llu target", c->role & NTP_ROLE_HOST ? "," : "",
            (unsigned long long)s->target_records);
   if (s->joiner) {
     const struct ntp_join_stats* js = ntp_joiner_stats(s->joiner);
 
-    printf("; %llu matched (%.0f %% of the initiator's)",
+    printf("; %llu matched (%.0f %% of the host's)",
            (unsigned long long)js->matched,
            s->host_records ? 100.0 * js->matched / s->host_records : 0.0);
   }
@@ -277,7 +277,7 @@ static int record(const struct ntp_config* c, int done_fd) {
   tell_parent(done_fd, (const unsigned char[]){MSG_ATTACHED}, 1);
   if (c->role == NTP_ROLE_TARGET && !c->output[0])
     ntp_warn("a target's records are only reported joined with the "
-             "initiator's: save them with -o FILE");
+             "host's: save them with -o FILE");
 
   interval_ns = (uint64_t)c->interval_s * 1000000000ull;
   start = prev_tick = now_mono_ns();
@@ -331,7 +331,7 @@ static int record(const struct ntp_config* c, int done_fd) {
                  c->interval_s,
                  c->role & NTP_ROLE_TARGET
                      ? ""
-                     : "\n(*: S3 to S9, the target's side is not recorded)");
+                     : "\n(*: network and target together; the target's side is not recorded)");
           ntp_report_interval_header(stdout);
           header = true;
         }
@@ -367,7 +367,7 @@ static int record(const struct ntp_config* c, int done_fd) {
   }
   print_counters(l, &s);
   if (c->role == NTP_ROLE_TARGET && c->output[0])
-    printf("report: ntprof report HOST.ntp %s (the initiator's recording, "
+    printf("report: ntprof report HOST.ntp %s (the host's recording, "
            "same -s)\n",
            c->output);
   ret = close_writer(&s, ret, true);
