@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# A tour of ntprof v2 with SPDK on one Linux machine, without SSD or NIC: SPDK's
+# A tour of ntprof with SPDK on one Linux machine, without SSD or NIC: SPDK's
 # NVMe/TCP target (nvmf_tgt) exporting a null bdev on 127.0.0.1
-# (tests/spdk-target.sh); SPDK's initiator (spdk_nvme_perf) and the kernel's
+# (tests/spdk-target.sh); SPDK's host (spdk_nvme_perf) and the kernel's
 # (nvme-tcp with fio) as workloads.
 #
 #   tests/demo-spdk.sh         run all steps
 #   tests/demo-spdk.sh 2       run one step
-#   tests/demo-spdk.sh down    stop the target, disconnect the kernel initiator
+#   tests/demo-spdk.sh down    stop the target, disconnect the kernel host
 #
-#   1. SPDK initiator -> SPDK target: where a 4 KiB read spends its time,
+#   1. SPDK host -> SPDK target: where a 4 KiB read spends its time,
 #      against the latency spdk_nvme_perf measures itself
 #   2. a slow device: 50 us added in front of the target's bdev shows up in
-#      S7-S9 (ntprof compare)
-#   3. kernel initiator -> SPDK target, profiled together
+#      storage (ntprof compare)
+#   3. kernel host -> SPDK target, profiled together
 #
 # Needs: a built ./ntprof (make); SPDK v26.05 built with ebpf/spdk's patch and
 # --with-usdt in $SPDK (default ~/spdk); hugepages (tests/spdk-target.sh reserves
@@ -77,10 +77,10 @@ record_base() {
 }
 
 step1() {
-    say "1. SPDK initiator -> SPDK target: where a 4 KiB read spends its time"
+    say "1. SPDK host -> SPDK target: where a 4 KiB read spends its time"
     echo "   SPDK runs NVMe/TCP in user space, where kernel hooks see nothing. The patched SPDK"
     echo "   timestamps the commands ntprof samples and hands the times over in one USDT probe per"
-    echo "   command and side; ntprof is told the two binaries. SPDK has no block layer: no S1."
+    echo "   command and side; ntprof is told the two binaries. SPDK has no block layer: no host block layer row."
     record_base
     echo "spdk_nvme_perf's own mean latency: $(perf_mean base) us"
 }
@@ -88,7 +88,7 @@ step1() {
 step2() {
     say "2. A slow device: 50 us added in front of the target's bdev"
     echo "   The same workload with a delay bdev between the target and its null bdev. ntprof"
-    echo "   compare puts the two runs side by side; the delay belongs in S7-S9."
+    echo "   compare puts the two runs side by side; the delay belongs in storage."
     [[ -f $OUT/base.ntp ]] || record_base
     target down
     target up 50
@@ -101,9 +101,9 @@ step2() {
 }
 
 step3() {
-    say "3. Kernel initiator -> SPDK target"
+    say "3. Kernel host -> SPDK target"
     echo "   The kernel's nvme-tcp connects to the SPDK target; ntprof profiles the kernel"
-    echo "   initiator with its kernel hooks and the target with SPDK's probes."
+    echo "   host with its kernel hooks and the target with SPDK's probes."
     target up 0
     sudo modprobe nvme-tcp
     run sudo nvme connect -t tcp -a 127.0.0.1 -s 4421 -n "$NQN"

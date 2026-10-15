@@ -1,40 +1,40 @@
-# ntprof v2 design
+# ntprof design
 
-ntprof v2 measures the same thing as the NSDI'25 ntprof (v1, `src/` and
+ntprof measures what the NSDI'25 paper's implementation measured (`src/` and
 `kernel_patches/` in this repository): the latency of each NVMe-over-Fabrics
-I/O, split into the stages of the path from the initiator's block layer to the
-target's device and back (S1-S9 in the paper's Figure 4). v1 did it with 23
+I/O, split into the stages of its path from the host's block layer to the
+target's drive and back. The paper's implementation did it with 23
 tracepoints patched into `nvme-tcp` / `nvmet-tcp`, a patched `blk-core.c` and
-two kernel modules. v2 does it with eBPF on unmodified kernels, for NVMe/TCP
-and NVMe/RDMA, and on SPDK's user-space NVMe/TCP through USDT probes
+two kernel modules. ntprof does it with eBPF on unmodified kernels, for
+NVMe/TCP and NVMe/RDMA, and on SPDK's user-space NVMe/TCP through USDT probes
 (section 8).
 
-## 1. What changed from v1, and why
+## 1. What changed from the paper's implementation, and why
 
-| | v1 | v2 |
+| | the paper's implementation | ntprof |
 |---|---|---|
 | Instrumentation | tracepoints added to `drivers/nvme/{host,target}/tcp.c` | stock tracepoints, raw tracepoints, fentry/fexit or kprobes |
-| Kernel | patched 5.15, rebuilt and rebooted | any kernel with BPF; tested on 6.8 (Ubuntu) and 6.11 |
+| Kernel | patched 5.15, rebuilt and rebooted | any kernel with BPF; tested on 5.15 (MLNX OFED), 6.8 and 6.11 |
 | `block_rq_complete` | needed `EXPORT_TRACEPOINT_SYMBOL` in `blk-core.c` | raw tracepoints need no export |
 | Target -> host timestamps | `struct ntprof_stat` appended to every PDU (wire format changed) | joined in user space; the wire is untouched |
 | Sampling decision host -> target | `stat.tag` bit in the command PDU | both sides hash (cid, slba, nlb) |
 | Analysis | in the kernel module (`analyzer.c`) | in user space, online or from record files |
 | Output | text in the terminal | text, JSON, raw records (CSV via `dump`), LAD between runs |
-| Transports | NVMe/TCP | NVMe/TCP, NVMe/RDMA; SPDK NVMe/TCP (initiator and target) |
+| Transports | NVMe/TCP | NVMe/TCP, NVMe/RDMA; SPDK NVMe/TCP (host and target) |
 
 ## 2. Hooks
 
 A hook is used only where the kernel already has an attach point: a
-tracepoint, or a function the compiler kept out of line. The functions v1
-instrumented are mostly `static` and often inlined (on 6.11 `nvme_tcp_queue_request`,
+tracepoint, or a function the compiler kept out of line. The functions the paper's
+implementation instrumented are mostly `static` and often inlined (on 6.11 `nvme_tcp_queue_request`,
 `nvme_tcp_done_send_req`, `nvme_tcp_handle_c2h_data`, `nvme_tcp_handle_r2t`,
-`nvme_tcp_process_nvme_cqe` and all of `nvmet-tcp`'s send functions are), so v2
+`nvme_tcp_process_nvme_cqe` and all of `nvmet-tcp`'s send functions are), so ntprof
 watches the functions around them, or exported kernel functions they call,
 and tells the NVMe/TCP calls apart with a per-thread context.
 
-### Initiator (`bpf/nvme_tcp_host.bpf.c`)
+### Host (`bpf/nvme_tcp_host.bpf.c`)
 
-| v1 event (tracepoint position) | v2 hook | v2 event |
+| the paper's tracepoint (position) | hook | event |
 |---|---|---|
 | BLK_SUBMIT (`rq->start_time_ns`) | same field, read at `nvme_setup_cmd` | `NTP_H_START` |
 | NVME_TCP_QUEUE_RQ (after `blk_mq_start_request`) | `raw_tp/nvme_setup_cmd` (cid, opcode, LBA), inside `nvme_tcp_queue_rq`; the entry of `nvme_tcp_queue_rq` itself only with `--exact-queues` | `NTP_H_QUEUE_RQ` |
@@ -50,7 +50,7 @@ and tells the NVMe/TCP calls apart with a per-thread context.
 
 ### Target (`bpf/nvme_tcp_target.bpf.c`)
 
-| v1 event | v2 hook | v2 event |
+| the paper's tracepoint | hook | event |
 |---|---|---|
 | NVMET_TCP_TRY_RECV_PDU (`SO_TIMESTAMP` of `kernel_recvmsg`) | `skb->tstamp` of the last skb this thread copied (`skb_copy_datagram_iter`) from the command's queue socket | `NTP_T_CMD_ARR` |
 | NVMET_TCP_DONE_RECV_PDU (inlined) | `raw_tp/nvmet_req_init` | `NTP_T_CMD_PROC` |
@@ -69,11 +69,11 @@ OFED's backport for 5.15, both drivers send with `kernel_sendpage()`, which
 does not go through `sock_sendmsg()`; the target hooks both (a send takes
 one path or the other). The OFED `nvme-tcp` on 5.15 inlines all three
 `try_send` functions into `nvme_tcp_try_send()`, which stays out of line: the
-loader then attaches the fallback in the initiator table instead, and only
+loader then attaches the fallback in the host table instead, and only
 then, since `kernel_sendpage()` and `sock_sendmsg()` run for every socket.
 
 Telling NVMe/TCP apart without a hook on its entry points: `nvme_setup_cmd`
-and `nvmet_req_init` run for every NVMe transport. The initiator follows a
+and `nvmet_req_init` run for every NVMe transport. The host follows a
 request's driver PDU to its queue and the target follows the `nvmet_sq` to
 the queue that embeds it. Either way, the command is NVMe/TCP's when the
 queue's socket has `sk_user_data` pointing back to that queue. Both drivers
@@ -84,18 +84,18 @@ command is in flight.
 
 ### NVMe/RDMA (`bpf/nvme_rdma_host.bpf.c`, `bpf/nvme_rdma_target.bpf.c`)
 
-v1 had no RDMA support; the events keep the TCP names where the meaning
+The paper's implementation had no RDMA support; the events keep the TCP names where the meaning
 carries over ("sent" = posted to the queue pair). The block-layer and
 nvme-core hooks are the same as for TCP (`bpf/host.bpf.h`,
 `bpf/target.bpf.h`).
 
-| Side | v2 hook | v2 event |
+| Side | hook | event |
 |---|---|---|
-| initiator | entry of `nvme_rdma_queue_rq` | `NTP_H_QUEUE_RQ` |
-| initiator | `nvme_rdma_post_send` returning 0 | `NTP_H_CMD_SENT` |
-| initiator | `nvme_rdma_send_done` | `NTP_H_SEND_DONE` |
-| initiator | `nvme_rdma_recv_done` (the response's CQE; cid from the CQE) | `NTP_H_RSP_ARR` |
-| initiator | `blk_mq_complete_request_remote` in a completion handler | `NTP_H_RSP_PROC` |
+| host | entry of `nvme_rdma_queue_rq` | `NTP_H_QUEUE_RQ` |
+| host | `nvme_rdma_post_send` returning 0 | `NTP_H_CMD_SENT` |
+| host | `nvme_rdma_send_done` | `NTP_H_SEND_DONE` |
+| host | `nvme_rdma_recv_done` (the response's CQE; cid from the CQE) | `NTP_H_RSP_ARR` |
+| host | `blk_mq_complete_request_remote` in a completion handler | `NTP_H_RSP_PROC` |
 | target | `nvmet_rdma_recv_done` (the command's CQE) | `NTP_T_CMD_ARR` |
 | target | `nvmet_rdma_execute_command` for a write whose data is not inline | `NTP_T_R2T_SENT` (RDMA READ posted), flag `RDMA_READ` |
 | target | `nvmet_rdma_read_data_done` | `NTP_T_DATA_ARR`, `NTP_T_DATA_PROC` |
@@ -182,7 +182,7 @@ queue depth 1 a (queue, cid) pair recurs every 16 commands.
 
 **Sampling.** A command is sampled when `hash(cid, slba, nlb) % N == 0`. Both
 sides compute the same hash, so they sample the same commands without the tag
-v1 carried in the PDU.
+the paper's implementation carried in the PDU.
 
 **Order.** Within one process (`--role both`) the host and target programs
 share one ring buffer, so a command's target record (emitted when its response
@@ -213,28 +213,37 @@ handing its PDU to TCP until the target's answer reaches its network stack;
 the target is busy from the arrival of the host's PDU until its answer is
 handed to TCP. The **network** share of the round trip is the host's wait minus
 the target's residence: wire, NICs and the TCP/IP work neither side's
-transport sees (v1, `src/host/breakdown.c`). Over loopback it is about 0 and
+transport sees (as in the paper's implementation, `src/host/breakdown.c`). Over loopback it is about 0 and
 can be slightly negative (the target may see a packet before the host's
 `sendmsg` returns).
 
-| Component | Stage | Read | Write, data in the capsule | Write, data after R2T |
-|---|---|---|---|---|
-| blk-mq submission | S1(S) | H_QUEUE_RQ - H_START | same | same |
-| initiator transport submission | S2(S) | H_CMD_SENT - H_QUEUE_RQ | same | + (H_DATA_START - H_R2T_PROC) |
-| network | S3-S5 | (H_C2H_ARR - H_CMD_SENT) - (T_C2H_SENT - T_CMD_ARR) | (H_RSP_ARR - H_CMD_SENT) - (T_RSP_SENT - T_CMD_ARR) | two round trips: (H_R2T_ARR - H_CMD_SENT) - (T_R2T_SENT - T_CMD_ARR) + (H_RSP_ARR - H_DATA_START) - (T_RSP_SENT - T_DATA_ARR) |
-| target receive stack | S5(S) | T_CMD_PROC - T_CMD_ARR | same | + (T_DATA_PROC - T_DATA_ARR) |
-| target transport submission | S6(S) | T_EXEC - T_CMD_PROC | same (includes receiving the data) | (T_R2T_SENT - T_CMD_PROC) + (T_EXEC - T_DATA_PROC) |
-| target block layer and device | S7-S9 | T_COMPLETE - T_EXEC | same | same |
-| target transport completion | S6(C) | T_C2H_SENT - T_COMPLETE | T_RSP_SENT - T_COMPLETE | same |
-| initiator receive stack | S3(C) | H_C2H_PROC - H_C2H_ARR | H_RSP_PROC - H_RSP_ARR | + (H_R2T_PROC - H_R2T_ARR) |
-| initiator transport completion | S2(C) | H_RSP_PROC - H_C2H_PROC | 0 | 0 |
-| blk-mq completion | S1(C) | H_BLK_DONE - H_RSP_PROC | same | same |
+| Component, as reported | Read | Write, data in the capsule | Write, data after R2T |
+|---|---|---|---|
+| host block layer, submission | H_QUEUE_RQ - H_START | same | same |
+| host driver, submission | H_CMD_SENT - H_QUEUE_RQ | same | + (H_DATA_START - H_R2T_PROC) |
+| network: wire and NICs (computed) | (H_C2H_ARR - H_CMD_SENT) - (T_C2H_SENT - T_CMD_ARR) | (H_RSP_ARR - H_CMD_SENT) - (T_RSP_SENT - T_CMD_ARR) | two round trips: (H_R2T_ARR - H_CMD_SENT) - (T_R2T_SENT - T_CMD_ARR) + (H_RSP_ARR - H_DATA_START) - (T_RSP_SENT - T_DATA_ARR) |
+| network: target receive path | T_CMD_PROC - T_CMD_ARR | same | + (T_DATA_PROC - T_DATA_ARR) |
+| target driver, submission | T_EXEC - T_CMD_PROC | same (includes receiving the data) | (T_R2T_SENT - T_CMD_PROC) + (T_EXEC - T_DATA_PROC) |
+| storage: target block layer and drive | T_COMPLETE - T_EXEC | same | same |
+| target driver, completion | T_C2H_SENT - T_COMPLETE | T_RSP_SENT - T_COMPLETE | same |
+| network: host receive path | H_C2H_PROC - H_C2H_ARR | H_RSP_PROC - H_RSP_ARR | + (H_R2T_PROC - H_R2T_ARR) |
+| host driver, completion | H_RSP_PROC - H_C2H_PROC | 0 | 0 |
+| host block layer, completion | H_BLK_DONE - H_RSP_PROC | same | same |
 
 The components add up to the end-to-end latency H_BLK_DONE - H_START exactly
-(tested in `tests/test_model.c`). Details split a component further: the
-target's block layer and device (S7(S), S8-S9, S7(C), bdev backend only), and
-the completion IPI (`nvme_complete_rq` - CQE parsed). The stage totals S1,
-S2, S3-S5, S6, S7-S9 are what LAD is computed on.
+(tested in `tests/test_model.c`). Details split a component further: storage
+into the target's block layer and the drive (bdev back end only), and the
+host block layer's completion into the handoff to `nvme_complete_rq` (the CQE
+parsed, then the completion IPI). The five stages are sums of components, and
+they are what LAD is computed on:
+
+| Stage | Components | The paper's name |
+|---|---|---|
+| host block layer | both host block layer components | S1 |
+| host driver | both host driver components | S2 |
+| network | the computed part and both receive paths | S3-S5 |
+| target driver | both target driver components | S6 |
+| storage | target block layer and drive | S7-S9 (the drive alone: S8-S9) |
 
 For a write after R2T the second round trip starts when the host *starts*
 sending the data: the target receives the data while the host is still
@@ -243,37 +252,37 @@ residence and cancels out of the network share.
 
 Without a target record (host only, or a target record that misses events)
 the network and target components are reported together as "network and
-target (no target record)", S3-S9.
+target (no target record)".
 
 **NVMe/RDMA.** The host CPU sees one round trip: the command posted, the
 response's CQE polled; the target moves the data by RDMA WRITE (reads) or
 RDMA READ (writes) without the host CPU. So the host's wait is H_RSP_ARR -
-H_CMD_SENT, its receive stack H_RSP_PROC - H_RSP_ARR, and S2(C) is 0. On the
+H_CMD_SENT, its receive path H_RSP_PROC - H_RSP_ARR, and the host driver's completion is 0. On the
 target, a write's RDMA READ (T_DATA_PROC - T_R2T_SENT) is wire and remote-NIC
 time seen from the target: it counts as network, not as target residence.
-S6(S) is then (T_R2T_SENT - T_CMD_PROC) + (T_EXEC - T_DATA_PROC). When the
+The target driver's submission is then (T_R2T_SENT - T_CMD_PROC) + (T_EXEC - T_DATA_PROC). When the
 posting (T_RSP_SENT) was not seen but the send completion was, T_COMPLETE
 stands in for it: the response is queued right after `nvmet_req_complete`,
-and S6(C) is under a microsecond when it is seen. A posting later than its
+and the target driver's completion is under a microsecond when it is seen. A posting later than its
 own send completion, or a drive completion later than T_COMPLETE, belongs to
 another command and is ignored.
 
-The detail component "data transfer (RDMA, at the target)", under S3-S5, is
+The detail component "data transfer (RDMA, at the target)", under the network, is
 the time the data spends crossing the network as the target sees it: a
 write's RDMA READ (T_DATA_PROC - T_R2T_SENT), and a read's RDMA WRITE with
 its response, from posting to the send completion (T_SEND_DONE -
 T_C2H_SENT). These are the spans a staged pipeline times as its NIC stage:
 an RDMA READ into host memory before a drive write, or an RDMA WRITE after a
-drive read. With S7-S9, the drive stage, one NVMe/RDMA run then shows both
-stages of each request. A read's span includes the initiator NIC's
-acknowledgement on its way back, which the initiator's wait does not, so it
-can exceed the read's share of S3-S5. A write whose data fits in the command
+drive read. With storage, the drive stage, one NVMe/RDMA run then shows both
+stages of each request. A read's span includes the host NIC's
+acknowledgement on its way back, which the host's wait does not, so it
+can exceed the read's share of the network. A write whose data fits in the command
 (inline, 4 KiB by default) has no such span.
 
 ## 5. Queue occupancy
 
-v1 had the `ENABLE_QUEUE_LENGTH` switch but did not compute queue lengths.
-v2 reports, per component, the mean number of commands in it by Little's law:
+The paper's implementation had the `ENABLE_QUEUE_LENGTH` switch but did not compute queue lengths.
+ntprof reports, per component, the mean number of commands in it by Little's law:
 L = (command rate) x (mean time in the component), the rate being the group's
 records times the sampling period over the time they span. This costs
 nothing at run time and is exact for means in steady state.
@@ -302,10 +311,10 @@ debug build of the same source (README, "Kernels without BTF"), checked by
 
 ## 7. Accuracy and its limits
 
-- **Packet arrival.** As in v1, the arrival of a PDU is the receive
+- **Packet arrival.** As in the paper's implementation, the arrival of a PDU is the receive
   timestamp of its skb (`skb->tstamp`). The kernel stamps every received
   packet (`net_timestamp_check()`, after GRO) while any socket asks for
-  receive timestamps. v1's patch enabled them; v2 holds a UDP socket with
+  receive timestamps. The paper's patch enabled them; ntprof holds a UDP socket with
   `SO_TIMESTAMPNS` open while it runs. No hook runs per packet. The stamp is
   `CLOCK_REALTIME`; ntprof converts it with the realtime-to-monotonic offset
   measured at start, so a clock step during a run (NTP, `date -s`) shifts
@@ -325,15 +334,15 @@ debug build of the same source (README, "Kernels without BTF"), checked by
   at 1 in 1000 is mostly the fixed cost of a BPF program run at each hook
   that every command passes: the sampling decision (`nvme_setup_cmd`,
   `nvmet_req_init`), the target's copy hook, which notes every skb it
-  copies, and the initiator's receive hooks, which return at once. Measured in a
-  16-vCPU guest with initiator and target together over loopback (Linux 6.8,
+  copies, and the host's receive hooks, which return at once. Measured in a
+  16-vCPU guest with host and target together over loopback (Linux 6.8,
   fentry, null_blk, 2 I/O queues, 2026-10-14): fio, 4 KB random reads at
   queue depth 1 on one CPU, mean of 3 runs of 8 s:
 
   | profiled | mean latency | added |
   |---|---|---|
   | nothing | 29.4 us | |
-  | initiator, 1 in 1000 | 30.3 us | +0.9 us |
+  | host, 1 in 1000 | 30.3 us | +0.9 us |
   | target, 1 in 1000 | 30.7 us | +1.4 us |
   | both, 1 in 1000 | 31.5 us | +2.1 us |
   | both, every command | 34.7 us | +5.3 us |
@@ -343,27 +352,30 @@ debug build of the same source (README, "Kernels without BTF"), checked by
   fentry added 2.9 us under the same conditions.
 
   When the CPUs are saturated, the per-I/O cost shows as lost throughput,
-  and the sampling rate barely changes it. Same guest, with the initiator
+  and the sampling rate barely changes it. Same guest, with the host
   and the target sharing CPUs 4-7: fio, 4 KB random reads, 4 jobs x iodepth
   8, 3 runs of 12 s, 1 in 1000:
 
   | profiled | throughput | change |
   |---|---|---|
   | nothing | 145 kIOPS | |
-  | initiator | 138 kIOPS | -5.0 % |
+  | host | 138 kIOPS | -5.0 % |
   | target | 133 kIOPS | -8.6 % |
   | both | 126 kIOPS | -12.9 % |
   | both, `--kprobes` | 112 kIOPS | -22.7 % |
 
-  On two machines, each pays only its own side. A guest pays more per BPF
-  program run than bare metal does; these numbers have not been measured
-  on bare metal yet. For SPDK -> SPDK, measured before the cuts: 16.6 us,
+  On two machines, each pays only its own side. On two servers (Linux 5.15
+  with MLNX OFED, ConnectX-7 400 GbE, a PM9A3 behind the kernel target, the
+  host on fentry and the target on kprobes, 2026-10-15), both sides at 1 in
+  1000 added 1.3 us to a 86.8 us NVMe/TCP read at queue depth 1 and 0.8 us to
+  a 75.1 us NVMe/RDMA read, and cost 5.5 % (TCP) and 2.1 % (RDMA) of the
+  IOPS of 4 jobs x queue depth 32. For SPDK -> SPDK, measured before the cuts: 16.6 us,
   +1.3 us at 1 in 1000, +4.2 us with every command (section 8). At queue
   depth 32, SPDK kept 97 % of its IOPS at 1 in 1000.
 
 ## 8. SPDK
 
-SPDK's NVMe/TCP initiator (`lib/nvme/nvme_tcp.c`) and target
+SPDK's NVMe/TCP host (`lib/nvme/nvme_tcp.c`) and target
 (`lib/nvmf/tcp.c`) run in user space over kernel TCP sockets.
 `spdk/ntprof-usdt-v26.05.patch` (about 110 lines in six files, and the
 header `include/spdk_internal/ntprof.h`) lets ntprof see them.
@@ -383,7 +395,7 @@ times.
 
 | Event | Where in SPDK | Record |
 |---|---|---|
-| initiator SUBMIT | `nvme_tcp_qpair_submit_request` | `NTP_H_START`, `NTP_H_QUEUE_RQ` |
+| host SUBMIT | `nvme_tcp_qpair_submit_request` | `NTP_H_START`, `NTP_H_QUEUE_RQ` |
 | CMD_SENT, H2C_SENT | socket layer: `sendmsg()` took the whole capsule / the last H2C PDU | `NTP_H_CMD_SENT`, `NTP_H_DATA_SENT` |
 | R2T, C2H, RSP | the PDU header parsed | `NTP_H_R2T_PROC`, `NTP_H_C2H_PROC`; arrivals `NTP_H_*_ARR` |
 | H2C_START | the first H2C data PDU queued | `NTP_H_DATA_START` |
@@ -418,21 +430,21 @@ processes, keep per thread two rings (`bpf/spdk.bpf.h`): the start of each
 skb, and the entries of `tcp_sendmsg()`. When the command is done, a
 PDU parsed at time t gets the arrival of the latest read started before t,
 and a target PDU taken by `sendmsg()` at time t gets the latest
-`tcp_sendmsg()` entry before t, as its "sent" time (v1's try_send_* events;
-the initiator's "sent" stays the return of `sendmsg()`, v1's done_send_req).
+`tcp_sendmsg()` entry before t, as its "sent" time (the paper implementation's try_send_* events;
+the host's "sent" stays the return of `sendmsg()`, the paper implementation's done_send_req).
 SPDK reads all queued bytes at once, so when one read carries several PDUs
 the later ones take the first skb's time, which moves at most the spread of
 that read from network time to receive-stack time. The rings are per CPU and
 tagged with the thread: SPDK's reactors are pinned; a reactor that migrated
 gets the parse time as arrival.
 
-**Mapping to the model.** SPDK has no block layer: an initiator command
+**Mapping to the model.** SPDK has no block layer: an host command
 starts at submission and ends at its completion to the application, which
 also plays the part of `blk_mq_complete_request_remote()` (`NTP_H_RSP_PROC`),
-so S1 is 0 at both ends. The target's backend (bdev layer and device) is
-S7-S9, without the block-layer split. Records carry `NTP_F_SPDK`; an
-initiator's session is named `spdk-c<cntlid>n<nsid>`. Throughput of an SPDK
-initiator is the sampled commands times the sampling period.
+so the host block layer is 0 at both ends. The target's backend (bdev layer and device) is
+storage, without the block-layer split. Records carry `NTP_F_SPDK`; an
+host's session is named `spdk-c<cntlid>n<nsid>`. Throughput of an SPDK
+host is the sampled commands times the sampling period.
 
 **Order.** The target's record comes when its request completes, which with
 zero-copy send waits for the kernel's notification; on one machine the host's
@@ -443,7 +455,7 @@ tested (the uring module calls the same `spdk_sock_request_pend()`). SPDK's
 NVMe/RDMA is not instrumented. Over loopback the receiver's stack runs inside
 the sender's `sendmsg()`, so the network share can be slightly negative
 (about -1 us for 4 KB writes); and a kernel target on the same machine runs
-its `io_work` on the CPU the packet arrived on, which is the SPDK initiator's
-polling reactor: it preempts the reactor, inflates the initiator's S2(S) and
+its `io_work` on the CPU the packet arrived on, which is the SPDK host's
+polling reactor: it preempts the reactor, inflates the host driver's submission and
 turns the network share negative by as much. Neither happens across
 machines.

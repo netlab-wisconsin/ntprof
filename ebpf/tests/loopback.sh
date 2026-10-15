@@ -10,7 +10,7 @@
 #
 # On two machines (or guests), the same pieces apart:
 #   loopback.sh tcp|rdma export [completion_ns]        on the target: null_blk exported at ADDR
-#   loopback.sh tcp|rdma connect ADDR [io_queues]      on the initiator; prints the namespace device
+#   loopback.sh tcp|rdma connect ADDR [io_queues]      on the host; prints the namespace device
 # NETDEV / ADDR name the interface and address (default: the default route's);
 # NULLB_MBPS > 0 limits null_blk's bandwidth (MB/s), a stand-in for a busy drive.
 #

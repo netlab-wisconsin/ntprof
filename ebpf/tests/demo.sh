@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# A tour of ntprof v2 on one Linux machine, without SSD or NIC: a loopback
+# A tour of ntprof on one Linux machine, without SSD or NIC: a loopback
 # NVMe/TCP namespace on null_blk (tests/loopback.sh), fio as the workload.
 #
 #   tests/demo.sh            run all steps
 #   tests/demo.sh 2          run one step (the test bed is set up and kept)
 #   tests/demo.sh down       remove the test bed
 #
-#   1. live breakdown, initiator and target profiled together
+#   1. live breakdown, host and target profiled together
 #   2. the two sides recorded separately (as on two machines), joined offline
 #   3. a bottleneck search: LAD per stage between queue depth 1 and 32
 #
@@ -60,7 +60,7 @@ setup() {
 step1() {
     say "1. Live breakdown: 4 KiB random reads at queue depth 1, both sides on this machine"
     echo "   ntprof records 1 command in 10, prints a line every 5 s and a report at the end; the"
-    echo "   target's records are joined with the initiator's as they arrive."
+    echo "   target's records are joined with the host's as they arrive."
     fio_bg live 1 30
     run sudo ./ntprof record -r both -s 10 -d 10 -i 5
     sudo kill "$FIO" 2> /dev/null || true
@@ -70,8 +70,8 @@ step1() {
 step2() {
     say "2. The two sides recorded separately, as on two machines, and joined offline"
     echo "   On real hardware the first command runs on the target host and the second on the"
-    echo "   initiator. Both use the same sampling period (-s), so they pick the same commands;"
-    echo "   start the target's recording first and let it end last, so every initiator record"
+    echo "   host. Both use the same sampling period (-s), so they pick the same commands;"
+    echo "   start the target's recording first and let it end last, so every host record"
     echo "   finds its target record."
     NTP_PIDS=()
     ntprof_bg "$OUT/target.log" -r target -s 10 -d 14 -o "$OUT/target.ntp"

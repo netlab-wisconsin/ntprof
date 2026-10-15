@@ -1,12 +1,12 @@
-# ntprof v1 (NSDI'25 artifact)
+# The NSDI '25 artifact: ntprof with kernel modules
 
 This directory is ntprof as published with the NSDI'25 paper: two kernel modules (`ntprof_host` on the
 initiator, `ntprof_target` on the target) and a user-space utility (`ntprof_cli`). It needs Linux 5.15 with
 the tracepoints of [`../kernel_patches`](../kernel_patches/README.md) compiled in, so the kernel must be
-patched, rebuilt and rebooted. The use cases in [`../use_cases`](../use_cases) were run with it.
+patched, rebuilt and rebooted. The use cases in [`use_cases`](use_cases) were run with it.
 
-For new work, use v2 in [`../ebpf`](../ebpf/README.md): it measures the same stages with eBPF on an
-unmodified kernel (no patch, no reboot, no module), adds NVMe/RDMA and SPDK, and reads v1's
+For new work, use ntprof in [`../ebpf`](../ebpf/README.md): it measures the same stages with eBPF on an
+unmodified kernel (no patch, no reboot, no module), adds NVMe/RDMA and SPDK, and reads this version's
 `ntprof_config.ini`.
 
 ## 1. Patch, build and boot the kernel (both machines)

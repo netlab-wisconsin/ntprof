@@ -9,7 +9,7 @@ SPDK v26.05:
 | `include/spdk/sock.h` | `spdk_sock_request.internal`: `ntprof` (mark) and `ntprof_sent_ns` |
 | `include/spdk_internal/sock_module.h` | record when `sendmsg()` took a marked request |
 | `lib/sock/sock.c`, `lib/sock/spdk_sock.map` | `g_ntprof_sample_every`, exported |
-| `lib/nvme/nvme_tcp.c` | initiator times; probe `nvme_tcp_done`; `nvme_tcp_req.ntprof`, `.ntprof_times` |
+| `lib/nvme/nvme_tcp.c` | host times; probe `nvme_tcp_done`; `nvme_tcp_req.ntprof`, `.ntprof_times` |
 | `lib/nvmf/tcp.c` | target times; probe `nvmf_tcp_done`; `spdk_nvmf_tcp_req.ntprof`, `.ntprof_times` |
 
 ```sh

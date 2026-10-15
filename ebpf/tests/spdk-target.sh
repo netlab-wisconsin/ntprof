@@ -13,7 +13,7 @@
 # ADDR, SVC listener (default 127.0.0.1:4421; the kernel test bed uses 4420)
 #
 # delay_us > 0 puts a delay bdev over the null bdev: every read and write
-# then spends that long in the target's backend (stage S7-S9).
+# then spends that long in the target's backend (the storage stage).
 set -euo pipefail
 
 ACTION=${1:-}
