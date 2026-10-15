@@ -251,6 +251,33 @@ static void test_rdma_read(void) {
   CHECK_EQ(ntp_breakdown(&h, NULL, &b), NTP_MODEL_OK);
   CHECK_EQ(b.comp[NTP_C_REMOTE], 1000);
   CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
+
+  /* the posting was not seen: nvmet_req_complete stands in */
+  t.ts[NTP_T_RSP_QUEUED] = t.ts[NTP_T_C2H_SENT] = t.ts[NTP_T_RSP_SENT] = 0;
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK(b.joined && b.post_estimated);
+  CHECK_EQ(b.comp[NTP_C_TGT_CMPL], 0);
+  CHECK_EQ(b.comp[NTP_C_NET], 1000 - 530);
+  CHECK_EQ(b.comp[NTP_C_NET_DATA], 430);
+  CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
+
+  /* a later command's posting and drive completion in the record: ignored */
+  t.ts[NTP_T_C2H_SENT] = t.ts[NTP_T_RSP_SENT] = 9000;
+  t.ts[NTP_T_BE_ISSUE] = 5040;
+  t.ts[NTP_T_BE_DONE] = 9000;
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK(b.post_estimated);
+  CHECK_EQ(b.comp[NTP_C_NET], 1000 - 530);
+  CHECK(!ntp_comp_valid(&b, NTP_C_TGT_DEV));
+  CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
+  t.ts[NTP_T_BE_DONE] = 5500;
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK_EQ(b.comp[NTP_C_TGT_DEV], 460);
+
+  /* nor the send completion: the command may not have finished */
+  t.ts[NTP_T_C2H_SENT] = t.ts[NTP_T_RSP_SENT] = 0;
+  t.ts[NTP_T_SEND_DONE] = 0;
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_INCOMPLETE_TARGET);
 }
 
 /* A write whose data the target fetched with RDMA READ: the fetch is network. */

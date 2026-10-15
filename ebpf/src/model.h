@@ -74,6 +74,7 @@ extern const char* const ntp_stage_names[NTP_STAGE_NR];
 struct ntp_breakdown {
   enum ntp_io_class io_class;
   bool joined;    /* a target record was used */
+  bool post_estimated; /* RDMA: the response's posting time is nvmet_req_complete's */
   uint32_t valid; /* bit i set: comp[i] holds a value */
   int64_t comp[NTP_C_NR];
   int64_t stage[NTP_STAGE_NR];

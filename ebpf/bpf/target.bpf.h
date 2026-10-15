@@ -29,7 +29,8 @@ struct tgt_entry {
 /*
  * Records by struct nvmet_req (common.bpf.h: direct-mapped tables). A
  * command's nvmet_req is reused only after its response has been sent, when
- * the record has been emitted. The bdev backend sets bio->bi_private to it.
+ * the record has normally been emitted; nvmet_req_init() emits one still open
+ * (below). The bdev backend sets bio->bi_private to it.
  */
 struct {
   __uint(type, BPF_MAP_TYPE_ARRAY);
@@ -167,6 +168,8 @@ static __always_inline void count_resp_queued(u64 req) {
 
 /* ---- command arrival ---- */
 
+static __always_inline void tgt_emit(u64 req);
+
 /* Is @req (its queue @sq) this transport's command? Defined by the transport. */
 static __always_inline bool tgt_is_ours(struct nvmet_req* req, struct nvmet_sq* sq);
 
@@ -206,6 +209,23 @@ int BPF_PROG(ntp_t_req_init, struct nvmet_req* req, void* cmd) {
     }
   }
   ntp_count(NTP_CNT_TGT_CMDS, 1);
+
+  /*
+   * The previous command on this nvmet_req is over: its response went out
+   * before the transport took the nvmet_req back. A record still open missed
+   * the event that ends it (a kprobe does not run while another BPF program
+   * runs on its CPU, and nvmet-rdma queues responses from the drive's
+   * completion interrupt). Emit what it has before this command's events,
+   * found by the same key, land in it.
+   */
+  if (ntp_inflight) {
+    struct tgt_entry* old = tgt_entry(key);
+
+    if (old) {
+      old->rec.hdr.flags |= NTP_F_REUSED;
+      tgt_emit(key);
+    }
+  }
 
   if (ntp_read_cmd(cmd, &id) || !ntp_is_rw(id.opcode)) return 0;
   if (filter.io_type != 2 && filter.io_type != (id.opcode == NTP_NVME_CMD_WRITE))

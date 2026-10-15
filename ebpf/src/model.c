@@ -122,7 +122,9 @@ static void common_host(const struct ntp_host_rec* h, struct ntp_breakdown* b) {
 
 /* The bdev backend's block request splits the target subsystem time. */
 static void backend_details(const __u64* T, struct ntp_breakdown* b) {
-  if (!T[NTP_T_BE_ISSUE] || !T[NTP_T_BE_DONE]) return;
+  /* a drive completion after nvmet_req_complete belongs to another command */
+  if (!T[NTP_T_BE_ISSUE] || !T[NTP_T_BE_DONE] || T[NTP_T_BE_DONE] > T[NTP_T_COMPLETE])
+    return;
   set(b, NTP_C_TGT_BE_SUB, d(T[NTP_T_BE_ISSUE], T[NTP_T_EXEC]));
   set(b, NTP_C_TGT_DEV, d(T[NTP_T_BE_DONE], T[NTP_T_BE_ISSUE]));
   set(b, NTP_C_TGT_BE_CMPL, d(T[NTP_T_COMPLETE], T[NTP_T_BE_DONE]));
@@ -209,7 +211,7 @@ static const int host_req_rdma[] = {NTP_H_QUEUE_RQ, NTP_H_CMD_SENT,
                                     NTP_H_RSP_ARR, NTP_H_RSP_PROC,
                                     NTP_H_BLK_DONE};
 static const int tgt_req_rdma[] = {NTP_T_CMD_ARR, NTP_T_CMD_PROC, NTP_T_EXEC,
-                                   NTP_T_COMPLETE, NTP_T_RSP_SENT};
+                                   NTP_T_COMPLETE};
 
 static void rdma_host_side(const struct ntp_host_rec* h, struct ntp_breakdown* b) {
   const __u64* H = h->ts;
@@ -221,13 +223,30 @@ static void rdma_host_side(const struct ntp_host_rec* h, struct ntp_breakdown* b
 }
 
 static bool rdma_target_side(const struct ntp_tgt_rec* t, struct ntp_breakdown* b) {
-  const __u64* T = t->ts;
+  __u64 T[NTP_T_NR];
   bool fetch = t->hdr.flags & NTP_F_RDMA_READ;
   int64_t fetch_ns = 0, residence;
 
+  memcpy(T, t->ts, sizeof(T));
   if (!have_all(T, tgt_req_rdma, ARRAY_SIZE(tgt_req_rdma)) ||
       (fetch && (!T[NTP_T_R2T_SENT] || !T[NTP_T_DATA_PROC])))
     return false;
+  /* a posting after its own send completion was another command's */
+  if (T[NTP_T_SEND_DONE] && T[NTP_T_RSP_SENT] > T[NTP_T_SEND_DONE])
+    T[NTP_T_RSP_SENT] = T[NTP_T_C2H_SENT] = 0;
+  if (!T[NTP_T_RSP_SENT]) {
+    /*
+     * The posting of the response (nvmet_rdma_queue_response()) was not seen,
+     * but the command finished: its send completion was. The response is
+     * queued right after nvmet_req_complete(), so that time stands in for the
+     * posting; the target transport completion then reads 0 (it is under a
+     * microsecond when seen).
+     */
+    if (!T[NTP_T_SEND_DONE]) return false;
+    T[NTP_T_RSP_SENT] = T[NTP_T_COMPLETE];
+    if (!(t->hdr.flags & NTP_F_WRITE)) T[NTP_T_C2H_SENT] = T[NTP_T_COMPLETE];
+    b->post_estimated = true;
+  }
   set(b, NTP_C_TGT_RX, d(T[NTP_T_CMD_PROC], T[NTP_T_CMD_ARR]));
   if (fetch) {
     fetch_ns = d(T[NTP_T_DATA_PROC], T[NTP_T_R2T_SENT]);

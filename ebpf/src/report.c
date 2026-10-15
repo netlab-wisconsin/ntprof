@@ -350,6 +350,10 @@ static void print_group(FILE* f, const struct ntp_stats* s, struct ntp_group* g,
     fprintf(f, "  incomplete records left out: %llu initiator, %llu target "
                "(events missed; see ntprof probe)\n",
             (unsigned long long)g->bad_host, (unsigned long long)g->bad_target);
+  if (g->post_estimated)
+    fprintf(f, "  %llu target records lack the response's posting (a kprobe that "
+               "did not run): nvmet_req_complete's time stands in, S6(C) reads 0\n",
+            (unsigned long long)g->post_estimated);
 
   ntp_summarize(&g->comp[NTP_C_E2E], &e2e);
   if (!e2e.n) return;
@@ -504,11 +508,12 @@ int ntp_report_json(const char* path, struct ntp_stats* s,
     json_str(f, g->key.session);
     fprintf(f,
             ", \"records\": %llu, \"joined\": %llu, \"incomplete_host\": %llu, "
-            "\"incomplete_target\": %llu, \"rate_per_s\": %.1f,\n"
+            "\"incomplete_target\": %llu, \"post_estimated\": %llu, "
+            "\"rate_per_s\": %.1f,\n"
             "     \"components\": {",
             (unsigned long long)g->records, (unsigned long long)g->joined,
             (unsigned long long)g->bad_host, (unsigned long long)g->bad_target,
-            rate);
+            (unsigned long long)g->post_estimated, rate);
     for (int c = 0; c < NTP_C_NR; c++) {
       ntp_summarize(&g->comp[c], &m);
       if (!m.n) continue;

@@ -51,6 +51,7 @@ struct ntp_group {
   uint64_t joined;       /* with a complete target record */
   uint64_t bad_host;     /* host record missing events */
   uint64_t bad_target;   /* target record missing events */
+  uint64_t post_estimated; /* RDMA: the response's posting time estimated */
   uint8_t transport;     /* NTP_TR_* of the host records */
   bool spdk_host;        /* host records come from SPDK */
   bool spdk_target;      /* joined target records come from SPDK */

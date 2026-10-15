@@ -103,6 +103,7 @@ struct ntp_rec_hdr {
 #define NTP_F_QUEUES (1u << 5)     /* the q_* fields were tracked (exact mode) */
 #define NTP_F_RDMA_READ (1u << 6)  /* RDMA: the target fetched the write data */
 #define NTP_F_SPDK (1u << 7)       /* recorded in SPDK (user-space transport) */
+#define NTP_F_REUSED (1u << 8)     /* target: emitted when its nvmet_req came back */
 
 struct ntp_host_rec {
   struct ntp_rec_hdr hdr;

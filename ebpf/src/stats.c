@@ -167,6 +167,7 @@ void ntp_stats_add(struct ntp_stats* s, const struct ntp_host_rec* h,
   }
   if (err == NTP_MODEL_INCOMPLETE_TARGET) g->bad_target++;
   if (b.joined) g->joined++;
+  if (b.post_estimated) g->post_estimated++;
 
   for (int i = 0; i < NTP_C_NR; i++)
     if (ntp_comp_valid(&b, i)) i64vec_push(&g->comp[i], b.comp[i]);
