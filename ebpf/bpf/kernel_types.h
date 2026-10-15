@@ -111,9 +111,18 @@ struct nvme_request {
 
 struct nvme_tcp_queue;
 
+/* The kernel's enum, as for nvmet-tcp below (values stable since 5.0). */
+enum nvme_tcp_send_state {
+  NVME_TCP_SEND_CMD_PDU = 0,
+  NVME_TCP_SEND_H2C_PDU = 1,
+  NVME_TCP_SEND_DATA = 2,
+  NVME_TCP_SEND_DDGST = 3,
+};
+
 struct nvme_tcp_request {
   struct nvme_tcp_queue* queue;
   u32 data_len;
+  enum nvme_tcp_send_state state; /* what goes out next */
 } __core;
 
 struct nvme_tcp_queue {

@@ -16,7 +16,8 @@ running machine.
 | Linux NVMe/RDMA | `nvme-rdma` | `nvmet-rdma` |
 | SPDK NVMe/TCP | `lib/nvme` (e.g. `spdk_nvme_perf`) | `nvmf_tgt` |
 
-Linux: 6.x, tested on 6.8 and 6.11, no patch. SPDK: v26.05 with the probes from [`spdk/`](spdk) (section
+Linux: 5.15 and 6.x, tested on 6.8 and 6.11 and on two 5.15 hosts with MLNX OFED's NVMe modules (ConnectX-7,
+Samsung PM9A3), no patch. SPDK: v26.05 with the probes from [`spdk/`](spdk) (section
 SPDK). A kernel initiator can be profiled against an SPDK target, and the other way round. Reads and writes of
 any size are covered.
 
@@ -196,6 +197,24 @@ sudo ntprof record --btf /tmp/ntprof-btf
 ```
 
 ntprof then uses kprobes.
+
+The same holds for NVMe modules built out of tree on a kernel that has BTF, such as MLNX OFED's DKMS packages:
+the kernel has `/sys/kernel/btf/vmlinux`, but `/sys/kernel/btf/nvmet_tcp` (and the others) are missing, and the
+installed modules are stripped. `ntprof probe` then shows "module BTF …: absent; kprobes". Build the same
+source again with debug info, in a directory of your own (nothing is installed or loaded), and generate the BTF
+from that build. For MLNX OFED, the DKMS source is in `/usr/src/mlnx-nvme-<version>`, and its `dkms.conf`
+gives the make line:
+
+```sh
+cp -r /usr/src/mlnx-nvme-<version> ~/mlnx-nvme-dbg && cd ~/mlnx-nvme-dbg
+make KVER=$(uname -r) K_BUILD=/lib/modules/$(uname -r)/build CONFIG_NVME_HOST_WITHOUT_FC=
+modinfo -F srcversion host/nvme-tcp.ko; modinfo -F srcversion nvme_tcp   # the same source
+mkdir ~/kos && cp host/nvme-tcp.ko host/nvme-rdma.ko target/nvmet-tcp.ko target/nvmet-rdma.ko ~/kos
+tools/gen-btf.sh ~/ntprof-btf ~/kos
+sudo ntprof record -r target --btf ~/ntprof-btf
+```
+
+Build it with the compiler the kernel was built with (`cat /proc/version`) when it is installed.
 
 ## Test beds
 

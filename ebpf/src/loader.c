@@ -99,6 +99,20 @@ static const char* const tcp_target_required[] = {
 /* Hooks that only count queue occupancy exactly (--exact-queues). */
 static const char* const exact_only[] = {"ntp_h_queue_rq", NULL};
 
+/*
+ * Programs that stand in for hooks on functions the compiler inlined: loaded
+ * only when @missing is not in /proc/kallsyms (base names).
+ */
+static const struct {
+  const char* prog;
+  const char* missing;
+} fallbacks[] = {
+    {"ntp_h_try_send", "nvme_tcp_try_send_cmd_pdu"},
+    {"ntp_h_sendpage", "nvme_tcp_try_send_cmd_pdu"},
+    {"ntp_h_nosendpage", "nvme_tcp_try_send_cmd_pdu"},
+    {"ntp_h_sendmsg", "nvme_tcp_try_send_cmd_pdu"},
+};
+
 static const char* const rdma_host_required[] = {
     "ntp_hr_queue_rq", "ntp_h_setup_cmd", "ntp_hr_recv_done", "ntp_hr_send_done",
     "ntp_hr_complete", "ntp_h_blk_done", NULL};
@@ -245,6 +259,16 @@ static bool is_required(const struct obj_desc* d, const char* prog) {
   return in_list(d->required, prog);
 }
 
+/* The function a fallback program stands in for, or NULL. */
+static const char* fallback_for(const char* prog) {
+  size_t n = base_len(prog);
+
+  for (size_t i = 0; i < ARRAY_SIZE(fallbacks); i++)
+    if (strlen(fallbacks[i].prog) == n && !strncmp(fallbacks[i].prog, prog, n))
+      return fallbacks[i].missing;
+  return NULL;
+}
+
 /*
  * NTPROF_SKIP=name,name...: do not load these programs (base names). A
  * diagnostic for measuring what each hook costs; the records then lack what
@@ -361,6 +385,28 @@ static enum flavour choose_flavour(const struct ntp_config* c) {
     }
   }
   return (enum flavour)checked;
+}
+
+/*
+ * Is the BTF of @d's module loaded? A module built out of tree (MLNX OFED's
+ * DKMS packages, for one) can lack it on a kernel that has BTF.
+ */
+static bool module_btf(const struct obj_desc* d) {
+  char path[256];
+
+  snprintf(path, sizeof(path), "/sys/kernel/btf/%s", d->btf_module);
+  return !access(path, R_OK);
+}
+
+/*
+ * fentry/fexit on a module's functions need that module's BTF: without it the
+ * object uses kprobes, whatever the other objects use. SPDK objects hook only
+ * kernel functions.
+ */
+static enum flavour object_flavour(const struct ntp_config* c,
+                                   const struct obj_desc* d) {
+  if (!d->spdk && !module_btf(d)) return FL_KPROBE;
+  return choose_flavour(c);
 }
 
 /* ---- loader ---- */
@@ -503,10 +549,17 @@ static int resolve_session(const char* session, struct ntp_filter* sel) {
 static int btf_opts(const struct ntp_config* c, const struct obj_desc* d,
                     char* path, size_t len, struct bpf_object_open_opts* opts) {
   if (!c->btf_dir[0]) {
-    if (!access(KERNEL_BTF, R_OK)) return 0;
-    ntp_err("this kernel has no BTF (%s). Generate it from the modules' DWARF "
-            "with tools/gen-btf.sh and pass --btf DIR",
-            KERNEL_BTF);
+    if (access(KERNEL_BTF, R_OK)) {
+      ntp_err("this kernel has no BTF (%s). Generate it from the modules' "
+              "DWARF with tools/gen-btf.sh and pass --btf DIR",
+              KERNEL_BTF);
+      return -1;
+    }
+    if (d->spdk || module_btf(d)) return 0;
+    ntp_err("%s: the %s module has no BTF (built out of tree?). Generate it "
+            "from the DWARF of a debug build of the module with "
+            "tools/gen-btf.sh and pass --btf DIR",
+            d->name, d->btf_module);
     return -1;
   }
   snprintf(path, len, "%s/%s.btf", c->btf_dir, d->btf_module);
@@ -533,7 +586,10 @@ static int select_programs(const struct obj_desc* d, struct bpf_object* obj,
     enum flavour pf = flavour_of(prog);
     char what[256];
 
-    if ((pf != FL_COMMON && pf != fl) || (!exact && in_list(exact_only, name))) {
+    const char* stands_in = fallback_for(name);
+
+    if ((pf != FL_COMMON && pf != fl) || (!exact && in_list(exact_only, name)) ||
+        (stands_in && ksyms_has(ks, stands_in))) {
       bpf_program__set_autoload(prog, false);
       continue;
     }
@@ -610,7 +666,9 @@ static int open_one(struct ntp_loader* l, const struct obj_desc* d,
     }
   }
 
-  if (select_programs(d, o->obj, ks, choose_flavour(c), c->exact_queues, false))
+  if (object_flavour(c, d) != choose_flavour(c))
+    ntp_debug("%s: kprobes (the %s module has no BTF)", d->name, d->btf_module);
+  if (select_programs(d, o->obj, ks, object_flavour(c, d), c->exact_queues, false))
     return -1;
   err = bpf_object__load(o->obj);
   if (err) {
@@ -936,14 +994,14 @@ int ntp_probe(const struct ntp_config* c, FILE* f) {
     const struct obj_desc* d = &objects[i];
     struct obj_inst o = {.desc = d};
     LIBBPF_OPTS(bpf_object_open_opts, opts);
-    char btf_mod[256], btf_path[512];
+    char btf_path[512];
     struct bpf_program* prog;
     int err;
 
     if (!wanted(c, d)) continue;
-    snprintf(btf_mod, sizeof(btf_mod), "/sys/kernel/btf/%s", d->btf_module);
-    fprintf(f, "\n%s (module BTF %s: %s)\n", d->name, d->btf_module,
-            access(btf_mod, R_OK) ? "absent" : "present");
+    fprintf(f, "\n%s (module BTF %s: %s%s)\n", d->name, d->btf_module,
+            module_btf(d) ? "present" : "absent",
+            object_flavour(c, d) != choose_flavour(c) ? "; kprobes" : "");
     if (d->spdk) {
       const char* paths = (d->role & NTP_ROLE_HOST) ? c->spdk_host : c->spdk_target;
       char* copy = xstrdup(paths);
@@ -970,15 +1028,20 @@ int ntp_probe(const struct ntp_config* c, FILE* f) {
       continue;
     }
     bpf_object__for_each_program(prog, o.obj) {
-      char what[256];
+      const char* name = bpf_program__name(prog);
+      const char* stands_in = fallback_for(name);
+      char what[256], note[160] = "";
       bool ok = target_present(&ks, prog, what, sizeof(what));
 
-      fprintf(f, "  %-4s %-22s %-40s%s\n", ok ? "ok" : "--",
-              bpf_program__name(prog), what,
-              is_required(d, bpf_program__name(prog)) ? " (required)" : "");
+      if (is_required(d, name))
+        snprintf(note, sizeof(note), " (required)");
+      else if (stands_in)
+        snprintf(note, sizeof(note), " (for %s: %s)", stands_in,
+                 ksyms_has(&ks, stands_in) ? "not needed" : "inlined, used");
+      fprintf(f, "  %-4s %-22s %-40s%s\n", ok ? "ok" : "--", name, what, note);
     }
     /* load (verifier and CO-RE relocations) without attaching */
-    if (select_programs(d, o.obj, &ks, choose_flavour(c), c->exact_queues, true)) {
+    if (select_programs(d, o.obj, &ks, object_flavour(c, d), c->exact_queues, true)) {
       fprintf(f, "  load: skipped, a required attach point is missing\n");
     } else {
       err = bpf_object__load(o.obj);

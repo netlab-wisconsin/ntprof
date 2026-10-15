@@ -9,7 +9,7 @@
  *                                         its socket (arrival of what is parsed)
  *   nvmet_tcp_queue_response           -> NTP_T_R2T_QUEUED / NTP_T_RSP_QUEUED
  *   nvmet_tcp_build_pdu_iovec          -> NTP_T_DATA_* (solicited H2C data)
- *   sock_sendmsg                       -> NTP_T_R2T_SENT / C2H_SENT / RSP_SENT
+ *   sock_sendmsg, kernel_sendpage      -> NTP_T_R2T_SENT / C2H_SENT / RSP_SENT
  *
  * nvmet-tcp stores its queue in the socket's sk_user_data, which ties a
  * command (its nvmet_sq is in the queue), a socket and a send together without
@@ -238,3 +238,15 @@ int BPF_PROG(ntp_t_sendmsg_fe, struct socket* sock) { return on_sendmsg(sock); }
 
 SEC("kprobe/sock_sendmsg")
 int BPF_KPROBE(ntp_t_sendmsg_kp, struct socket* sock) { return on_sendmsg(sock); }
+
+/*
+ * Up to Linux 6.4 (and in MLNX OFED's backport for 5.15) nvmet-tcp sends its
+ * PDUs with kernel_sendpage(), which does not go through sock_sendmsg; pages
+ * that cannot be sent that way go through sock_no_sendpage() ->
+ * sock_sendmsg() above. A send takes one of the two paths, never both.
+ */
+SEC("fentry/kernel_sendpage")
+int BPF_PROG(ntp_t_sendpage_fe, struct socket* sock) { return on_sendmsg(sock); }
+
+SEC("kprobe/kernel_sendpage")
+int BPF_KPROBE(ntp_t_sendpage_kp, struct socket* sock) { return on_sendmsg(sock); }

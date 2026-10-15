@@ -40,6 +40,7 @@ and tells the NVMe/TCP calls apart with a per-thread context.
 | NVME_TCP_QUEUE_RQ (after `blk_mq_start_request`) | `raw_tp/nvme_setup_cmd` (cid, opcode, LBA), inside `nvme_tcp_queue_rq`; the entry of `nvme_tcp_queue_rq` itself only with `--exact-queues` | `NTP_H_QUEUE_RQ` |
 | NVME_TCP_DONE_SEND_REQ (`nvme_tcp_done_send_req`, inlined) | exit of `nvme_tcp_try_send_{cmd_pdu,data,ddgst}` returning 1 with `queue->request` cleared | `NTP_H_CMD_SENT`, `NTP_H_DATA_SENT` |
 | (none) | entry of `nvme_tcp_try_send_data_pdu` after an R2T | `NTP_H_DATA_START` |
+| (the three above, where inlined) | `nvme_tcp_try_send` returning 1 with `queue->request` cleared; the request is `queue->request` at its entry or at its first `kernel_sendpage` / `sock_no_sendpage` / `sock_sendmsg` | `NTP_H_CMD_SENT`, `NTP_H_DATA_SENT`, `NTP_H_DATA_START` |
 | NVME_TCP_RECV_SKB (`skb->tstamp`, socket timestamps enabled by the patch) | `skb->tstamp` read at `nvme_tcp_recv_skb`; ntprof turns receive timestamps on (section 7) | `NTP_H_*_ARR` |
 | NVME_TCP_HANDLE_C2H_DATA (inlined) | first `skb_copy_datagram_iter` while `queue->pdu` holds a C2H header | `NTP_H_C2H_PROC` |
 | NVME_TCP_HANDLE_R2T (inlined on 6.11) | `nvme_tcp_setup_h2c_data_pdu` while receiving | `NTP_H_R2T_PROC` |
@@ -54,7 +55,7 @@ and tells the NVMe/TCP calls apart with a per-thread context.
 | NVMET_TCP_TRY_RECV_PDU (`SO_TIMESTAMP` of `kernel_recvmsg`) | `skb->tstamp` of the last skb this thread copied (`skb_copy_datagram_iter`) from the command's queue socket | `NTP_T_CMD_ARR` |
 | NVMET_TCP_DONE_RECV_PDU (inlined) | `raw_tp/nvmet_req_init` | `NTP_T_CMD_PROC` |
 | (R2T queued) | `nvmet_tcp_queue_response` while data is still due | `NTP_T_R2T_QUEUED` |
-| NVMET_TCP_TRY_SEND_R2T (inlined) | `sock_sendmsg` on a queue socket of a sampled command, `queue->snd_cmd->state == SEND_R2T`, offset 0 | `NTP_T_R2T_SENT` |
+| NVMET_TCP_TRY_SEND_R2T (inlined) | `sock_sendmsg` (`kernel_sendpage` up to 6.4) on a queue socket of a sampled command, `queue->snd_cmd->state == SEND_R2T`, offset 0 | `NTP_T_R2T_SENT` |
 | NVMET_TCP_HANDLE_H2C_DATA_PDU (inlined) | `nvmet_tcp_build_pdu_iovec` after an R2T | `NTP_T_DATA_*` |
 | NVMET_TCP_EXEC_{READ,WRITE}_REQ | `nvmet_{bdev,file}_execute_rw`, `nvmet_passthru_execute_cmd` | `NTP_T_EXEC` |
 | (none) | `raw_tp/block_rq_issue` / `block_rq_complete` of the backing request (`bio->bi_private` is the `nvmet_req`) | `NTP_T_BE_ISSUE`, `NTP_T_BE_DONE` |
@@ -62,6 +63,14 @@ and tells the NVMe/TCP calls apart with a per-thread context.
 | NVMET_TCP_QUEUE_RESPONSE | `nvmet_tcp_queue_response` for the completion | `NTP_T_RSP_QUEUED` |
 | (none) | `sock_sendmsg`, state `SEND_DATA_PDU` | `NTP_T_C2H_SENT` |
 | NVMET_TCP_TRY_SEND_RESPONSE (inlined) | `sock_sendmsg`, state `SEND_RESPONSE` | `NTP_T_RSP_SENT` |
+
+**Linux 5.15 and MLNX OFED** (two hosts, 2026-10-15). Up to 6.4, and in
+OFED's backport for 5.15, both drivers send with `kernel_sendpage()`, which
+does not go through `sock_sendmsg()`; the target hooks both (a send takes
+one path or the other). The OFED `nvme-tcp` on 5.15 inlines all three
+`try_send` functions into `nvme_tcp_try_send()`, which stays out of line: the
+loader then attaches the fallback in the initiator table instead, and only
+then, since `kernel_sendpage()` and `sock_sendmsg()` run for every socket.
 
 Telling NVMe/TCP apart without a hook on its entry points: `nvme_setup_cmd`
 and `nvmet_req_init` run for every NVMe transport. The initiator follows a
@@ -105,7 +114,10 @@ Every function hook exists twice with the same body: as fentry/fexit
 less per call (section 7), and fexit sees the return value without
 remembering the arguments. They need the kernel's BTF, and they can only be
 attached when no CPU stays busy (below). The loader keeps fentry/fexit when
-both hold, and kprobes otherwise or with `--kprobes`.
+both hold, and kprobes otherwise or with `--kprobes`. The choice is made per
+object: an object whose module has no BTF of its own (a module built out of
+tree, such as MLNX OFED's DKMS builds) uses kprobes even when the kernel has
+BTF.
 
 **Busy CPUs.** Attaching an fentry/fexit program goes through
 `register_ftrace_direct()`, which calls `synchronize_rcu_tasks()`;
@@ -268,7 +280,10 @@ relocation is emitted for them.
 Kernels built without `CONFIG_DEBUG_INFO_BTF` but with DWARF in their modules
 work too: `tools/gen-btf.sh` turns the DWARF of `nvme-tcp.ko` / `nvmet-tcp.ko`
 into BTF with pahole, and `--btf DIR` makes libbpf relocate against it. Such
-kernels run the kprobe flavour (fentry needs real kernel BTF).
+kernels run the kprobe flavour (fentry needs real kernel BTF). Modules built
+out of tree on a kernel with BTF are the same case: their BTF comes from a
+debug build of the same source (README, "Kernels without BTF"), checked by
+`srcversion`.
 
 ## 7. Accuracy and its limits
 

@@ -11,6 +11,8 @@
  *   nvme_tcp_try_send_{cmd_pdu,data,ddgst} returning 1
  *                                      -> NTP_H_CMD_SENT / NTP_H_DATA_SENT
  *   nvme_tcp_try_send_data_pdu         -> NTP_H_DATA_START
+ *   nvme_tcp_try_send + socket sends   -> the same, where the three above are
+ *                                         inlined (MLNX OFED, Linux 5.15)
  *   nvme_tcp_recv_skb entry / exit     -> receive context (queue, skb arrival)
  *   skb_copy_datagram_iter             -> NTP_H_C2H_* (first copy of a C2H PDU)
  *   nvme_tcp_setup_h2c_data_pdu        -> NTP_H_R2T_* (when called while receiving)
@@ -170,6 +172,120 @@ SEC("kprobe/nvme_tcp_try_send_data_pdu")
 int BPF_KPROBE(ntp_h_send_h2c_kp, struct nvme_tcp_request* req) {
   return on_send_h2c(req);
 }
+
+/*
+ * Where the compiler inlined the try_send functions above (MLNX OFED's
+ * nvme-tcp on Linux 5.15 inlines all three), their caller stands in:
+ * nvme_tcp_try_send() works on one request, queue->request, under
+ * send_mutex. The request is known at its entry, or else at its first socket
+ * send (it was fetched in between). When the caller returns 1 with
+ * queue->request cleared, the request went out completely, as in
+ * on_send_done(). The loader keeps these programs only where
+ * nvme_tcp_try_send_cmd_pdu is missing.
+ */
+struct tsend_ctx {
+  u64 tid;
+  u64 queue;
+  u64 req;
+  bool cmd_pdu; /* the command PDU was still to be sent */
+};
+NTP_CPU_CTX(tsend_ctx, struct tsend_ctx);
+
+static __always_inline void tsend_found(struct tsend_ctx* c,
+                                        struct nvme_tcp_request* req) {
+  c->req = (u64)req;
+  c->cmd_pdu = BPF_CORE_READ(req, state) == NVME_TCP_SEND_CMD_PDU;
+  on_send_h2c(req); /* the H2C data PDU header goes out first after an R2T */
+}
+
+static __always_inline int try_send_enter(struct nvme_tcp_queue* queue) {
+  u32 zero = 0;
+  struct tsend_ctx* c;
+  struct nvme_tcp_request* req;
+
+  if (ntp_idle()) return 0;
+  c = bpf_map_lookup_elem(&tsend_ctx, &zero);
+  if (!c) return 0;
+  c->tid = ntp_tid();
+  c->queue = (u64)queue;
+  c->req = 0;
+  req = BPF_CORE_READ(queue, request);
+  if (req) tsend_found(c, req);
+  return 0;
+}
+
+/* (a context field is read into a local first: BPF_CORE_READ would relocate it) */
+static __always_inline int on_sock_send(struct socket* sock) {
+  struct tsend_ctx* c;
+  struct nvme_tcp_queue* queue;
+  struct nvme_tcp_request* req;
+
+  if (ntp_idle()) return 0;
+  c = NTP_CTX_GET(tsend_ctx);
+  if (!c || c->req) return 0;
+  queue = (void*)c->queue;
+  if (BPF_CORE_READ(sock, sk, sk_user_data) != (void*)queue) return 0;
+  req = BPF_CORE_READ(queue, request);
+  if (req) tsend_found(c, req);
+  return 0;
+}
+
+static __always_inline int try_send_exit(int ret) {
+  struct tsend_ctx* c = NTP_CTX_GET(tsend_ctx);
+  struct nvme_tcp_queue* queue;
+  struct nvme_tcp_request* req;
+
+  if (!c) return 0;
+  c->tid = 0;
+  if (!c->req) return 0;
+  queue = (void*)c->queue;
+  req = (void*)c->req;
+  /* the command PDU went out in this call (on_send_done()'s cmd_pdu case) */
+  if (c->cmd_pdu && filter.track_queues &&
+      (BPF_CORE_READ(queue, request) != req ||
+       BPF_CORE_READ(req, state) != NVME_TCP_SEND_CMD_PDU))
+    uncount(rq_from_pdu(req), CNT_UNSENT, false);
+  return on_send_done(req, ret, false);
+}
+
+SEC("fentry/nvme_tcp_try_send")
+int BPF_PROG(ntp_h_try_send_fe, struct nvme_tcp_queue* queue) {
+  return try_send_enter(queue);
+}
+
+SEC("fexit/nvme_tcp_try_send")
+int BPF_PROG(ntp_h_try_send_fx, struct nvme_tcp_queue* queue, int ret) {
+  return try_send_exit(ret);
+}
+
+SEC("kprobe/nvme_tcp_try_send")
+int BPF_KPROBE(ntp_h_try_send_kp, struct nvme_tcp_queue* queue) {
+  return try_send_enter(queue);
+}
+
+SEC("kretprobe/nvme_tcp_try_send")
+int BPF_KRETPROBE(ntp_h_try_send_kr, int ret) { return try_send_exit(ret); }
+
+/* the socket sends of the inlined functions: kernel_sendpage() up to 6.4 */
+SEC("fentry/kernel_sendpage")
+int BPF_PROG(ntp_h_sendpage_fe, struct socket* sock) { return on_sock_send(sock); }
+
+SEC("kprobe/kernel_sendpage")
+int BPF_KPROBE(ntp_h_sendpage_kp, struct socket* sock) { return on_sock_send(sock); }
+
+SEC("fentry/sock_no_sendpage")
+int BPF_PROG(ntp_h_nosendpage_fe, struct socket* sock) { return on_sock_send(sock); }
+
+SEC("kprobe/sock_no_sendpage")
+int BPF_KPROBE(ntp_h_nosendpage_kp, struct socket* sock) {
+  return on_sock_send(sock);
+}
+
+SEC("fentry/sock_sendmsg")
+int BPF_PROG(ntp_h_sendmsg_fe, struct socket* sock) { return on_sock_send(sock); }
+
+SEC("kprobe/sock_sendmsg")
+int BPF_KPROBE(ntp_h_sendmsg_kp, struct socket* sock) { return on_sock_send(sock); }
 
 /* ---- receive path ---- */
 
