@@ -195,6 +195,16 @@ target.ntp`), which is order-independent.
 **Arming.** Programs attach one by one. Nothing is recorded or counted until
 every program is attached; a command that started earlier would miss events.
 
+**A missed last event.** The target finds a command's record by its
+`nvmet_req`, which the transport hands out again once the response is sent.
+If the event that emits the record was missed, the next command on the same
+`nvmet_req` would write its times into it. So `nvmet_req_init` emits a record
+that is still open (flag `NTP_F_REUSED`) before anything of the new command
+can reach it. Seen on gnode5 (NVMe/RDMA, kprobes, 4 KiB reads at queue depth
+32): `nvmet_rdma_queue_response`'s hook did not run for 10 % of the commands.
+The model then takes `nvmet_req_complete`'s time for the posting when the
+send completion was seen (section 4), and `ntprof report` counts such records.
+
 ## 4. The stage model (`src/model.c`)
 
 Notation: H = host timestamp, T = target timestamp, as in `bpf/ntprof.h`.
@@ -241,7 +251,12 @@ RDMA READ (writes) without the host CPU. So the host's wait is H_RSP_ARR -
 H_CMD_SENT, its receive stack H_RSP_PROC - H_RSP_ARR, and S2(C) is 0. On the
 target, a write's RDMA READ (T_DATA_PROC - T_R2T_SENT) is wire and remote-NIC
 time seen from the target: it counts as network, not as target residence.
-S6(S) is then (T_R2T_SENT - T_CMD_PROC) + (T_EXEC - T_DATA_PROC).
+S6(S) is then (T_R2T_SENT - T_CMD_PROC) + (T_EXEC - T_DATA_PROC). When the
+posting (T_RSP_SENT) was not seen but the send completion was, T_COMPLETE
+stands in for it: the response is queued right after `nvmet_req_complete`,
+and S6(C) is under a microsecond when it is seen. A posting later than its
+own send completion, or a drive completion later than T_COMPLETE, belongs to
+another command and is ignored.
 
 The detail component "data transfer (RDMA, at the target)", under S3-S5, is
 the time the data spends crossing the network as the target sees it: a
