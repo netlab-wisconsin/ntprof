@@ -6,34 +6,41 @@
 direction of the read data ([testbed](README.md)):
 
 - NVMe/RDMA: `ib_write_bw` with 4 queue pairs and 1 MiB messages, 391.8 Gb/s (the link saturated);
-- NVMe/TCP: iperf3 with 8 streams, 24.2 Gb/s (one iperf3 process).
+- NVMe/TCP: iperf3 with 8 streams, 24.4 Gb/s (one iperf3 process).
 
 ```
-== read 4KiB nvme5n1: baseline 3051 commands sampled, loaded 2648            (NVMe/RDMA)
+== read 4KiB nvme6n1: baseline 3057 commands sampled, loaded 2673            (NVMe/RDMA)
   stage                                    base us   load us     LAD
-  host block layer                            0.49      0.49     n/a
-  host driver (nvme-rdma)                     1.27      1.24    0.97
+  host block layer                            0.50      0.48     n/a
+  host driver (nvme-rdma)                     1.24      1.20    0.97
   network (RDMA, NICs, wire)                 10.01     18.91    1.89
-  target driver (nvmet-rdma)                  1.00      0.99    0.99
-  storage (target block layer, drive)        60.06     60.02    1.00
-  end to end                                 72.83     81.65    1.12
+  target driver (nvmet-rdma)                  1.02      1.02    1.00
+  storage (target block layer, drive)        59.98     59.92    1.00
+  end to end                                 72.75     81.53    1.12
   largest LAD: network (RDMA, NICs, wire), 1.89
-
-== read 4KiB nvme5n1: baseline 2562 commands sampled, loaded 2082            (NVMe/TCP)
-  stage                                    base us   load us     LAD
-  host block layer                            0.54      0.55    1.02
-  host driver (nvme-tcp)                      3.77      4.20    1.11
-  network (TCP/IP, NICs, wire)               19.42     38.82    2.00
-  target driver (nvmet-tcp)                   2.44      2.75    1.13
-  storage (target block layer, drive)        60.14     60.09    1.00
-  end to end                                 86.30    106.40    1.23
-  largest LAD: network (TCP/IP, NICs, wire), 2.00
 ```
 
 (`n/a`: a stage under 0.5 µs at the baseline is too small for a ratio.)
 
-**Answer:** yes, and only the network. Over NVMe/RDMA the read's data transfer (its RDMA WRITE and response, from
-posting to the send completion, in `--detail`) doubled, 7.1 → 15.2 µs, and the network stage grew 1.9×; storage did
-not move. Over NVMe/TCP, even a 24 Gb/s flow on a 400 GbE link doubled the network stage, and the p99 of its computed
-part ("network: wire and NICs" in `--detail`) rose from 12.5 to 105 µs: the TCP/IP stacks of both machines are shared
-with the flow, not only the wire.
+**Answer over NVMe/RDMA:** yes, and only the network. The read's data transfer (its RDMA WRITE and response, from
+posting to the send completion, in `--detail`) doubled, 7.1 → 15.3 µs, and the network stage grew 1.89×; storage did
+not move.
+
+```
+== read 4KiB nvme6n1: baseline 2647 commands sampled, loaded 2586            (NVMe/TCP)
+  stage                                    base us   load us     LAD
+  host block layer                            0.52      0.53    1.02
+  host driver (nvme-tcp)                      3.83      4.17    1.09
+  network (TCP/IP, NICs, wire)               19.79     20.39    1.03
+  target driver (nvmet-tcp)                   2.47      2.62    1.06
+  storage (target block layer, drive)        59.94     60.11    1.00
+  end to end                                 86.55     87.83    1.01
+  largest LAD: host driver (nvme-tcp), 1.09
+```
+
+**Over NVMe/TCP it depends.** In this run the flow left the read almost unchanged: network 19.79 → 20.39 µs (LAD
+1.03), end to end 86.55 → 87.83 µs, and the largest LAD, 1.09, is the host driver. In an earlier run on the same
+servers, an iperf3 flow of the same kind (8 streams, 24 Gb/s) doubled the network stage, 19.42 → 38.82 µs. The likely
+reason, not proven: a TCP flow slows NVMe/TCP only when their receive processing shares CPUs, and the NIC's receive
+hash decides that per connection, so the effect can be anything from none to 2×. In both runs ntprof's report agreed
+with fio (here 88.5 → 89.1 µs).

@@ -9,30 +9,30 @@ SSD stage separately. ntprof gives both for every sampled request of a real NVMe
 
 ```
   component                                     n      mean       L       p50       p99   (us)
-  host block layer, submission               2188      0.20    0.00      0.20      0.25
-  host driver, submission                    2188      2.04    0.02      2.03      2.29
-  network: wire and NICs (computed)          2188     25.21    0.24     25.19     25.96
-    data transfer (RDMA, at the target)      2188     15.73    0.15     15.72     16.09
-  network: target receive path               2188      0.29    0.00      0.27      0.53
-  target driver, submission                  2188      8.56    0.08      8.58      8.86
-  storage: target block layer and drive      2188     38.75    0.37     38.67     41.71
-    target block layer, submission           2188      1.78    0.02      1.95      2.15
-    drive                                    2188     36.86    0.35     36.56     39.80
-    target block layer, completion           2188      0.11    0.00      0.12      0.13
-  target driver, completion                  2188      0.44    0.00      0.44      0.55
-  network: host receive path                 2188      0.22    0.00      0.22      0.30
-  host driver, completion                    2188      0.00    0.00      0.00      0.00
-  host block layer, completion               2188      0.69    0.01      0.71      0.89
-    handoff to nvme_complete_rq              2188      0.64    0.01      0.66      0.84
-  end to end                                 2188     76.41    0.73     76.21     79.68
+  host block layer, submission               2213      0.20    0.00      0.20      0.26
+  host driver, submission                    2213      2.05    0.02      2.04      2.33
+  network: wire and NICs (computed)          2213     25.31    0.24     25.28     26.15
+    data transfer (RDMA, at the target)      2213     15.78    0.15     15.77     16.13
+  network: target receive path               2213      0.28    0.00      0.26      0.53
+  target driver, submission                  2213      8.55    0.08      8.56      8.88
+  storage: target block layer and drive      2213     39.01    0.38     38.72     41.92
+    target block layer, submission           2213      2.02    0.02      2.02      2.16
+    drive                                    2213     36.87    0.36     36.57     39.79
+    target block layer, completion           2213      0.12    0.00      0.12      0.13
+  target driver, completion                  2213      0.45    0.00      0.43      0.59
+  network: host receive path                 2213      0.23    0.00      0.22      0.30
+  host driver, completion                    2213      0.00    0.00      0.00      0.00
+  host block layer, completion               2213      0.70    0.01      0.71      0.90
+    handoff to nvme_complete_rq              2213      0.65    0.01      0.66      0.85
+  end to end                                 2213     76.78    0.74     76.52     79.90
 ```
 
-| Request (queue depth 1) | Data transfer (network) | Storage | Drive alone | End to end |
+| Request (queue depth 1) | Data transfer (network) | Storage | Drive | End to end |
 |---|---|---|---|---|
-| 4 KiB read | 7.1 µs | 60.1 µs | 59.4 µs | 72.9 µs |
-| 128 KiB read | 12.3 µs | 126.2 µs | 124.3 µs | 153.6 µs |
-| 128 KiB write | 15.7 µs | 38.7 µs | 36.9 µs | 76.4 µs |
-| 4 KiB read, link saturated by a 392 Gb/s flow | 15.2 µs | 60.0 µs | 59.4 µs | 81.7 µs |
+| 4 KiB read | 7.1 µs | 60.0 µs | 59.4 µs | 72.8 µs |
+| 128 KiB read | 12.3 µs | 93.7 µs | 91.6 µs | 121.2 µs |
+| 128 KiB write | 15.8 µs | 39.0 µs | 36.9 µs | 76.8 µs |
+| 4 KiB read, link saturated by a 392 Gb/s flow | 15.3 µs | 59.9 µs | 59.3 µs | 81.5 µs |
 
 - **A write's data transfer** is its RDMA READ: the target pulls the data from the host's memory, from posting the
   READ to its completion.
@@ -41,5 +41,5 @@ SSD stage separately. ntprof gives both for every sampled request of a real NVMe
 - **The two move independently:** a busy link doubled the transfer and left the drive alone; a busy drive did the
   opposite ([busy drive](busy-drive.md), [busy network](busy-network.md)).
 
-The 128 KiB read's storage time here (126 µs) was measured after the run's random writes; on a freshly written
-region the same read took 93.0 µs in storage, equal to the drive measured alone on the target (93.0 µs).
+The storage stage is the drive's own time: the 128 KiB read's 93.7 µs equals the same read measured alone on the
+target with fio (93.7 µs), on a region written sequentially first.
