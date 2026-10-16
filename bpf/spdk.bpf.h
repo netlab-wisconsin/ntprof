@@ -186,44 +186,31 @@ static __always_inline struct spdk_ring* spdk_ring_get(int send) {
                              &zero);
 }
 
-/* A binary search, one halving per bpf_loop() step. */
-struct spdk_find {
-  u64 x;
-  u64 base; /* logical index i is slot (base + i) % SPDK_RING */
-  u64 lo, hi;
-  int send;
-};
-
-static long spdk_find_step(u32 i, void* ctx) {
-  struct spdk_find* f = ctx;
-  struct spdk_ring* r;
-  u64 mid;
-
-  if (f->lo >= f->hi) return 1;
-  r = spdk_ring_get(f->send);
-  if (!r) return 1;
-  mid = (f->lo + f->hi) / 2;
-  if (r->t[(f->base + mid) & (SPDK_RING - 1)] <= f->x)
-    f->lo = mid + 1;
-  else
-    f->hi = mid;
-  return 0;
-}
-
-/* Value of this thread's latest entry at or before @x, or 0. */
+/*
+ * Value of this thread's latest entry at or before @x, or 0. A binary search
+ * in log2(SPDK_RING) + 1 halvings, unrolled: bpf_loop() needs Linux 5.17, and
+ * 5.15 hosts run SPDK too.
+ */
 static __always_inline u64 spdk_ring_find(int send, u64 x) {
   struct spdk_ring* r = spdk_ring_get(send);
-  struct spdk_find f = {};
-  u64 n;
+  u64 n, base, lo = 0, hi;
 
   if (!r || r->tid != ntp_tid() || !x) return 0;
   n = r->n < SPDK_RING ? r->n : SPDK_RING;
-  f.x = x;
-  f.base = r->n - n;
-  f.hi = n;
-  f.send = send;
-  bpf_loop(10, spdk_find_step, &f, 0); /* log2(SPDK_RING) + 1 */
-  return f.lo ? r->v[(f.base + f.lo - 1) & (SPDK_RING - 1)] : 0;
+  base = r->n - n; /* logical index i is slot (base + i) % SPDK_RING */
+  hi = n;
+#pragma unroll
+  for (int i = 0; i < 10; i++) {
+    u64 mid = (lo + hi) / 2;
+
+    if (lo < hi) {
+      if (r->t[(base + mid) & (SPDK_RING - 1)] <= x)
+        lo = mid + 1;
+      else
+        hi = mid;
+    }
+  }
+  return lo ? r->v[(base + lo - 1) & (SPDK_RING - 1)] : 0;
 }
 
 /* ---- packet arrival ---- */
