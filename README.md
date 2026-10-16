@@ -8,7 +8,7 @@ comparing two runs, it names the stage that slows down under load.
 
 ntprof runs on unmodified Linux kernels: it attaches eBPF programs to tracepoints and functions the kernel already
 has, so it starts and stops on a running machine, with no kernel patch and no reboot. It profiles the host (the
-NVMe-oF initiator) and the target of Linux NVMe/TCP and NVMe/RDMA, and SPDK's NVMe/TCP, and joins the two sides of
+NVMe-oF initiator) and the target of NVMe/TCP and NVMe/RDMA, in Linux and in SPDK, and joins the two sides of
 every sampled command without synchronized clocks.
 
 It comes from the NSDI '25 paper [*Understanding and Profiling NVMe-over-TCP Using
@@ -48,7 +48,7 @@ for a large NVMe/TCP read or write the receiver's processing of the data apart f
 | Stage | What it covers |
 |---|---|
 | host block layer | blk-mq on the host, on the way down and back up |
-| host driver | `nvme-tcp`, `nvme-rdma` or SPDK's NVMe/TCP host: sending the command, and processing a TCP read's data |
+| host driver | `nvme-tcp`, `nvme-rdma` or SPDK's NVMe/TCP or NVMe/RDMA host: sending the command, and processing a TCP read's data |
 | network | the NICs, the wire, and the TCP/IP or RDMA receive paths on both machines; for a large TCP read or write, also the receiver's wait for the rest of its data |
 | target driver | `nvmet-tcp`, `nvmet-rdma` or SPDK's `nvmf_tgt`: parsing the command, fetching or processing a write's data, sending the response |
 | storage | the target's block layer and the drive |

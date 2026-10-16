@@ -478,10 +478,80 @@ static void test_rdma_write_fetch(void) {
   CHECK(ntp_comp_valid(&b, NTP_C_REMOTE));
 }
 
+/*
+ * SPDK's NVMe/RDMA records: no block layer (the command starts and ends at the
+ * transport), and a target without the bdev's block-layer split.
+ */
+static void test_spdk_rdma(void) {
+  struct ntp_host_rec h;
+  struct ntp_tgt_rec t;
+  struct ntp_breakdown b;
+
+  memset(&h, 0, sizeof(h));
+  h.hdr.transport = NTP_TR_RDMA;
+  h.hdr.flags = NTP_F_SPDK;
+  h.ts[NTP_H_START] = h.ts[NTP_H_QUEUE_RQ] = 1000;
+  h.ts[NTP_H_CMD_SENT] = 1300;  /* posted with the next batch */
+  h.ts[NTP_H_SEND_DONE] = 4000;
+  h.ts[NTP_H_RSP_ARR] = 9300;   /* host waits 8000 */
+  h.ts[NTP_H_RSP_PROC] = h.ts[NTP_H_NVME_DONE] = h.ts[NTP_H_BLK_DONE] = 9400;
+
+  memset(&t, 0, sizeof(t));
+  t.hdr.transport = NTP_TR_RDMA;
+  t.hdr.flags = NTP_F_SPDK;
+  t.ts[NTP_T_CMD_ARR] = 50000;
+  t.ts[NTP_T_CMD_PROC] = 50200;
+  t.ts[NTP_T_EXEC] = 50500;
+  t.ts[NTP_T_COMPLETE] = 54500;
+  t.ts[NTP_T_RSP_QUEUED] = 54600;
+  t.ts[NTP_T_C2H_SENT] = t.ts[NTP_T_RSP_SENT] = 54800; /* residence 4800 */
+  t.ts[NTP_T_SEND_DONE] = 57800;
+
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK(b.joined && !b.post_estimated);
+  CHECK_EQ(b.io_class, NTP_IO_CLASS_READ);
+  CHECK_EQ(b.comp[NTP_C_BLK_SUB], 0);
+  CHECK_EQ(b.comp[NTP_C_BLK_CMPL], 0);
+  CHECK_EQ(b.comp[NTP_C_TR_SUB], 300);
+  CHECK_EQ(b.comp[NTP_C_TGT_RX], 200);
+  CHECK_EQ(b.comp[NTP_C_TGT_SUB], 300);
+  CHECK_EQ(b.comp[NTP_C_TGT_BE], 4000);
+  CHECK_EQ(b.comp[NTP_C_TGT_CMPL], 300);
+  CHECK_EQ(b.comp[NTP_C_NET], 8000 - 4800);
+  CHECK_EQ(b.comp[NTP_C_NET_DATA], 3000); /* RDMA WRITE + response */
+  CHECK_EQ(b.comp[NTP_C_HOST_RX], 100);
+  CHECK(!ntp_comp_valid(&b, NTP_C_TGT_DEV)); /* SPDK's bdev has no split */
+  CHECK_EQ(b.comp[NTP_C_E2E], 8400);
+  CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
+  CHECK_EQ(b.stage[NTP_S1], 0);
+
+  /* a write carried in the command capsule: no data transfer */
+  h.hdr.flags |= NTP_F_WRITE;
+  t.hdr.flags |= NTP_F_WRITE | NTP_F_INLINE_DATA;
+  t.ts[NTP_T_C2H_SENT] = 0;
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK_EQ(b.io_class, NTP_IO_CLASS_WRITE_INLINE);
+  CHECK(!ntp_comp_valid(&b, NTP_C_NET_DATA));
+  CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
+
+  /* fetched with RDMA READ: posted at 50300, its completion polled at 50450 */
+  t.hdr.flags = NTP_F_SPDK | NTP_F_WRITE | NTP_F_RDMA_READ;
+  t.ts[NTP_T_R2T_QUEUED] = 50250;
+  t.ts[NTP_T_R2T_SENT] = 50300;
+  t.ts[NTP_T_DATA_ARR] = t.ts[NTP_T_DATA_PROC] = 50450;
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK_EQ(b.io_class, NTP_IO_CLASS_WRITE_R2T);
+  CHECK_EQ(b.comp[NTP_C_NET_DATA], 150);
+  CHECK_EQ(b.comp[NTP_C_TGT_SUB], 100 + 50);
+  CHECK_EQ(b.comp[NTP_C_NET], 8000 - (4800 - 150));
+  CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
+}
+
 int main(void) {
   RUN(test_names_fit);
   RUN(test_rdma_read);
   RUN(test_rdma_write_fetch);
+  RUN(test_spdk_rdma);
   RUN(test_read_joined);
   RUN(test_read_host_only);
   RUN(test_read_data_phase);

@@ -11,11 +11,13 @@ SPDK v26.05:
 | `lib/sock/sock.c`, `lib/sock/spdk_sock.map` | `g_ntprof_sample_every`, exported |
 | `lib/nvme/nvme_tcp.c` | host times; probe `nvme_tcp_done`; `nvme_tcp_req.ntprof`, `.ntprof_times` |
 | `lib/nvmf/tcp.c` | target times; probe `nvmf_tcp_done`; `spdk_nvmf_tcp_req.ntprof`, `.ntprof_times` |
+| `lib/nvme/nvme_rdma.c` | NVMe/RDMA host times; probe `nvme_rdma_done`; `spdk_nvme_rdma_req.ntprof`, `nvme_rdma_qpair.ntprof_posts` |
+| `lib/nvmf/rdma.c` | NVMe/RDMA target times; probe `nvmf_rdma_done`; `spdk_nvmf_rdma_request.ntprof`, `.ntprof_cmd`, `spdk_nvmf_rdma_recv.ntprof_arr`, `spdk_nvmf_rdma_qpair.ntprof_posts` |
 
 ```sh
 cd spdk && git checkout v26.05 && git submodule update --init
 git apply /path/to/ntprof/spdk/ntprof-usdt-v26.05.patch
-./configure --with-usdt && make
+./configure --with-usdt --with-rdma && make
 readelf -n build/bin/nvmf_tgt | grep -c 'Provider: ntprof'   # probe sites
 ```
 

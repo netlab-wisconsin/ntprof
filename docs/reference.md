@@ -14,6 +14,7 @@ has, so it starts and stops on a running machine.
 | Linux NVMe/TCP | `nvme-tcp` | `nvmet-tcp` |
 | Linux NVMe/RDMA | `nvme-rdma` | `nvmet-rdma` |
 | SPDK NVMe/TCP | `lib/nvme` (e.g. `spdk_nvme_perf`) | `nvmf_tgt` |
+| SPDK NVMe/RDMA | `lib/nvme` (e.g. `spdk_nvme_perf`) | `nvmf_tgt` |
 
 Linux: 5.15 and 6.x, tested on 6.8 and 6.11 and on two 5.15 hosts with MLNX OFED's NVMe modules (ConnectX-7,
 Samsung PM9A3), no patch. SPDK: v26.05 with the probes from [`spdk/`](../spdk) (section
@@ -186,14 +187,14 @@ fallback; a second Ctrl-C leaves a stuck attach behind.
 
 ## SPDK
 
-SPDK runs NVMe/TCP in user space, where kernel hooks see nothing of it. ntprof uses USDT probes instead, which
-[`spdk/ntprof-usdt-v26.05.patch`](../spdk/ntprof-usdt-v26.05.patch) adds to SPDK's NVMe/TCP host, target and
-socket layer:
+SPDK runs NVMe/TCP and NVMe/RDMA in user space, where kernel hooks see nothing of it. ntprof uses USDT probes
+instead, which [`spdk/ntprof-usdt-v26.05.patch`](../spdk/ntprof-usdt-v26.05.patch) adds to SPDK's NVMe/TCP and
+NVMe/RDMA hosts and targets and to its socket layer:
 
 ```sh
 cd spdk && git checkout v26.05
 git apply /path/to/ntprof/spdk/ntprof-usdt-v26.05.patch
-./configure --with-usdt && make
+./configure --with-usdt --with-rdma && make
 ```
 
 Start the SPDK applications first, then ntprof, naming the binary of each side that runs in SPDK:
@@ -205,6 +206,8 @@ sudo ntprof record -r target --spdk-target spdk/build/bin/nvmf_tgt -o target.ntp
 sudo ntprof record -r both -s 1 --spdk-host spdk/build/bin/spdk_nvme_perf \
                                 --spdk-target spdk/build/bin/nvmf_tgt
 sudo ntprof record -r both --spdk-target spdk/build/bin/nvmf_tgt   # kernel host
+sudo ntprof record -r both -t rdma --spdk-host spdk/build/bin/spdk_nvme_perf \
+                                   --spdk-target spdk/build/bin/nvmf_tgt
 ```
 
 - ntprof profiles every running process that maps the named file. With SPDK's shared libraries, name the
@@ -266,8 +269,9 @@ No SSD and no NIC is involved:
   only the target side (at `ADDR` on `NETDEV`) and `connect ADDR [io_queues]` only the host side;
   `NULLB_MBPS` limits null_blk's bandwidth, a stand-in for a busy drive.
 - `tests/spdk-target.sh up [delay_us]` starts an SPDK `nvmf_tgt` exporting a null bdev on 127.0.0.1:4421
-  (reserving hugepages if needed); `delay_us` puts a delay bdev in front. `tests/spdk-target.sh trid` prints
-  the transport ID for `spdk_nvme_perf -r`; `down` stops it.
+  (reserving hugepages if needed); `delay_us` puts a delay bdev in front. `TRTYPE=rdma` with `ADDR` set to an
+  RDMA interface's address serves NVMe/RDMA instead, and `AIO=/dev/...` exports that block device instead of
+  the null bdev. `tests/spdk-target.sh trid` prints the transport ID for `spdk_nvme_perf -r`; `down` stops it.
 
 ## Layout
 
@@ -278,7 +282,7 @@ No SSD and no NIC is involved:
 | `bpf/common.bpf.h` | maps and helpers of every BPF object |
 | `bpf/host.bpf.h`, `bpf/target.bpf.h` | the block-layer and NVMe-core hooks of the kernel objects |
 | `bpf/nvme_{tcp,rdma}_{host,target}.bpf.c` | the kernel transports' hooks |
-| `bpf/spdk.bpf.h`, `bpf/spdk_tcp_{host,target}.bpf.c` | SPDK's probes |
+| `bpf/spdk.bpf.h`, `bpf/spdk_{tcp,rdma}_{host,target}.bpf.c` | SPDK's probes |
 | `spdk/` | the SPDK patch that adds the probes |
 | `src/loader.c`, `src/spdk.c` | BTF and flavour choice, hook selection, attach, ring buffer; SPDK processes |
 | `src/record.c`, `src/offline.c` | `record`; `report`, `compare`, `dump` |

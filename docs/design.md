@@ -3,7 +3,7 @@
 ntprof measures the latency of each NVMe-over-Fabrics I/O, split into the
 stages of its path from the host's block layer to the target's drive and
 back, with eBPF on unmodified kernels for NVMe/TCP and NVMe/RDMA, and with
-USDT probes for SPDK's user-space NVMe/TCP (section 8). The stage model is
+USDT probes for SPDK's user-space NVMe/TCP and NVMe/RDMA (section 8). The stage model is
 the one of the NSDI '25 paper (section 4). This document explains how ntprof
 gets there.
 
@@ -17,7 +17,7 @@ gets there.
 | Sampling | both sides hash (cid, slba, nlb) and keep the same one command in N |
 | Analysis | in user space, online or from record files |
 | Output | text, JSON, raw records (CSV via `dump`), LAD between runs |
-| Transports | NVMe/TCP and NVMe/RDMA in the kernel, host and target; SPDK NVMe/TCP, host and target |
+| Transports | NVMe/TCP and NVMe/RDMA in the kernel and in SPDK, host and target |
 
 ## 2. Hooks
 
@@ -496,13 +496,38 @@ storage, without the block-layer split. Records carry `NTP_F_SPDK`; a
 host's session is named `spdk-c<cntlid>n<nsid>`. Throughput of an SPDK
 host is the sampled commands times the sampling period.
 
+**NVMe/RDMA.** SPDK's RDMA host (`lib/nvme/nvme_rdma.c`) and target
+(`lib/nvmf/rdma.c`) poll their completion queues and post their work
+requests themselves, so SPDK times every event and no kernel hook is needed
+(probes `nvme_rdma_done`, `nvmf_rdma_done`; objects
+`bpf/spdk_rdma_{host,target}.bpf.c`). Both queue work requests and post them
+in batches (`spdk_rdma_provider_qp_flush_send_wrs()`), the target at the end
+of each poll: a sampled command waiting for the next batch is kept in a
+small per-queue-pair list (`struct ntprof_posts`) and stamped when the batch
+is posted. A completion is timed when the poller took it from the completion
+queue (one clock read per non-empty poll while ntprof samples). The target
+copies a sampled command out of its receive buffer, which goes back to the
+receive queue before the request completes; and since a keyed SGL holds only
+24 bits of the length, both sides pass the data length in the times.
+
+| Event | Where in SPDK | Record (as the kernel's NVMe/RDMA objects) |
+|---|---|---|
+| host SUBMIT, DONE | `nvme_rdma_qpair_submit_request`, `nvme_rdma_req_complete` | `NTP_H_START`, `NTP_H_QUEUE_RQ`; `NTP_H_RSP_PROC`, `NTP_H_NVME_DONE`, `NTP_H_BLK_DONE` |
+| CMD_POSTED | the batch with the command's SEND posted | `NTP_H_CMD_SENT` |
+| SEND_DONE, RSP | its send completion, the response's receive completion polled | `NTP_H_SEND_DONE`, `NTP_H_RSP_ARR` |
+| target CMD_ARR, CMD | the command's receive completion polled; a request took it | `NTP_T_CMD_ARR`, `NTP_T_CMD_PROC` |
+| READ_QUEUED, READ_POSTED, READ_DONE | a write's RDMA READ queued, posted, its last completion polled | `NTP_T_R2T_QUEUED`, `NTP_T_R2T_SENT`, `NTP_T_DATA_ARR`/`_PROC`; `NTP_F_RDMA_READ` |
+| EXEC, EXECUTED | request states EXECUTING, EXECUTED (bdev layer) | `NTP_T_EXEC`, `NTP_T_COMPLETE` |
+| RSP_QUEUED, RSP_POSTED, SEND_DONE | the response (after a read's RDMA WRITE) queued, posted; its send completion polled | `NTP_T_RSP_QUEUED`, `NTP_T_RSP_SENT` (a read's `NTP_T_C2H_SENT` too), `NTP_T_SEND_DONE` |
+
 **Order.** The target's record comes when its request completes, which with
 zero-copy send waits for the kernel's notification; on one machine the host's
 record can come first (section 3).
 
 **Limits.** The patch is for SPDK v26.05. Only the posix socket module was
 tested (the uring module calls the same `spdk_sock_request_pend()`). SPDK's
-NVMe/RDMA is not instrumented. Over loopback the receiver's stack runs inside
+NVMe/RDMA was written against the `verbs` RDMA provider (the `mlx5_dv` one
+posts through the same flush call). Over loopback the receiver's stack runs inside
 the sender's `sendmsg()`, so the network share can be slightly negative
 (about -1 us for 4 KB writes); and a kernel target on the same machine runs
 its `io_work` on the CPU the packet arrived on, which is the SPDK host's

@@ -15,6 +15,7 @@
  *   RSP (its arrival)       -> NTP_H_RSP_ARR
  *   DONE                    -> NTP_H_RSP_PROC, NTP_H_NVME_DONE, NTP_H_BLK_DONE
  */
+#define NTP_SPDK_SOCKETS 1 /* packet arrival and send times from the kernel */
 #include "spdk.bpf.h"
 
 SEC("usdt")

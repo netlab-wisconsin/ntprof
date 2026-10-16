@@ -19,6 +19,7 @@
  * send waits for the kernel's notification; a host record of the same
  * machine can come first, and waits in the joiner.
  */
+#define NTP_SPDK_SOCKETS 1 /* packet arrival and send times from the kernel */
 #include "spdk.bpf.h"
 
 /* ---- the entries of this SPDK thread's tcp_sendmsg() calls ---- */

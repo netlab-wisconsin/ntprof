@@ -18,10 +18,10 @@ index fdf54b0..86de126 100644
  	int				iovcnt;
 diff --git a/include/spdk_internal/ntprof.h b/include/spdk_internal/ntprof.h
 new file mode 100644
-index 0000000..73dfa9f
+index 0000000..b16438e
 --- /dev/null
 +++ b/include/spdk_internal/ntprof.h
-@@ -0,0 +1,230 @@
+@@ -0,0 +1,314 @@
 +/*   SPDX-License-Identifier: BSD-3-Clause
 + *   Copyright (C) 2026 Yuyuan Kang.
 + *   All rights reserved.
@@ -29,7 +29,8 @@ index 0000000..73dfa9f
 +
 +/*
 + * Hooks for ntprof (https://github.com/netlab-wisconsin/ntprof), the
-+ * per-stage NVMe-oF latency profiler, in SPDK's NVMe/TCP initiator and target.
++ * per-stage NVMe-oF latency profiler, in SPDK's NVMe/TCP and NVMe/RDMA
++ * initiators and targets.
 + *
 + * ntprof samples one command in N. For a sampled command, the transports
 + * write the time of each stage boundary into the command's struct
@@ -48,6 +49,8 @@ index 0000000..73dfa9f
 + * Provider "ntprof":
 + *   nvme_tcp_done (tcp_req, struct spdk_nvme_cmd *, qid, cntlid, struct ntprof_times *)
 + *   nvmf_tcp_done (tcp_req, struct spdk_nvme_cmd *, qid, cntlid, struct ntprof_times *)
++ *   nvme_rdma_done (rdma_req, struct spdk_nvme_cmd *, qid, cntlid, struct ntprof_times *)
++ *   nvmf_rdma_done (rdma_req, struct spdk_nvme_cmd *, qid, cntlid, struct ntprof_times *)
 + * The layout of struct ntprof_times is ntprof's ABI: change it only together
 + * with ntprof's bpf/spdk.bpf.h.
 + */
@@ -89,7 +92,36 @@ index 0000000..73dfa9f
 +	NTPROF_T_NR,
 +};
 +
++/*
++ * NVMe/RDMA. The transports queue work requests and post them in batches
++ * (spdk_rdma_provider_qp_flush_send_wrs()); "posted" is when the batch was.
++ * A completion is timed when the poller took it from the completion queue.
++ */
++enum ntprof_rdma_host_event {
++	NTPROF_RH_SUBMIT = 0,	/* submitted to the transport */
++	NTPROF_RH_CMD_POSTED,	/* the command's SEND was posted */
++	NTPROF_RH_SEND_DONE,	/* its send completion was polled */
++	NTPROF_RH_RSP,		/* the response's receive completion was polled */
++	NTPROF_RH_DONE,		/* completed to the submitter */
++	NTPROF_RH_NR,
++};
++
++enum ntprof_rdma_tgt_event {
++	NTPROF_RT_CMD_ARR = 0,	/* the command's receive completion was polled */
++	NTPROF_RT_CMD,		/* a request took the command */
++	NTPROF_RT_READ_QUEUED,	/* a write's first RDMA READ was queued */
++	NTPROF_RT_READ_POSTED,	/* ... and posted */
++	NTPROF_RT_READ_DONE,	/* the last RDMA READ's completion was polled */
++	NTPROF_RT_EXEC,		/* handed to the bdev layer */
++	NTPROF_RT_EXECUTED,	/* back from the bdev layer */
++	NTPROF_RT_RSP_QUEUED,	/* the response (after a read's RDMA WRITE) was queued */
++	NTPROF_RT_RSP_POSTED,	/* ... and posted */
++	NTPROF_RT_SEND_DONE,	/* the response's send completion was polled */
++	NTPROF_RT_NR,
++};
++
 +#define NTPROF_TIMES 10
++SPDK_STATIC_ASSERT(NTPROF_RT_NR <= NTPROF_TIMES, "Too many events");
 +#define NTPROF_F_C2H_SUCCESS	(1u << 0)	/* the response came as the C2H SUCCESS flag */
 +
 +/* Per command, in the transport's request. */
@@ -98,8 +130,11 @@ index 0000000..73dfa9f
 +	uint16_t	r2ts;			/* R2Ts parsed (initiator) or queued (target) */
 +	uint16_t	flags;			/* NTPROF_F_* */
 +	uint8_t		on;			/* the command is sampled */
++	uint8_t		post_ev;		/* RDMA: 1 + the event the next posting stamps */
++	uint16_t	reserved1;
++	uint32_t	bytes;			/* RDMA: the data length (a keyed SGL holds 24 bits) */
 +	/* two cache lines: struct nvme_tcp_req must stay a multiple of one */
-+	uint8_t		reserved[43];
++	uint8_t		reserved[36];
 +};
 +SPDK_STATIC_ASSERT(sizeof(struct ntprof_times) == 128, "Incorrect size");
 +
@@ -136,6 +171,55 @@ index 0000000..73dfa9f
 +	if (t->t[ev] == 0) {
 +		t->t[ev] = ntprof_now();
 +	}
++}
++
++/*
++ * Sampled RDMA commands whose work requests a queue pair has queued but not
++ * posted yet. More than NTPROF_POSTS between two postings (one in a thousand
++ * commands is sampled by default) are stamped when queued.
++ */
++#define NTPROF_POSTS 8
++
++struct ntprof_posts {
++	struct ntprof_times	*t[NTPROF_POSTS];
++	uint8_t			n;
++};
++
++/* Stamp @ev of @t when the work requests queued now are posted. */
++static inline void
++ntprof_post_later(struct ntprof_posts *p, struct ntprof_times *t, int ev)
++{
++	if (p->n == NTPROF_POSTS) {
++		ntprof_stamp(t, ev);
++		return;
++	}
++	t->post_ev = (uint8_t)(ev + 1);
++	p->t[p->n++] = t;
++}
++
++/*
++ * The queue pair posted what it had queued. A command that was freed and
++ * reused meanwhile has post_ev 0 (ntprof_begin() cleared it) and is skipped.
++ */
++static inline void
++ntprof_posted(struct ntprof_posts *p)
++{
++	uint64_t now;
++	uint8_t i;
++
++	if (spdk_likely(p->n == 0)) {
++		return;
++	}
++	now = ntprof_now();
++	for (i = 0; i < p->n; i++) {
++		struct ntprof_times *t = p->t[i];
++
++		if (t->on && t->post_ev && t->t[t->post_ev - 1] == 0) {
++			t->t[t->post_ev - 1] = now;
++		}
++		t->post_ev = 0;
++	}
++	p->n = 0;
 +}
 +
 +/*
@@ -283,6 +367,149 @@ index 8cacca3..46f1656 100644
  
  	closed = sock->flags.closed;
  	sock->cb_cnt++;
+diff --git a/lib/nvme/nvme_rdma.c b/lib/nvme/nvme_rdma.c
+index a4ec58c..3dbe762 100644
+--- a/lib/nvme/nvme_rdma.c
++++ b/lib/nvme/nvme_rdma.c
+@@ -26,6 +26,7 @@
+ #include "spdk/tree.h"
+ #include "spdk_internal/rdma_provider.h"
+ #include "spdk_internal/rdma_utils.h"
++#include "spdk_internal/ntprof.h"
+ #include "spdk_internal/sgl.h"
+ 
+ #define NVME_RDMA_TIME_OUT_IN_MS 2000
+@@ -241,6 +242,9 @@ struct nvme_rdma_qpair {
+ 
+ 	TAILQ_ENTRY(nvme_rdma_qpair)		link_active;
+ 
++	/* ntprof: sampled commands whose SEND is queued but not posted */
++	struct ntprof_posts			ntprof_posts;
++
+ 	/* Placed at the end of the struct since it is not used frequently */
+ 	struct rdma_cm_event			*evt;
+ 	struct nvme_rdma_poller			*poller;
+@@ -280,6 +284,9 @@ struct spdk_nvme_rdma_req {
+ 
+ 	TAILQ_ENTRY(spdk_nvme_rdma_req)		link;
+ 
++	/* ntprof: is the command sampled, and its times */
++	struct ntprof_times			ntprof;
++
+ 	/* Fields below are not used in regular IO path, keep them last */
+ 	spdk_memory_domain_data_cpl_cb		transfer_cpl_cb;
+ 	void					*transfer_cpl_cb_arg;
+@@ -451,6 +458,13 @@ nvme_rdma_req_complete(struct spdk_nvme_rdma_req *rdma_req,
+ 
+ 	nvme_rdma_qpair_remove_req(rqpair, rdma_req);
+ 
++	if (spdk_unlikely(rdma_req->ntprof.on)) {
++		rdma_req->ntprof.t[NTPROF_RH_DONE] = ntprof_now();
++		rdma_req->ntprof.bytes = req->payload.size;
++		NTPROF_PROBE5(nvme_rdma_done, rdma_req, &req->cmd, qpair->id, qpair->ctrlr->cntlid,
++			      &rdma_req->ntprof);
++		rdma_req->ntprof.on = 0;
++	}
+ 	nvme_complete_request(req->cb_fn, req->cb_arg, qpair, req, rsp);
+ 	nvme_rdma_req_put(rqpair, rdma_req);
+ }
+@@ -881,6 +895,7 @@ nvme_rdma_qpair_submit_sends(struct nvme_rdma_qpair *rqpair)
+ 	int rc;
+ 
+ 	rc = spdk_rdma_provider_qp_flush_send_wrs(rqpair->rdma_qp, &bad_send_wr);
++	ntprof_posted(&rqpair->ntprof_posts);
+ 
+ 	if (spdk_unlikely(rc)) {
+ 		NVME_RQPAIR_ERRLOG(rqpair, "Failed to post WRs on send queue, errno %d (%s), bad_wr %p\n",
+@@ -2379,6 +2394,7 @@ nvme_rdma_qpair_flush_send_wrs(struct nvme_rdma_qpair *rqpair)
+ 	int rc;
+ 
+ 	rc = spdk_rdma_provider_qp_flush_send_wrs(rqpair->rdma_qp, &bad_wr);
++	ntprof_posted(&rqpair->ntprof_posts);
+ 	if (rc) {
+ 		nvme_rdma_reset_failed_sends(rqpair, bad_wr);
+ 	}
+@@ -2867,6 +2883,9 @@ _nvme_rdma_qpair_submit_request(struct nvme_rdma_qpair *rqpair,
+ 	nvme_rdma_trace_ibv_sge(wr->sg_list);
+ 
+ 	spdk_rdma_provider_qp_queue_send_wrs(rqpair->rdma_qp, wr);
++	if (spdk_unlikely(rdma_req->ntprof.on)) {
++		ntprof_post_later(&rqpair->ntprof_posts, &rdma_req->ntprof, NTPROF_RH_CMD_POSTED);
++	}
+ 
+ 	if (!rqpair->delay_cmd_submit) {
+ 		return nvme_rdma_qpair_submit_sends(rqpair);
+@@ -2899,6 +2918,7 @@ nvme_rdma_qpair_submit_request(struct spdk_nvme_qpair *qpair,
+ 	assert(rdma_req->req == NULL);
+ 	rdma_req->req = req;
+ 	req->cmd.cid = rdma_req->id;
++	ntprof_begin(&rdma_req->ntprof, &req->cmd, NTPROF_RH_SUBMIT);
+ 	if (req->accel_sequence || rqpair->append_copy) {
+ 		assert(spdk_rdma_provider_accel_sequence_supported());
+ 		assert(rqpair->qpair.poll_group->group);
+@@ -3028,6 +3048,26 @@ nvme_rdma_request_ready(struct nvme_rdma_qpair *rqpair, struct spdk_nvme_rdma_re
+ 
+ #define MAX_COMPLETIONS_PER_POLL 128
+ 
++/* ntprof: when this thread last took completions from a completion queue */
++static __thread uint64_t g_ntprof_poll;
++
++static inline void
++nvme_rdma_ntprof_polled(int reaped)
++{
++	if (spdk_unlikely(g_ntprof_sample_every) && reaped > 0) {
++		g_ntprof_poll = ntprof_now();
++	}
++}
++
++/* The time of the poll that took a completion of @t, or now. */
++static inline uint64_t
++nvme_rdma_ntprof_poll_time(const struct ntprof_times *t)
++{
++	uint64_t poll = g_ntprof_poll;
++
++	return poll && poll >= t->t[NTPROF_RH_SUBMIT] ? poll : ntprof_now();
++}
++
+ static void
+ nvme_rdma_fail_qpair(struct spdk_nvme_qpair *qpair, int failure_reason)
+ {
+@@ -3084,6 +3124,9 @@ nvme_rdma_process_recv_completion(struct nvme_rdma_poller *poller, struct nvme_r
+ 	rdma_req = &rqpair->rdma_reqs[rdma_rsp->cpl.cid];
+ 	rdma_req->completion_flags |= NVME_RDMA_RECV_COMPLETED;
+ 	rdma_req->cpl = rdma_rsp->cpl;
++	if (spdk_unlikely(rdma_req->ntprof.on)) {
++		rdma_req->ntprof.t[NTPROF_RH_RSP] = nvme_rdma_ntprof_poll_time(&rdma_req->ntprof);
++	}
+ 
+ 	recv_wr = rdma_rsp->recv_wr;
+ 	recv_wr->next = NULL;
+@@ -3168,6 +3211,9 @@ nvme_rdma_process_send_completion(struct nvme_rdma_poller *poller,
+ 	}
+ 
+ 	rdma_req->completion_flags |= NVME_RDMA_SEND_COMPLETED;
++	if (spdk_unlikely(rdma_req->ntprof.on)) {
++		rdma_req->ntprof.t[NTPROF_RH_SEND_DONE] = nvme_rdma_ntprof_poll_time(&rdma_req->ntprof);
++	}
+ 	assert(rqpair->current_num_sends > 0);
+ 	rqpair->current_num_sends--;
+ 
+@@ -3198,6 +3244,7 @@ nvme_rdma_qpair_process_cq_completions(struct nvme_rdma_qpair *rdma_qpair, uint3
+ 	int				rc, _rc, i;
+ 
+ 	rc = spdk_rdma_utils_poll_cq(rdma_qpair->cq, batch_size, wc);
++	nvme_rdma_ntprof_polled(rc);
+ 	if (spdk_unlikely(rc < 0)) {
+ 		NVME_RQPAIR_ERRLOG(rdma_qpair, "Error polling CQ! (%d): %s\n", errno, spdk_strerror(errno));
+ 		return -ECANCELED;
+@@ -3671,6 +3718,7 @@ nvme_rdma_poller_process_cq_completions(struct nvme_rdma_poller *poller, uint32_
+ 	int				rc, _rc, i;
+ 
+ 	rc = spdk_rdma_utils_poll_cq(poller->cq, batch_size, wc);
++	nvme_rdma_ntprof_polled(rc);
+ 	if (spdk_unlikely(rc < 0)) {
+ 		SPDK_ERRLOG("Error polling CQ of poller(%p)! (%d): %s\n", poller, errno, spdk_strerror(errno));
+ 		return -ECANCELED;
 diff --git a/lib/nvme/nvme_tcp.c b/lib/nvme/nvme_tcp.c
 index cf9a837..427b74f 100644
 --- a/lib/nvme/nvme_tcp.c
@@ -392,6 +619,171 @@ index cf9a837..427b74f 100644
  	nvme_tcp_qpair_set_recv_state(tqpair, NVME_TCP_PDU_RECV_STATE_AWAIT_PDU_READY);
  
  	if (spdk_likely(tcp_req->ordering.bits.send_ack)) {
+diff --git a/lib/nvmf/rdma.c b/lib/nvmf/rdma.c
+index e98b549..f1232ee 100644
+--- a/lib/nvmf/rdma.c
++++ b/lib/nvmf/rdma.c
+@@ -19,6 +19,7 @@
+ #include "spdk/log.h"
+ #include "spdk_internal/rdma_provider.h"
+ #include "spdk_internal/rdma_utils.h"
++#include "spdk_internal/ntprof.h"
+ 
+ #include "nvmf_internal.h"
+ #include "transport.h"
+@@ -231,6 +232,8 @@ struct spdk_nvmf_rdma_recv {
+ 
+ 	struct spdk_nvmf_rdma_wr		rdma_wr;
+ 	uint64_t				receive_tsc;
++	/* ntprof: when its completion was polled, while ntprof samples */
++	uint64_t				ntprof_arr;
+ 
+ 	STAILQ_ENTRY(spdk_nvmf_rdma_recv)	link;
+ };
+@@ -271,6 +274,10 @@ struct spdk_nvmf_rdma_request {
+ 	STAILQ_ENTRY(spdk_nvmf_rdma_request)	state_link;
+ 	struct ibv_send_wr			*remaining_tranfer_in_wrs;
+ 	struct ibv_send_wr			*transfer_wr;
++	/* ntprof: is the command sampled, its times and, if it is, a copy of it
++	 * (the receive buffer is posted again before the request completes) */
++	struct ntprof_times			ntprof;
++	struct spdk_nvme_cmd			ntprof_cmd;
+ 	struct spdk_nvmf_rdma_request_data	data;
+ };
+ 
+@@ -406,6 +413,9 @@ struct spdk_nvmf_rdma_qpair {
+ 	/* Save the listen_trid by rqpair itself instead of get it from listen_id
+ 	 * everytime, because the listen_id may be freed before the qpair is destroyed */
+ 	struct spdk_nvme_transport_id		listen_trid;
++
++	/* ntprof: sampled commands whose work requests are queued but not posted */
++	struct ntprof_posts			ntprof_posts;
+ };
+ 
+ struct spdk_nvmf_rdma_poller_stat {
+@@ -1149,6 +1159,11 @@ request_transfer_in(struct spdk_nvmf_request *req)
+ 	if (spdk_rdma_provider_qp_queue_send_wrs(rqpair->rdma_qp, rdma_req->transfer_wr)) {
+ 		STAILQ_INSERT_TAIL(&rqpair->poller->qpairs_pending_send, rqpair, send_link);
+ 	}
++	if (spdk_unlikely(rdma_req->ntprof.on)) {
++		ntprof_stamp(&rdma_req->ntprof, NTPROF_RT_READ_QUEUED);
++		ntprof_post_later(&rqpair->ntprof_posts, &rdma_req->ntprof, NTPROF_RT_READ_POSTED);
++		rdma_req->ntprof.r2ts++;
++	}
+ 	if (rtransport->rdma_opts.no_wr_batching) {
+ 		_poller_submit_sends(rtransport, rqpair->poller);
+ 	}
+@@ -1258,6 +1273,10 @@ request_transfer_out(struct spdk_nvmf_request *req, int *data_posted)
+ 	if (spdk_rdma_provider_qp_queue_send_wrs(rqpair->rdma_qp, first)) {
+ 		STAILQ_INSERT_TAIL(&rqpair->poller->qpairs_pending_send, rqpair, send_link);
+ 	}
++	if (spdk_unlikely(rdma_req->ntprof.on)) {
++		ntprof_stamp(&rdma_req->ntprof, NTPROF_RT_RSP_QUEUED);
++		ntprof_post_later(&rqpair->ntprof_posts, &rdma_req->ntprof, NTPROF_RT_RSP_POSTED);
++	}
+ 	if (rtransport->rdma_opts.no_wr_batching || spdk_interrupt_mode_is_enabled()) {
+ 		_poller_submit_sends(rtransport, rqpair->poller);
+ 	}
+@@ -2189,6 +2208,13 @@ nvmf_rdma_request_process(struct spdk_nvmf_rdma_transport *rtransport,
+ 
+ 			/* The first element of the SGL is the NVMe command */
+ 			rdma_req->req.cmd = (union nvmf_h2c_msg *)rdma_recv->sgl[0].addr;
++			ntprof_begin(&rdma_req->ntprof, &rdma_req->req.cmd->nvme_cmd, NTPROF_RT_CMD);
++			if (spdk_unlikely(rdma_req->ntprof.on)) {
++				rdma_req->ntprof_cmd = rdma_req->req.cmd->nvme_cmd;
++				if (rdma_recv->ntprof_arr <= rdma_req->ntprof.t[NTPROF_RT_CMD]) {
++					rdma_req->ntprof.t[NTPROF_RT_CMD_ARR] = rdma_recv->ntprof_arr;
++				}
++			}
+ 			memset(rdma_req->req.rsp, 0, sizeof(*rdma_req->req.rsp));
+ 			rdma_req->transfer_wr = &rdma_req->data.wr;
+ 			rdma_req->num_wrs = 1;
+@@ -2434,6 +2460,9 @@ nvmf_rdma_request_process(struct spdk_nvmf_rdma_transport *rtransport,
+ 				rdma_req->fused_pair = NULL;
+ 			}
+ 			rdma_req->state = RDMA_REQUEST_STATE_EXECUTING;
++			if (spdk_unlikely(rdma_req->ntprof.on)) {
++				ntprof_stamp(&rdma_req->ntprof, NTPROF_RT_EXEC);
++			}
+ 			spdk_nvmf_request_exec(&rdma_req->req);
+ 			if (rdma_req->req.cmd->nvme_cmd.fuse == SPDK_NVME_CMD_FUSE_FIRST) {
+ 				assert(rdma_req->fused_pair != NULL);
+@@ -2566,6 +2595,12 @@ nvmf_rdma_request_process(struct spdk_nvmf_rdma_transport *rtransport,
+ 					  (uintptr_t)rdma_req, (uintptr_t)rqpair, rqpair->qpair.queue_depth);
+ 
+ 			rqpair->poller->stat.request_latency += spdk_get_ticks() - rdma_req->receive_tsc;
++			if (spdk_unlikely(rdma_req->ntprof.on)) {
++				rdma_req->ntprof.bytes = rdma_req->req.length;
++				NTPROF_PROBE5(nvmf_rdma_done, rdma_req, &rdma_req->ntprof_cmd, rqpair->qpair.qid,
++					      rqpair->qpair.ctrlr ? rqpair->qpair.ctrlr->cntlid : 0, &rdma_req->ntprof);
++				rdma_req->ntprof.on = 0;
++			}
+ 			nvmf_rdma_request_free(&rdma_req->req);
+ 			break;
+ 		case RDMA_REQUEST_NUM_STATES:
+@@ -4591,6 +4626,9 @@ nvmf_rdma_request_complete(struct spdk_nvmf_request *req)
+ 	} else {
+ 		/* The connection is alive, so process the request as normal */
+ 		rdma_req->state = RDMA_REQUEST_STATE_EXECUTED;
++		if (spdk_unlikely(rdma_req->ntprof.on)) {
++			ntprof_stamp(&rdma_req->ntprof, NTPROF_RT_EXECUTED);
++		}
+ 	}
+ 
+ 	nvmf_rdma_request_process(rtransport, rdma_req);
+@@ -4834,6 +4872,7 @@ _poller_submit_sends(struct spdk_nvmf_rdma_transport *rtransport,
+ 	while (!STAILQ_EMPTY(&rpoller->qpairs_pending_send)) {
+ 		rqpair = STAILQ_FIRST(&rpoller->qpairs_pending_send);
+ 		rc = spdk_rdma_provider_qp_flush_send_wrs(rqpair->rdma_qp, &bad_wr);
++		ntprof_posted(&rqpair->ntprof_posts);
+ 
+ 		/* bad wr always points to the first wr that failed. */
+ 		if (spdk_unlikely(rc)) {
+@@ -4892,6 +4931,7 @@ nvmf_rdma_poller_poll(struct spdk_nvmf_rdma_transport *rtransport,
+ 	int rc;
+ 	bool error = false;
+ 	uint64_t poll_tsc = spdk_get_ticks();
++	uint64_t ntprof_poll = 0;
+ 
+ 	if (spdk_unlikely(rpoller->need_destroy)) {
+ 		/* If qpair is closed before poller destroy, nvmf_rdma_destroy_drained_qpair may not
+@@ -4912,6 +4952,8 @@ nvmf_rdma_poller_poll(struct spdk_nvmf_rdma_transport *rtransport,
+ 		return -1;
+ 	} else if (reaped == 0) {
+ 		rpoller->stat.idle_polls++;
++	} else if (spdk_unlikely(g_ntprof_sample_every)) {
++		ntprof_poll = ntprof_now();
+ 	}
+ 
+ 	rpoller->stat.polls++;
+@@ -4933,6 +4975,9 @@ nvmf_rdma_poller_poll(struct spdk_nvmf_rdma_transport *rtransport,
+ 			}
+ 
+ 			rdma_req->state = RDMA_REQUEST_STATE_COMPLETED;
++			if (spdk_unlikely(rdma_req->ntprof.on)) {
++				rdma_req->ntprof.t[NTPROF_RT_SEND_DONE] = ntprof_poll ? ntprof_poll : ntprof_now();
++			}
+ 			/* RDMA_WRITE operation completed. +1 since it was chained with rsp WR */
+ 			assert(rqpair->current_send_depth >= (uint32_t)rdma_req->num_outstanding_data_wr + 1);
+ 			rqpair->current_send_depth -= rdma_req->num_outstanding_data_wr + 1;
+@@ -4975,6 +5020,7 @@ nvmf_rdma_poller_poll(struct spdk_nvmf_rdma_transport *rtransport,
+ 			rdma_recv->wr.next = NULL;
+ 			rqpair->current_recv_depth++;
+ 			rdma_recv->receive_tsc = poll_tsc;
++			rdma_recv->ntprof_arr = ntprof_poll;
+ 			rpoller->stat.requests++;
+ 			STAILQ_INSERT_TAIL(&rqpair->resources->incoming_queue, rdma_recv, link);
+ 			if (rqpair->qpair.queue_depth == 0) {
+@@ -5004,6 +5050,9 @@ nvmf_rdma_poller_poll(struct spdk_nvmf_rdma_transport *rtransport,
+ 						break;
+ 					}
+ 					rdma_req->state = RDMA_REQUEST_STATE_READY_TO_EXECUTE;
++					if (spdk_unlikely(rdma_req->ntprof.on)) {
++						rdma_req->ntprof.t[NTPROF_RT_READ_DONE] = ntprof_poll ? ntprof_poll : ntprof_now();
++					}
+ 					nvmf_rdma_request_process(rtransport, rdma_req);
+ 				}
+ 			} else {
 diff --git a/lib/nvmf/tcp.c b/lib/nvmf/tcp.c
 index 8819b93..fcd0e5c 100644
 --- a/lib/nvmf/tcp.c

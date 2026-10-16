@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
- * SPDK's NVMe/TCP transports, through the hooks spdk/ntprof-usdt-*.patch
- * adds to SPDK.
+ * SPDK's NVMe/TCP and NVMe/RDMA transports, through the hooks
+ * spdk/ntprof-usdt-*.patch adds to SPDK.
  *
  * SPDK samples commands itself (ntprof writes the sampling period into the
  * process; SPDK applies ntp_sample_hash()) and, for a sampled command,
@@ -12,8 +12,8 @@
  * (about a microsecond); firing one per command and side, after its last
  * event, keeps that cost out of the times.
  *
- * Two times only the kernel sees are kept per SPDK thread, in rings, and
- * matched with the command's times when it is done:
+ * NVMe/TCP (NTP_SPDK_SOCKETS): two times only the kernel sees are kept per
+ * SPDK thread, in rings, and matched with the command's times when it is done:
  *  - packet arrival: for each tcp_recvmsg() that copied data, its start and
  *    the receive timestamp of its first skb. A PDU parsed at time t
  *    arrived with the first skb of the latest such call started before t.
@@ -23,6 +23,8 @@
  *  - the target's sends: the entries of tcp_sendmsg(). A PDU that SPDK's
  *    socket layer saw taken at time t was handed to TCP at the latest entry
  *    before t.
+ * NVMe/RDMA needs none: SPDK polls its completion queues and posts its work
+ * requests itself, and times both.
  */
 #ifndef NTPROF_SPDK_BPF_H
 #define NTPROF_SPDK_BPF_H
@@ -39,10 +41,12 @@
 
 struct spdk_times {
   u64 t[SPDK_TIMES]; /* ns, CLOCK_MONOTONIC; 0 = did not happen */
-  u16 r2ts;
+  u16 r2ts;          /* TCP: R2Ts; RDMA target: RDMA READ postings */
   u16 flags;
   u8 on;
-  u8 reserved[3];
+  u8 post_ev;    /* SPDK's own */
+  u16 reserved1;
+  u32 bytes;     /* RDMA: the data length; TCP: 0 (the SGL has it) */
 };
 
 #define SPDK_F_C2H_SUCCESS (1 << 0)
@@ -68,6 +72,29 @@ enum spdk_tgt_event {
   SPDK_T_RSP_QUEUED,
   SPDK_T_C2H_SENT,
   SPDK_T_RSP_SENT,
+};
+
+/* NVMe/RDMA: "posted" is when SPDK posted a batch of work requests, a
+ * completion's time when SPDK's poller took it from the completion queue. */
+enum spdk_rdma_host_event {
+  SPDK_RH_SUBMIT = 0,
+  SPDK_RH_CMD_POSTED,
+  SPDK_RH_SEND_DONE,
+  SPDK_RH_RSP,
+  SPDK_RH_DONE,
+};
+
+enum spdk_rdma_tgt_event {
+  SPDK_RT_CMD_ARR = 0,
+  SPDK_RT_CMD,
+  SPDK_RT_READ_QUEUED,
+  SPDK_RT_READ_POSTED,
+  SPDK_RT_READ_DONE,
+  SPDK_RT_EXEC,
+  SPDK_RT_EXECUTED,
+  SPDK_RT_RSP_QUEUED,
+  SPDK_RT_RSP_POSTED,
+  SPDK_RT_SEND_DONE,
 };
 
 /* Copy the identifying fields out of an SPDK struct spdk_nvme_cmd. */
@@ -103,6 +130,12 @@ static __always_inline bool spdk_process(void) {
   return false;
 }
 
+static __always_inline void spdk_submit(void* rec, u32 emitted) {
+  bpf_ringbuf_submit(rec, ntp_rb_flags());
+  ntp_count(emitted, 1);
+}
+
+#ifdef NTP_SPDK_SOCKETS
 /* ---- per-thread rings of (time, value), in a per-CPU slot ---- */
 
 #define SPDK_RING 512 /* a power of 2 */
@@ -250,11 +283,6 @@ static __always_inline u64 spdk_arrival(u64 parsed, u64 floor) {
   return (a && a >= floor && a <= parsed) ? a : parsed;
 }
 
-/* ---- records ---- */
-
-static __always_inline void spdk_submit(void* rec, u32 emitted) {
-  bpf_ringbuf_submit(rec, ntp_rb_flags());
-  ntp_count(emitted, 1);
-}
+#endif /* NTP_SPDK_SOCKETS */
 
 #endif /* NTPROF_SPDK_BPF_H */

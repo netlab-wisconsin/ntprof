@@ -38,7 +38,7 @@ BPF_CFLAGS := -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) -Wall -Werror \
               -I$(LIBBPF_INC) -Ilibbpf/include/uapi -Ibpf $(CLANG_BPF_SYS_INCLUDES)
 
 BPF_PROGS := nvme_tcp_host nvme_tcp_target nvme_rdma_host nvme_rdma_target \
-             spdk_tcp_host spdk_tcp_target
+             spdk_tcp_host spdk_tcp_target spdk_rdma_host spdk_rdma_target
 SKELS := $(patsubst %,$(OUTPUT)/%.skel.h,$(BPF_PROGS))
 
 APP_SRCS := src/main.c src/config.c src/record.c src/offline.c src/loader.c \

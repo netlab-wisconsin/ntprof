@@ -24,6 +24,8 @@
 #include "spdk.h"
 #include "spdk_tcp_host.skel.h"
 #include "spdk_tcp_target.skel.h"
+#include "spdk_rdma_host.skel.h"
+#include "spdk_rdma_target.skel.h"
 #include "util.h"
 
 #define KERNEL_BTF "/sys/kernel/btf/vmlinux"
@@ -88,6 +90,8 @@ SKEL_ADAPTER(nvme_rdma_host)
 SKEL_ADAPTER(nvme_rdma_target)
 SKEL_ADAPTER(spdk_tcp_host)
 SKEL_ADAPTER(spdk_tcp_target)
+SKEL_ADAPTER(spdk_rdma_host)
+SKEL_ADAPTER(spdk_rdma_target)
 
 /* Base names (without the _fe/_fx/_kp/_kr flavour suffix). */
 static const char* const tcp_host_required[] = {
@@ -129,6 +133,10 @@ static const char* const spdk_host_required[] = {"ntp_u_nvme_tcp_done", NULL};
 
 static const char* const spdk_target_required[] = {"ntp_u_nvmf_tcp_done", NULL};
 
+static const char* const spdk_rdma_host_required[] = {"ntp_u_nvme_rdma_done", NULL};
+
+static const char* const spdk_rdma_target_required[] = {"ntp_u_nvmf_rdma_done", NULL};
+
 static const struct obj_desc objects[] = {
     {"nvme_tcp_host", NTP_ROLE_HOST, NTP_TR_TCP, "nvme_tcp", tcp_host_required,
      open_nvme_tcp_host, destroy_nvme_tcp_host, false},
@@ -144,6 +152,12 @@ static const struct obj_desc objects[] = {
      open_spdk_tcp_host, destroy_spdk_tcp_host, true},
     {"spdk_tcp_target", NTP_ROLE_TARGET, NTP_TR_TCP, "nvmet_tcp",
      spdk_target_required, open_spdk_tcp_target, destroy_spdk_tcp_target, true},
+    /* SPDK's NVMe/RDMA hooks no kernel function */
+    {"spdk_rdma_host", NTP_ROLE_HOST, NTP_TR_RDMA, "nvme_rdma",
+     spdk_rdma_host_required, open_spdk_rdma_host, destroy_spdk_rdma_host, true},
+    {"spdk_rdma_target", NTP_ROLE_TARGET, NTP_TR_RDMA, "nvmet_rdma",
+     spdk_rdma_target_required, open_spdk_rdma_target, destroy_spdk_rdma_target,
+     true},
 };
 
 /* Does @role run in SPDK in this configuration? */
@@ -849,10 +863,6 @@ struct ntp_loader* ntp_loader_open(const struct ntp_config* c, ntp_record_cb cb,
   libbpf_set_print(libbpf_log);
 
   if (geteuid() != 0) ntp_warn("not running as root; loading will likely fail");
-  if ((c->spdk_host[0] || c->spdk_target[0]) && c->transport != NTP_TR_TCP) {
-    ntp_err("SPDK: only NVMe/TCP is supported so far");
-    goto fail;
-  }
   if ((c->role & NTP_ROLE_HOST) && c->spdk_host[0] && strcmp(c->session, "all")) {
     ntp_err("SESSION_NAME %s names a kernel block device; an SPDK host has "
             "none (use all)",
