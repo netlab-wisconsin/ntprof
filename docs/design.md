@@ -223,12 +223,12 @@ can be slightly negative (the target may see a packet before the host's
 | network: wire and NICs (computed) | (H_C2H_ARR - H_CMD_SENT) - (T_C2H_SENT - T_CMD_ARR) | (H_RSP_ARR - H_CMD_SENT) - (T_RSP_SENT - T_CMD_ARR) | two round trips: (H_R2T_ARR - H_CMD_SENT) - (T_R2T_SENT - T_CMD_ARR) + (H_RSP_ARR - H_DATA_START) - (T_RSP_SENT - T_DATA_ARR) |
 | network: target receive path | T_CMD_PROC - T_CMD_ARR | same | + (T_DATA_PROC - T_DATA_ARR) |
 | target driver, submission | T_EXEC - T_CMD_PROC | same (includes receiving the data) | (T_R2T_SENT - T_CMD_PROC) + (T_EXEC - T_DATA_DONE) |
-| network: rest of the data arriving at the target | - | - | (T_DATA_DONE - T_DATA_PROC) - busy |
+| network: rest of the data arriving (`target_data_wait`) | - | - | (T_DATA_DONE - T_DATA_PROC) - busy |
 | target driver, processing the data | - | - | busy |
 | storage: target block layer and drive | T_COMPLETE - T_EXEC | same | same |
 | target driver, completion | T_C2H_SENT - T_COMPLETE | T_RSP_SENT - T_COMPLETE | same |
 | network: host receive path | H_C2H_PROC - H_C2H_ARR | H_RSP_PROC - H_RSP_ARR | + (H_R2T_PROC - H_R2T_ARR) |
-| network: rest of the data arriving | (H_C2H_DONE - H_C2H_PROC) - busy | - | - |
+| network: rest of the data arriving (`host_data_wait`) | (H_C2H_DONE - H_C2H_PROC) - busy | - | - |
 | host driver, processing the data | busy | - | - |
 | host driver, completion | H_RSP_PROC - H_C2H_DONE | 0 | 0 |
 | host block layer, completion | H_BLK_DONE - H_RSP_PROC | same | same |

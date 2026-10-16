@@ -16,6 +16,15 @@ static int64_t main_sum(const struct ntp_breakdown* b) {
   return sum;
 }
 
+/* Every name fits the report's column (NAME_W in report.c), details indented by 2. */
+static void test_names_fit(void) {
+  for (int c = 0; c < NTP_C_NR; c++) {
+    size_t w = strlen(ntp_comps[c].desc) + (ntp_comps[c].detail ? 2 : 0);
+
+    CHECK(ntp_comps[c].desc[0] && w <= 38);
+  }
+}
+
 static void read_host(struct ntp_host_rec* h) {
   memset(h, 0, sizeof(*h));
   h->hdr.kind = NTP_REC_HOST;
@@ -470,6 +479,7 @@ static void test_rdma_write_fetch(void) {
 }
 
 int main(void) {
+  RUN(test_names_fit);
   RUN(test_rdma_read);
   RUN(test_rdma_write_fetch);
   RUN(test_read_joined);

@@ -21,7 +21,7 @@ const struct ntp_comp_info ntp_comps[NTP_C_NR] = {
     [NTP_C_TGT_SUB] = {"target_transport_submission", "target_driver",
                        "target driver, submission", false},
     [NTP_C_TGT_WAIT] = {"target_data_wait", "network",
-                        "network: rest of the data arriving at the target", false},
+                        "network: rest of the data arriving", false},
     [NTP_C_TGT_DATA] = {"target_data_processing", "target_driver",
                         "target driver, processing the data", false},
     [NTP_C_TGT_BE] = {"target_subsystem", "storage",
