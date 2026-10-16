@@ -503,8 +503,10 @@ requests themselves, so SPDK times every event and no kernel hook is needed
 `bpf/spdk_rdma_{host,target}.bpf.c`). Both queue work requests and post them
 in batches (`spdk_rdma_provider_qp_flush_send_wrs()`), the target at the end
 of each poll: a sampled command waiting for the next batch is kept in a
-small per-queue-pair list (`struct ntprof_posts`) and stamped when the batch
-is posted. A completion is timed when the poller took it from the completion
+small per-queue-pair list (`struct ntprof_posts`) and stamped right before
+the batch goes to `ibv_post_send()` (with soft-RoCE that call does the
+transfer itself, so a stamp after it would hold the send's completion). A
+completion is timed when the poller took it from the completion
 queue (one clock read per non-empty poll while ntprof samples). The target
 copies a sampled command out of its receive buffer, which goes back to the
 receive queue before the request completes; and since a keyed SGL holds only

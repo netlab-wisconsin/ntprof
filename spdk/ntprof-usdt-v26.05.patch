@@ -18,10 +18,10 @@ index fdf54b0..86de126 100644
  	int				iovcnt;
 diff --git a/include/spdk_internal/ntprof.h b/include/spdk_internal/ntprof.h
 new file mode 100644
-index 0000000..b16438e
+index 0000000..a21ee7f
 --- /dev/null
 +++ b/include/spdk_internal/ntprof.h
-@@ -0,0 +1,314 @@
+@@ -0,0 +1,317 @@
 +/*   SPDX-License-Identifier: BSD-3-Clause
 + *   Copyright (C) 2026 Yuyuan Kang.
 + *   All rights reserved.
@@ -94,7 +94,9 @@ index 0000000..b16438e
 +
 +/*
 + * NVMe/RDMA. The transports queue work requests and post them in batches
-+ * (spdk_rdma_provider_qp_flush_send_wrs()); "posted" is when the batch was.
++ * (spdk_rdma_provider_qp_flush_send_wrs()); "posted" is when the batch was
++ * handed to ibv_post_send(), which with a software RDMA device (rxe) does the
++ * transfer itself before it returns.
 + * A completion is timed when the poller took it from the completion queue.
 + */
 +enum ntprof_rdma_host_event {
@@ -198,8 +200,9 @@ index 0000000..b16438e
 +}
 +
 +/*
-+ * The queue pair posted what it had queued. A command that was freed and
-+ * reused meanwhile has post_ev 0 (ntprof_begin() cleared it) and is skipped.
++ * The queue pair is about to post what it has queued: call it right before
++ * the flush. A command that was freed and reused meanwhile has post_ev 0
++ * (ntprof_begin() cleared it) and is skipped.
 + */
 +static inline void
 +ntprof_posted(struct ntprof_posts *p)
@@ -368,7 +371,7 @@ index 8cacca3..46f1656 100644
  	closed = sock->flags.closed;
  	sock->cb_cnt++;
 diff --git a/lib/nvme/nvme_rdma.c b/lib/nvme/nvme_rdma.c
-index a4ec58c..3dbe762 100644
+index a4ec58c..2188c48 100644
 --- a/lib/nvme/nvme_rdma.c
 +++ b/lib/nvme/nvme_rdma.c
 @@ -26,6 +26,7 @@
@@ -413,22 +416,22 @@ index a4ec58c..3dbe762 100644
  	nvme_complete_request(req->cb_fn, req->cb_arg, qpair, req, rsp);
  	nvme_rdma_req_put(rqpair, rdma_req);
  }
-@@ -881,6 +895,7 @@ nvme_rdma_qpair_submit_sends(struct nvme_rdma_qpair *rqpair)
+@@ -880,6 +894,7 @@ nvme_rdma_qpair_submit_sends(struct nvme_rdma_qpair *rqpair)
+ 	struct ibv_send_wr *bad_send_wr = NULL;
  	int rc;
  
- 	rc = spdk_rdma_provider_qp_flush_send_wrs(rqpair->rdma_qp, &bad_send_wr);
 +	ntprof_posted(&rqpair->ntprof_posts);
+ 	rc = spdk_rdma_provider_qp_flush_send_wrs(rqpair->rdma_qp, &bad_send_wr);
  
  	if (spdk_unlikely(rc)) {
- 		NVME_RQPAIR_ERRLOG(rqpair, "Failed to post WRs on send queue, errno %d (%s), bad_wr %p\n",
-@@ -2379,6 +2394,7 @@ nvme_rdma_qpair_flush_send_wrs(struct nvme_rdma_qpair *rqpair)
+@@ -2378,6 +2393,7 @@ nvme_rdma_qpair_flush_send_wrs(struct nvme_rdma_qpair *rqpair)
+ 	struct ibv_send_wr *bad_wr = NULL;
  	int rc;
  
- 	rc = spdk_rdma_provider_qp_flush_send_wrs(rqpair->rdma_qp, &bad_wr);
 +	ntprof_posted(&rqpair->ntprof_posts);
+ 	rc = spdk_rdma_provider_qp_flush_send_wrs(rqpair->rdma_qp, &bad_wr);
  	if (rc) {
  		nvme_rdma_reset_failed_sends(rqpair, bad_wr);
- 	}
 @@ -2867,6 +2883,9 @@ _nvme_rdma_qpair_submit_request(struct nvme_rdma_qpair *rqpair,
  	nvme_rdma_trace_ibv_sge(wr->sg_list);
  
@@ -620,7 +623,7 @@ index cf9a837..427b74f 100644
  
  	if (spdk_likely(tcp_req->ordering.bits.send_ack)) {
 diff --git a/lib/nvmf/rdma.c b/lib/nvmf/rdma.c
-index e98b549..f1232ee 100644
+index e98b549..f196b79 100644
 --- a/lib/nvmf/rdma.c
 +++ b/lib/nvmf/rdma.c
 @@ -19,6 +19,7 @@
@@ -731,14 +734,14 @@ index e98b549..f1232ee 100644
  	}
  
  	nvmf_rdma_request_process(rtransport, rdma_req);
-@@ -4834,6 +4872,7 @@ _poller_submit_sends(struct spdk_nvmf_rdma_transport *rtransport,
+@@ -4833,6 +4871,7 @@ _poller_submit_sends(struct spdk_nvmf_rdma_transport *rtransport,
+ 
  	while (!STAILQ_EMPTY(&rpoller->qpairs_pending_send)) {
  		rqpair = STAILQ_FIRST(&rpoller->qpairs_pending_send);
- 		rc = spdk_rdma_provider_qp_flush_send_wrs(rqpair->rdma_qp, &bad_wr);
 +		ntprof_posted(&rqpair->ntprof_posts);
+ 		rc = spdk_rdma_provider_qp_flush_send_wrs(rqpair->rdma_qp, &bad_wr);
  
  		/* bad wr always points to the first wr that failed. */
- 		if (spdk_unlikely(rc)) {
 @@ -4892,6 +4931,7 @@ nvmf_rdma_poller_poll(struct spdk_nvmf_rdma_transport *rtransport,
  	int rc;
  	bool error = false;
