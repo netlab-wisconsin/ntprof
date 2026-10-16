@@ -190,7 +190,7 @@ static int stage_rows(struct ntp_group* g, bool joined, struct srow* rows) {
     /* a TCP read's wait for the rest of its data: network, seen from the host */
     if (g->comp[NTP_C_HOST_WAIT].n) {
       rows[n].key = "host_data_wait";
-      snprintf(rows[n].desc, sizeof(rows[n].desc), "waiting for the rest of the data");
+      snprintf(rows[n].desc, sizeof(rows[n].desc), "rest of the data arriving");
       rows[n++].v = &g->comp[NTP_C_HOST_WAIT];
     }
     rows[n].key = "network_and_target";

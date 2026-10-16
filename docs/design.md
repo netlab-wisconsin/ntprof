@@ -225,7 +225,7 @@ can be slightly negative (the target may see a packet before the host's
 | storage: target block layer and drive | T_COMPLETE - T_EXEC | same | same |
 | target driver, completion | T_C2H_SENT - T_COMPLETE | T_RSP_SENT - T_COMPLETE | same |
 | network: host receive path | H_C2H_PROC - H_C2H_ARR | H_RSP_PROC - H_RSP_ARR | + (H_R2T_PROC - H_R2T_ARR) |
-| network: waiting for the rest of the data | (H_C2H_DONE - H_C2H_PROC) - busy | - | - |
+| network: rest of the data arriving | (H_C2H_DONE - H_C2H_PROC) - busy | - | - |
 | host driver, processing the data | busy | - | - |
 | host driver, completion | H_RSP_PROC - H_C2H_DONE | 0 | 0 |
 | host block layer, completion | H_BLK_DONE - H_RSP_PROC | same | same |

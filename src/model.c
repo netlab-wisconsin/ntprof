@@ -27,7 +27,7 @@ const struct ntp_comp_info ntp_comps[NTP_C_NR] = {
     [NTP_C_HOST_RX] = {"host_rx_stack", "network", "network: host receive path",
                        false},
     [NTP_C_HOST_WAIT] = {"host_data_wait", "network",
-                         "network: waiting for the rest of the data", false},
+                         "network: rest of the data arriving", false},
     [NTP_C_HOST_DATA] = {"host_data_processing", "host_driver",
                          "host driver, processing the data", false},
     [NTP_C_TR_CMPL] = {"transport_completion", "host_driver",
