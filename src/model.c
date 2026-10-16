@@ -6,8 +6,9 @@
 #include "util.h"
 
 /* In the NSDI'25 paper's terms, in path order: S1(S), S2(S), S3-S5, S5(S),
- * S6(S), S7-S9, S6(C), S3(C), S2(C), S1(C); then S3-S9, S1-S9, S7(S), S8-S9,
- * S7(C), part of S1(C), and the RDMA data transfer within S3-S5. */
+ * S6(S), S7-S9, S6(C), S3(C), a TCP read's data phase in S3-S5 and S2(C),
+ * S2(C), S1(C); then S3-S9, S1-S9, S7(S), S8-S9, S7(C), part of S1(C), and the
+ * RDMA data transfer within S3-S5. */
 const struct ntp_comp_info ntp_comps[NTP_C_NR] = {
     [NTP_C_BLK_SUB] = {"blk_submission", "host_block_layer",
                        "host block layer, submission", false},
@@ -25,6 +26,10 @@ const struct ntp_comp_info ntp_comps[NTP_C_NR] = {
                         "target driver, completion", false},
     [NTP_C_HOST_RX] = {"host_rx_stack", "network", "network: host receive path",
                        false},
+    [NTP_C_HOST_WAIT] = {"host_data_wait", "network",
+                         "network: waiting for the rest of the data", false},
+    [NTP_C_HOST_DATA] = {"host_data_processing", "host_driver",
+                         "host driver, processing the data", false},
     [NTP_C_TR_CMPL] = {"transport_completion", "host_driver",
                        "host driver, completion", false},
     [NTP_C_BLK_CMPL] = {"blk_completion", "host_block_layer",
@@ -137,6 +142,32 @@ static void backend_details(const __u64* T, struct ntp_breakdown* b) {
 }
 
 /*
+ * NVMe/TCP read, from the transport's first copy of its data to the response.
+ * The data comes in many skbs, and the transport copies each as it is read
+ * while later ones are still on their way. The record holds the transport's
+ * own time on the read's data, the nvme_tcp_recv_skb calls that carried it:
+ * those calls follow each other inside [C2H_PROC, C2H_DONE], so the rest of
+ * that span is time the host waited for data still in flight. Records without
+ * it (file version 3 and older, SPDK) keep the whole span as the transport's
+ * completion.
+ */
+static void read_data_phase(const struct ntp_host_rec* h, struct ntp_breakdown* b) {
+  const __u64* H = h->ts;
+  int64_t span, busy;
+
+  if (!h->c2h_busy_ns || !H[NTP_H_C2H_DONE] || H[NTP_H_C2H_DONE] < H[NTP_H_C2H_PROC] ||
+      H[NTP_H_C2H_DONE] > H[NTP_H_RSP_PROC]) {
+    set(b, NTP_C_TR_CMPL, d(H[NTP_H_RSP_PROC], H[NTP_H_C2H_PROC]));
+    return;
+  }
+  span = d(H[NTP_H_C2H_DONE], H[NTP_H_C2H_PROC]);
+  busy = h->c2h_busy_ns > (uint64_t)span ? span : (int64_t)h->c2h_busy_ns;
+  set(b, NTP_C_HOST_DATA, busy);
+  set(b, NTP_C_HOST_WAIT, span - busy);
+  set(b, NTP_C_TR_CMPL, d(H[NTP_H_RSP_PROC], H[NTP_H_C2H_DONE]));
+}
+
+/*
  * NVMe/TCP, the host side alone. For each round trip, "wait" runs from the
  * moment the host handed its PDU to TCP to the arrival of the target's answer
  * at the host's network stack; it covers network and target.
@@ -149,7 +180,7 @@ static void host_side(const struct ntp_host_rec* h, struct ntp_breakdown* b) {
     case NTP_IO_CLASS_READ:
       set(b, NTP_C_REMOTE, d(H[NTP_H_C2H_ARR], H[NTP_H_CMD_SENT]));
       set(b, NTP_C_HOST_RX, d(H[NTP_H_C2H_PROC], H[NTP_H_C2H_ARR]));
-      set(b, NTP_C_TR_CMPL, d(H[NTP_H_RSP_PROC], H[NTP_H_C2H_PROC]));
+      read_data_phase(h, b);
       break;
     case NTP_IO_CLASS_WRITE_INLINE:
       set(b, NTP_C_REMOTE, d(H[NTP_H_RSP_ARR], H[NTP_H_CMD_SENT]));
@@ -277,14 +308,16 @@ static bool rdma_target_side(const struct ntp_tgt_rec* t, struct ntp_breakdown* 
   return true;
 }
 
-static void stage(struct ntp_breakdown* b, enum ntp_stage s,
-                  const enum ntp_comp* parts, size_t n) {
+/* A stage needs every one of @parts; @extra count where present. */
+static void stage(struct ntp_breakdown* b, enum ntp_stage s, const enum ntp_comp* parts,
+                  size_t n, enum ntp_comp extra) {
   int64_t sum = 0;
 
   for (size_t i = 0; i < n; i++) {
     if (!ntp_comp_valid(b, parts[i])) return;
     sum += b->comp[parts[i]];
   }
+  if (extra != NTP_C_NR && ntp_comp_valid(b, extra)) sum += b->comp[extra];
   b->stage[s] = sum;
   b->stage_valid |= 1u << s;
 }
@@ -296,11 +329,11 @@ static void stages(struct ntp_breakdown* b) {
   static const enum ntp_comp s6[] = {NTP_C_TGT_SUB, NTP_C_TGT_CMPL};
   static const enum ntp_comp s7_9[] = {NTP_C_TGT_BE};
 
-  stage(b, NTP_S1, s1, ARRAY_SIZE(s1));
-  stage(b, NTP_S2, s2, ARRAY_SIZE(s2));
-  stage(b, NTP_S3_S5, s3_5, ARRAY_SIZE(s3_5));
-  stage(b, NTP_S6, s6, ARRAY_SIZE(s6));
-  stage(b, NTP_S7_S9, s7_9, ARRAY_SIZE(s7_9));
+  stage(b, NTP_S1, s1, ARRAY_SIZE(s1), NTP_C_NR);
+  stage(b, NTP_S2, s2, ARRAY_SIZE(s2), NTP_C_HOST_DATA);
+  stage(b, NTP_S3_S5, s3_5, ARRAY_SIZE(s3_5), NTP_C_HOST_WAIT);
+  stage(b, NTP_S6, s6, ARRAY_SIZE(s6), NTP_C_NR);
+  stage(b, NTP_S7_S9, s7_9, ARRAY_SIZE(s7_9), NTP_C_NR);
 }
 
 enum ntp_model_err ntp_breakdown(const struct ntp_host_rec* h,

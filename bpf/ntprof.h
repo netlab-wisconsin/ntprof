@@ -53,8 +53,13 @@ enum ntp_host_ts {
   NTP_H_NVME_DONE,    /* nvme_complete_rq() (after a possible IPI)         */
   NTP_H_BLK_DONE,     /* block_rq_complete                                 */
   NTP_H_SEND_DONE,    /* RDMA: send completion of the command capsule      */
+  NTP_H_C2H_LAST_ARR, /* TCP: skb carrying the read's last data arrived    */
+  NTP_H_C2H_DONE,     /* TCP: the transport finished the read's data       */
   NTP_H_NR,
 };
+
+/* Host events up to file version 3; later ones were added at the end. */
+#define NTP_H_NR_V3 NTP_H_C2H_LAST_ARR
 
 /* Target events. */
 enum ntp_tgt_ts {
@@ -115,6 +120,15 @@ struct ntp_host_rec {
   __u32 pad;
   char disk[NTP_DISK_NAME_LEN];
   __u64 ts[NTP_H_NR];
+  /*
+   * TCP reads: time the transport spent on the skbs that carried this read's
+   * data (each nvme_tcp_recv_skb call, from the first data copy on), and how
+   * many such calls. Within [NTP_H_C2H_PROC, NTP_H_C2H_DONE] the rest is the
+   * host waiting for data. Fields after ts[] are new in file version 4.
+   */
+  __u64 c2h_busy_ns;
+  __u32 c2h_skbs;
+  __u32 pad2;
 };
 
 struct ntp_tgt_rec {

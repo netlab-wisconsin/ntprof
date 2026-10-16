@@ -46,9 +46,9 @@ APP_SRCS := src/main.c src/config.c src/record.c src/offline.c src/loader.c \
             src/spdk.c src/util.c
 APP_OBJS := $(patsubst src/%.c,$(OUTPUT)/%.o,$(APP_SRCS))
 # what the unit tests link against: no BPF, no libbpf
-LIB_OBJS := $(addprefix $(OUTPUT)/,model.o join.o stats.o util.o)
+LIB_OBJS := $(addprefix $(OUTPUT)/,model.o join.o stats.o trace_file.o util.o)
 
-TESTS := tests/test_model tests/test_join tests/test_stats
+TESTS := tests/test_model tests/test_join tests/test_stats tests/test_trace_file
 TEST_BINS := $(patsubst tests/%,$(OUTPUT)/%,$(TESTS))
 
 ifeq ($(V),1)

@@ -123,17 +123,22 @@ out:
 
 /* ---- dump ---- */
 
-static const char* const host_ts_names[NTP_H_NR] = {
+static const char* const host_ts_names[] = {
     "start",      "queue_rq",  "cmd_sent", "r2t_arr",  "r2t_proc",
     "data_start", "data_sent", "c2h_arr",  "c2h_proc", "rsp_arr",
-    "rsp_proc",   "nvme_done", "blk_done", "send_done",
+    "rsp_proc",   "nvme_done", "blk_done", "send_done", "c2h_last_arr",
+    "c2h_done",
 };
 
-static const char* const tgt_ts_names[NTP_T_NR] = {
+static const char* const tgt_ts_names[] = {
     "cmd_arr",  "cmd_proc", "r2t_queued", "r2t_sent", "data_arr",
     "data_proc", "exec",    "be_issue",   "be_done",  "complete",
     "rsp_queued", "c2h_sent", "rsp_sent", "send_done",
 };
+
+/* an event added to bpf/ntprof.h needs its name here too */
+_Static_assert(ARRAY_SIZE(host_ts_names) == NTP_H_NR, "a name for every host event");
+_Static_assert(ARRAY_SIZE(tgt_ts_names) == NTP_T_NR, "a name for every target event");
 
 static void dump_id(const struct ntp_rec_hdr* h, const struct ntp_cmd_id* id) {
   printf("%u,%#x,%u,%u,%u,%u,%u,%u,%llu,%u", h->transport, h->flags, h->cpu,
@@ -162,6 +167,7 @@ static int dump_host(const struct ntp_host_rec* h, void* arg) {
   printf(",%u,%s,%u,%u,%u", h->bytes, h->disk, h->ctrl_instance, h->q_unsent,
          h->q_inflight);
   dump_ts(h->ts, NTP_H_NR);
+  printf(",%llu,%u", (unsigned long long)h->c2h_busy_ns, h->c2h_skbs);
   putchar('\n');
   return 0;
 }
@@ -186,7 +192,7 @@ int cmd_dump(char* const* files, int nfiles) {
   printf("kind,transport,flags,cpu,cntlid,qid,cid,opcode,nsid,slba,nlb,bytes,"
          "disk,ctrl,queue1,queue2,base_ns");
   for (int i = 0; i < NTP_H_NR; i++) printf(",h_%s", host_ts_names[i]);
-  printf("  (target rows: base_ns");
+  printf(",h_c2h_busy_ns,h_c2h_skbs  (target rows: base_ns");
   for (int i = 0; i < NTP_T_NR; i++) printf(",t_%s", tgt_ts_names[i]);
   printf(")\n");
   for (int i = 0; i < nfiles; i++) {

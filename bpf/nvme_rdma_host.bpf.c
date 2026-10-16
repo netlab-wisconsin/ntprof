@@ -103,7 +103,7 @@ static __always_inline int on_send_done(const struct ib_wc* wc) {
   cqe = BPF_CORE_READ(wc, wr_cqe);
   rec = host_rec(rq_of_sqe((void*)cqe));
   if (rec) ntp_stamp_once(&rec->ts[NTP_H_SEND_DONE], bpf_ktime_get_ns());
-  host_rx_enter((u64)BPF_CORE_READ(wc, qp, qp_context), 0, 0);
+  host_rx_enter((u64)BPF_CORE_READ(wc, qp, qp_context), 0, 0, 0);
   return 0;
 }
 
@@ -125,13 +125,13 @@ static __always_inline int on_recv_done(const struct ib_wc* wc) {
     rec = host_rec_by_cid(queue, cid);
     if (rec) ntp_stamp_once(&rec->ts[NTP_H_RSP_ARR], bpf_ktime_get_ns());
   }
-  host_rx_enter(queue, 0, 0);
+  host_rx_enter(queue, 0, 0, 0);
   return 0;
 }
 
 /* A local invalidation finished; it completes the request. */
 static __always_inline int on_inv_done(const struct ib_wc* wc) {
-  if (!ntp_idle()) host_rx_enter((u64)BPF_CORE_READ(wc, qp, qp_context), 0, 0);
+  if (!ntp_idle()) host_rx_enter((u64)BPF_CORE_READ(wc, qp, qp_context), 0, 0, 0);
   return 0;
 }
 

@@ -199,6 +199,79 @@ static void test_no_start_time(void) {
   CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
 }
 
+/*
+ * A TCP read whose data came in several skbs: from the first copy (6500) to
+ * the last data processed (6900) the transport worked 120 ns on the data and
+ * waited the other 280 for it; the response is processed at 7000.
+ */
+static void test_read_data_phase(void) {
+  struct ntp_host_rec h;
+  struct ntp_tgt_rec t;
+  struct ntp_breakdown b;
+
+  read_host(&h);
+  read_target(&t);
+  h.ts[NTP_H_C2H_LAST_ARR] = 6850;
+  h.ts[NTP_H_C2H_DONE] = 6900;
+  h.c2h_busy_ns = 120;
+  h.c2h_skbs = 3;
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK(b.joined);
+  CHECK_EQ(b.comp[NTP_C_HOST_RX], 200);   /* first data: arrival to first copy */
+  CHECK_EQ(b.comp[NTP_C_HOST_DATA], 120);
+  CHECK_EQ(b.comp[NTP_C_HOST_WAIT], 280);
+  CHECK_EQ(b.comp[NTP_C_TR_CMPL], 100);
+  CHECK_EQ(b.comp[NTP_C_NET], 1400);      /* the first byte's network: unchanged */
+  CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
+  CHECK_EQ(b.comp[NTP_C_E2E], 6300);
+  CHECK_EQ(b.stage[NTP_S2], 200 + 100 + 120);
+  CHECK_EQ(b.stage[NTP_S3_S5], 1400 + 100 + 200 + 280);
+  CHECK_EQ(b.stage[NTP_S1] + b.stage[NTP_S2] + b.stage[NTP_S3_S5] + b.stage[NTP_S6] +
+               b.stage[NTP_S7_S9],
+           b.comp[NTP_C_E2E]);
+
+  /* host only: the same split, the target's side in one component */
+  CHECK_EQ(ntp_breakdown(&h, NULL, &b), NTP_MODEL_OK);
+  CHECK_EQ(b.comp[NTP_C_HOST_WAIT], 280);
+  CHECK_EQ(b.comp[NTP_C_REMOTE], 5000);
+  CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
+  CHECK_EQ(b.stage[NTP_S2], 420);
+
+  /* the copying never stopped: no wait */
+  h.c2h_busy_ns = 400;
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK_EQ(b.comp[NTP_C_HOST_WAIT], 0);
+  CHECK_EQ(b.comp[NTP_C_HOST_DATA], 400);
+  CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
+  /* more than the span cannot be: capped, never a negative wait */
+  h.c2h_busy_ns = 450;
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK_EQ(b.comp[NTP_C_HOST_WAIT], 0);
+  CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
+
+  /* completed inside the call with the last data: no completion left */
+  h.c2h_busy_ns = 120;
+  h.ts[NTP_H_C2H_DONE] = h.ts[NTP_H_RSP_PROC];
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK_EQ(b.comp[NTP_C_TR_CMPL], 0);
+  CHECK_EQ(b.comp[NTP_C_HOST_WAIT], 500 - 120);
+  CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
+
+  /* a record without the data phase (file version 3, SPDK): as before */
+  h.c2h_busy_ns = 0;
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK(!ntp_comp_valid(&b, NTP_C_HOST_WAIT) && !ntp_comp_valid(&b, NTP_C_HOST_DATA));
+  CHECK_EQ(b.comp[NTP_C_TR_CMPL], 500);
+  CHECK_EQ(b.stage[NTP_S2], 700);
+  CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
+  /* nor with stamps that do not fit the record */
+  h.c2h_busy_ns = 120;
+  h.ts[NTP_H_C2H_DONE] = 7200; /* after the response was processed */
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK(!ntp_comp_valid(&b, NTP_C_HOST_WAIT));
+  CHECK_EQ(b.comp[NTP_C_TR_CMPL], 500);
+}
+
 static void rdma_host(struct ntp_host_rec* h, bool write) {
   memset(h, 0, sizeof(*h));
   h->hdr.transport = NTP_TR_RDMA;
@@ -317,6 +390,7 @@ int main(void) {
   RUN(test_rdma_write_fetch);
   RUN(test_read_joined);
   RUN(test_read_host_only);
+  RUN(test_read_data_phase);
   RUN(test_inline_write);
   RUN(test_r2t_write);
   RUN(test_incomplete);

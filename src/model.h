@@ -34,6 +34,8 @@ enum ntp_comp {
   NTP_C_TGT_BE,      /* S7-S9     target block layer + device              */
   NTP_C_TGT_CMPL,    /* S6 (C)    target transport completion              */
   NTP_C_HOST_RX,     /* S3 (C)    initiator receive stack to transport     */
+  NTP_C_HOST_WAIT,   /* S3-S5 (C) TCP read: waiting for the rest of the data */
+  NTP_C_HOST_DATA,   /* S2 (C)    TCP read: transport processing the data   */
   NTP_C_TR_CMPL,     /* S2 (C)    initiator transport completion           */
   NTP_C_BLK_CMPL,    /* S1 (C)    blk-mq completion                        */
   NTP_C_REMOTE,      /* S3-S9     without a target record: NET..TGT_CMPL   */

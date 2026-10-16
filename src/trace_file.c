@@ -69,7 +69,7 @@ int ntp_read_file(const char* path, struct ntp_file_header* hdr,
     struct ntp_tgt_rec tgt;
   } rec;
   FILE* f = fopen(path, "rb");
-  size_t tgt_size;
+  size_t host_size, tgt_size;
   int ret = 0;
 
   if (!f) {
@@ -82,13 +82,15 @@ int ntp_read_file(const char* path, struct ntp_file_header* hdr,
     fclose(f);
     return -1;
   }
-  /* version 2: target records end before ts[NTP_T_SEND_DONE] */
+  /* older versions: records end earlier, at the fields added later */
+  host_size = hdr->version >= 4
+                  ? sizeof(struct ntp_host_rec)
+                  : offsetof(struct ntp_host_rec, ts) + NTP_H_NR_V3 * sizeof(__u64);
   tgt_size = hdr->version == 2
                  ? offsetof(struct ntp_tgt_rec, ts) + NTP_T_SEND_DONE * sizeof(__u64)
                  : sizeof(struct ntp_tgt_rec);
-  if ((hdr->version != NTP_FILE_VERSION && hdr->version != 2) ||
-      hdr->header_size != sizeof(*hdr) ||
-      hdr->host_rec_size != sizeof(struct ntp_host_rec) ||
+  if (hdr->version < 2 || hdr->version > NTP_FILE_VERSION ||
+      hdr->header_size != sizeof(*hdr) || hdr->host_rec_size != host_size ||
       hdr->tgt_rec_size != tgt_size) {
     ntp_err("%s: written by another ntprof version (file v%u)", path,
             hdr->version);
@@ -99,12 +101,13 @@ int ntp_read_file(const char* path, struct ntp_file_header* hdr,
   while (!ret && fread(&rec.hdr, sizeof(rec.hdr), 1, f) == 1) {
     size_t size, rest;
 
+    /* what an older record lacks reads as 0 */
+    memset((char*)&rec + sizeof(rec.hdr), 0, sizeof(rec) - sizeof(rec.hdr));
     switch (rec.hdr.kind) {
       case NTP_REC_HOST:
-        size = sizeof(rec.host);
+        size = host_size;
         break;
       case NTP_REC_TARGET:
-        memset((char*)&rec + sizeof(rec.hdr), 0, sizeof(rec) - sizeof(rec.hdr));
         size = tgt_size;
         break;
       default:

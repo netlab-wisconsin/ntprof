@@ -116,6 +116,9 @@ struct host_rx {
   u64 queue;
   u64 skb; /* TCP: the skb being read */
   u64 arrival;
+  u64 enter;     /* when this call started */
+  u64 data_rq;   /* TCP: the sampled read whose data this call copies; 0 = none */
+  u64 busy_from; /* TCP: when this call started working on that data */
 };
 NTP_CPU_CTX(rx_ctx, struct host_rx);
 
@@ -178,7 +181,7 @@ static __always_inline void uncount(u64 rq, u32 bits, bool forget) {
   if (forget) bpf_map_delete_elem(&counted, &rq);
 }
 
-static __always_inline void host_rx_enter(u64 queue, u64 skb, u64 arrival) {
+static __always_inline void host_rx_enter(u64 queue, u64 skb, u64 arrival, u64 now) {
   u32 zero = 0;
   struct host_rx* c = bpf_map_lookup_elem(&rx_ctx, &zero);
 
@@ -187,6 +190,25 @@ static __always_inline void host_rx_enter(u64 queue, u64 skb, u64 arrival) {
   c->queue = queue;
   c->skb = skb;
   c->arrival = arrival;
+  c->enter = now;
+  c->data_rq = 0;
+  c->busy_from = 0;
+}
+
+/*
+ * TCP: the call that copied a sampled read's data is over (@now: its exit,
+ * or the read's completion inside it). Its time on the data counts as the
+ * transport's processing; the last such moment ends the read's data phase.
+ */
+static __always_inline void host_data_done(struct ntp_host_rec* rec, struct host_rx* c,
+                                           u64 now) {
+  if (c->busy_from && now >= c->busy_from) {
+    rec->c2h_busy_ns += now - c->busy_from;
+    rec->c2h_skbs += 1;
+    rec->ts[NTP_H_C2H_DONE] = now;
+  }
+  c->data_rq = 0;
+  c->busy_from = 0;
 }
 
 static __always_inline int host_rx_exit(void) {
@@ -349,7 +371,7 @@ int BPF_PROG(ntp_h_setup_cmd, struct request* rq, void* cmd) {
 static __always_inline struct ntp_host_rec* host_complete(struct request* rq) {
   struct host_rx* c;
   struct ntp_host_rec* rec;
-  u64 key;
+  u64 key, now;
 
   if (ntp_idle()) return NULL;
   c = NTP_CTX_GET(rx_ctx);
@@ -359,8 +381,11 @@ static __always_inline struct ntp_host_rec* host_complete(struct request* rq) {
 
   rec = host_rec(key);
   if (!rec) return NULL;
+  now = bpf_ktime_get_ns();
   if (c->arrival) rec->ts[NTP_H_RSP_ARR] = c->arrival;
-  rec->ts[NTP_H_RSP_PROC] = bpf_ktime_get_ns();
+  rec->ts[NTP_H_RSP_PROC] = now;
+  /* TCP: the read completes inside the call that carried its last data */
+  if (c->data_rq == key) host_data_done(rec, c, now);
   return rec;
 }
 

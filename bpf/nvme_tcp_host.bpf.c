@@ -12,8 +12,10 @@
  *   nvme_tcp_try_send_data_pdu         -> NTP_H_DATA_START
  *   nvme_tcp_try_send + socket sends   -> the same, where the three above are
  *                                         inlined (MLNX OFED, Linux 5.15)
- *   nvme_tcp_recv_skb entry / exit     -> receive context (queue, skb arrival)
- *   skb_copy_datagram_iter             -> NTP_H_C2H_* (first copy of a C2H PDU)
+ *   nvme_tcp_recv_skb entry / exit     -> receive context (queue, skb arrival);
+ *                                         a read's time processing its data
+ *   skb_copy_datagram_iter             -> NTP_H_C2H_* (a read's first data,
+ *                                         its last data's arrival)
  *   nvme_tcp_setup_h2c_data_pdu        -> NTP_H_R2T_* (when called while receiving)
  *   blk_mq_complete_request_remote     -> NTP_H_RSP_* (CQE parsed)
  *
@@ -288,12 +290,33 @@ int BPF_KPROBE(ntp_h_sendmsg_kp, struct socket* sock) { return on_sock_send(sock
 
 /* ---- receive path ---- */
 
+/*
+ * nvme_tcp_recv_skb() handles one skb from the queue's io_work, one call
+ * after the other: the entry opens the receive context, the exit closes it.
+ */
 static __always_inline int on_recv_skb(struct sk_buff* skb) {
+  u64 now;
+
   /* without a record in flight nothing received can need a timestamp */
   if (ntp_idle()) return 0;
+  now = bpf_ktime_get_ns();
   /* nvme_tcp_setup_sock_ops() stores the queue in sk_user_data */
   host_rx_enter((u64)BPF_CORE_READ(skb, sk, sk_user_data), (u64)skb,
-                ntp_skb_arrival(skb, bpf_ktime_get_ns()));
+                ntp_skb_arrival(skb, now), now);
+  return 0;
+}
+
+/* The call is over: a sampled read whose data it copied gets the call's time. */
+static __always_inline int on_recv_skb_exit(void) {
+  struct host_rx* c = NTP_CTX_GET(rx_ctx);
+  struct host_entry* e;
+
+  if (!c) return 0;
+  if (c->data_rq) {
+    e = host_entry(c->data_rq);
+    if (e) host_data_done(&e->rec, c, bpf_ktime_get_ns());
+  }
+  c->tid = 0;
   return 0;
 }
 
@@ -303,7 +326,7 @@ int BPF_PROG(ntp_h_recv_skb_fe, void* desc, struct sk_buff* skb) {
 }
 
 SEC("fexit/nvme_tcp_recv_skb")
-int BPF_PROG(ntp_h_recv_skb_fx) { return host_rx_exit(); }
+int BPF_PROG(ntp_h_recv_skb_fx) { return on_recv_skb_exit(); }
 
 SEC("kprobe/nvme_tcp_recv_skb")
 int BPF_KPROBE(ntp_h_recv_skb_kp, void* desc, struct sk_buff* skb) {
@@ -311,14 +334,25 @@ int BPF_KPROBE(ntp_h_recv_skb_kp, void* desc, struct sk_buff* skb) {
 }
 
 SEC("kretprobe/nvme_tcp_recv_skb")
-int BPF_KRETPROBE(ntp_h_recv_skb_kr) { return host_rx_exit(); }
+int BPF_KRETPROBE(ntp_h_recv_skb_kr) { return on_recv_skb_exit(); }
 
-/* First data copy of a C2H data PDU: the PDU header in queue->pdu names it. */
+/*
+ * A data copy of a C2H data PDU: the PDU header in queue->pdu names the
+ * read. The first copy of a read stamps its first data; every copy stamps
+ * the arrival of the latest skb with its data; and the call that copies it
+ * counts as the transport's processing of the read's data, from the first
+ * copy on (on_recv_skb_exit(), host_complete()).
+ */
 static __always_inline int on_copy(const struct sk_buff* skb) {
   struct ntp_tcp_data_pdu pdu;
   struct nvme_tcp_queue* queue;
   struct ntp_host_rec* rec;
+  struct host_entry* e;
+  struct cid_slot* cs;
   struct host_rx* c;
+  bool switched;
+  u32 slot;
+  u64 now;
   void* hdr;
 
   if (ntp_idle()) return 0;
@@ -329,10 +363,32 @@ static __always_inline int on_copy(const struct sk_buff* skb) {
   if (bpf_probe_read_kernel(&pdu, sizeof(pdu), hdr)) return 0;
   if (pdu.hdr.type != nvme_tcp_c2h_data) return 0;
 
-  rec = host_rec_by_cid(c->queue, pdu.command_id);
-  if (!rec || rec->ts[NTP_H_C2H_PROC]) return 0;
-  rec->ts[NTP_H_C2H_ARR] = c->arrival;
-  rec->ts[NTP_H_C2H_PROC] = bpf_ktime_get_ns();
+  /* (queue, cid) -> the read's request -> its record */
+  slot = cid_slot_of(c->queue, pdu.command_id);
+  cs = bpf_map_lookup_elem(&cid_idx, &slot);
+  if (!cs || cs->queue != c->queue || cs->cid != pdu.command_id) return 0;
+  e = host_entry(cs->rq);
+  if (!e) return 0;
+  rec = &e->rec;
+  rec->ts[NTP_H_C2H_LAST_ARR] = c->arrival;
+  if (c->data_rq == e->rq) return 0; /* this call counts for the read already */
+
+  now = bpf_ktime_get_ns();
+  switched = c->data_rq != 0;
+  if (switched) {
+    /* another sampled read's data ended earlier in this skb */
+    struct host_entry* prev = host_entry(c->data_rq);
+
+    if (prev) host_data_done(&prev->rec, c, now);
+  }
+  if (!rec->ts[NTP_H_C2H_PROC]) {
+    rec->ts[NTP_H_C2H_ARR] = c->arrival;
+    rec->ts[NTP_H_C2H_PROC] = now;
+    c->busy_from = now;
+  } else {
+    c->busy_from = switched ? now : c->enter;
+  }
+  c->data_rq = e->rq;
   return 0;
 }
 

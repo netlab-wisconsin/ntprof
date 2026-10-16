@@ -40,6 +40,8 @@ and tells the NVMe/TCP calls apart with a per-thread context.
 | where the three `try_send` functions are inlined: `nvme_tcp_try_send` returning 1 with `queue->request` cleared; the request is `queue->request` at its entry or at its first `kernel_sendpage` / `sock_no_sendpage` / `sock_sendmsg` | `NTP_H_CMD_SENT`, `NTP_H_DATA_SENT`, `NTP_H_DATA_START` |
 | `skb->tstamp` read at `nvme_tcp_recv_skb`; ntprof turns receive timestamps on (section 7) | `NTP_H_*_ARR` |
 | first `skb_copy_datagram_iter` while `queue->pdu` holds a C2H header | `NTP_H_C2H_PROC` |
+| every such copy of the read's data: the arrival of its skb | `NTP_H_C2H_LAST_ARR` |
+| exit of each `nvme_tcp_recv_skb` that copied the read's data, or its completion inside the call: the call's time on the data (section 4) | `NTP_H_C2H_DONE`, `c2h_busy_ns` |
 | `nvme_tcp_setup_h2c_data_pdu` while receiving | `NTP_H_R2T_PROC` |
 | `blk_mq_complete_request_remote` while receiving | `NTP_H_RSP_PROC` |
 | `raw_tp/nvme_complete_rq` | `NTP_H_NVME_DONE` |
@@ -223,7 +225,9 @@ can be slightly negative (the target may see a packet before the host's
 | storage: target block layer and drive | T_COMPLETE - T_EXEC | same | same |
 | target driver, completion | T_C2H_SENT - T_COMPLETE | T_RSP_SENT - T_COMPLETE | same |
 | network: host receive path | H_C2H_PROC - H_C2H_ARR | H_RSP_PROC - H_RSP_ARR | + (H_R2T_PROC - H_R2T_ARR) |
-| host driver, completion | H_RSP_PROC - H_C2H_PROC | 0 | 0 |
+| network: waiting for the rest of the data | (H_C2H_DONE - H_C2H_PROC) - busy | - | - |
+| host driver, processing the data | busy | - | - |
+| host driver, completion | H_RSP_PROC - H_C2H_DONE | 0 | 0 |
 | host block layer, completion | H_BLK_DONE - H_RSP_PROC | same | same |
 
 The components add up to the end-to-end latency H_BLK_DONE - H_START exactly
@@ -236,8 +240,8 @@ they are what LAD is computed on:
 | Stage | Components | The paper's name |
 |---|---|---|
 | host block layer | both host block layer components | S1 |
-| host driver | both host driver components | S2 |
-| network | the computed part and both receive paths | S3-S5 |
+| host driver | the host driver components | S2 |
+| network | the computed part, both receive paths, and a TCP read's wait for the rest of its data | S3-S5 |
 | target driver | both target driver components | S6 |
 | storage | target block layer and drive | S7-S9 (the drive alone: S8-S9) |
 
@@ -245,6 +249,20 @@ For a write after R2T the second round trip starts when the host *starts*
 sending the data: the target receives the data while the host is still
 sending it, so the transfer belongs to both the host's wait and the target's
 residence and cancels out of the network share.
+
+**A TCP read's data phase.** A large read's data comes in many skbs, and
+nvme-tcp copies each one as it is read while later ones are still on their
+way, so receiving and copying overlap. The host times its own work on the
+read's data: every `nvme_tcp_recv_skb` call that copies it, from the first
+copy on, until the call ends or the read completes inside it. These calls
+come one after the other from the queue's `io_work` and all lie between the
+first copy (H_C2H_PROC) and the end of the last one (H_C2H_DONE). Their sum is
+*busy*, the host driver processing the data; the rest of that span is time
+the host had nothing of the read's to process: it was waiting for the data.
+The wait is never negative, and a read whose copying never pauses has none.
+Records without the data phase (file version 3 and older, SPDK) keep the whole
+span in the completion: H_RSP_PROC - H_C2H_PROC. The arrival of the read's last
+data (H_C2H_LAST_ARR) is recorded too, for the overlap of the two.
 
 Without a target record (host only, or a target record that misses events)
 the network and target components are reported together as "network and
@@ -320,6 +338,13 @@ debug build of the same source ([reference](reference.md#kernels-without-btf)), 
 - **Context.** Per-thread context lives in per-CPU slots tagged with the
   thread id; if a thread migrates between a function's entry and the hook
   that uses the context, the event is lost, not misattributed.
+- **A TCP read's data phase** (section 4). The wait is what the host saw: it
+  holds the wire and NICs, both TCP/IP stacks, the target's time to hand the
+  rest of the data to TCP, and any time `io_work` waited for a CPU while data
+  was ready. The busy time is wall-clock time of the calls, so an interrupt
+  that runs the receive stack on the same CPU during a call counts as busy.
+  At queue depth above 1 a call can also carry another command's data after
+  the read's, and counts in full. Writes are not split this way yet.
 - **Not covered:** NVMe/TCP with TLS (`nvme connect --tls`), polled-mode
   completions on the target, admin commands, and commands other than read and
   write. Data digests are covered on the host (`skb_copy_and_hash_datagram_iter`).

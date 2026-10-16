@@ -16,6 +16,7 @@ static const struct {
     {NTP_C_NET_DATA, 2},     {NTP_C_TGT_RX, 0},       {NTP_C_TGT_SUB, 0},     {NTP_C_TGT_BE, 0},
     {NTP_C_TGT_BE_SUB, 2},   {NTP_C_TGT_DEV, 2},     {NTP_C_TGT_BE_CMPL, 2},
     {NTP_C_TGT_CMPL, 0},     {NTP_C_REMOTE, 0},      {NTP_C_HOST_RX, 0},
+    {NTP_C_HOST_WAIT, 0},    {NTP_C_HOST_DATA, 0},
     {NTP_C_TR_CMPL, 0},      {NTP_C_BLK_CMPL, 0},    {NTP_C_CMPL_IPI, 2},
     {NTP_C_E2E, 0},
 };
@@ -151,7 +152,7 @@ static bool group_joined(const struct ntp_group* g) {
   return g->stage[NTP_S3_S5].n && 2 * g->stage[NTP_S3_S5].n >= g->comp[NTP_C_E2E].n;
 }
 
-#define MAX_SROWS 5
+#define MAX_SROWS 6
 
 static int stage_rows(struct ntp_group* g, bool joined, struct srow* rows) {
   bool rdma = g->transport == NTP_TR_RDMA;
@@ -186,6 +187,12 @@ static int stage_rows(struct ntp_group* g, bool joined, struct srow* rows) {
     rows[n].key = "host_receive";
     snprintf(rows[n].desc, sizeof(rows[n].desc), "host receive path");
     rows[n++].v = &g->comp[NTP_C_HOST_RX];
+    /* a TCP read's wait for the rest of its data: network, seen from the host */
+    if (g->comp[NTP_C_HOST_WAIT].n) {
+      rows[n].key = "host_data_wait";
+      snprintf(rows[n].desc, sizeof(rows[n].desc), "waiting for the rest of the data");
+      rows[n++].v = &g->comp[NTP_C_HOST_WAIT];
+    }
     rows[n].key = "network_and_target";
     snprintf(rows[n].desc, sizeof(rows[n].desc),
              "network and target (not recorded)");
@@ -430,11 +437,12 @@ void ntp_report_interval(FILE* f, struct ntp_stats* s,
       ntp_summarize(&g->stage[st], &m);
       if (!joined && st == NTP_S3_S5) {
         /* no target records: the rest of the round trip in one column */
-        struct ntp_summary rx, rem;
+        struct ntp_summary rx, rem, wait;
 
         ntp_summarize(&g->comp[NTP_C_HOST_RX], &rx);
         ntp_summarize(&g->comp[NTP_C_REMOTE], &rem);
-        fprintf(f, " %5.0f%%*", share(rx.mean + rem.mean, e2e.mean));
+        ntp_summarize(&g->comp[NTP_C_HOST_WAIT], &wait);
+        fprintf(f, " %5.0f%%*", share(rx.mean + rem.mean + wait.mean, e2e.mean));
         break;
       }
       if (m.n)
@@ -600,11 +608,14 @@ static void compare_group(FILE* f, struct ntp_group* bg, struct ntp_group* lg,
   fprintf(f, "\n== %s: baseline %llu commands sampled, loaded %llu\n", label,
           (unsigned long long)bg->records, (unsigned long long)lg->records);
   fprintf(f, "  %-*s %9s %9s %7s\n", NAME_W, "stage", "base us", "load us", "LAD");
-  for (int i = 0; i < nb && i < nl; i++) {
+  for (int i = 0; i < nl; i++) {
     double lad;
+    int j = 0;
 
-    if (strcmp(br[i].key, lr[i].key)) continue;
-    lad = lad_row(f, lr[i].desc, 0, br[i].v, lr[i].v);
+    /* the same stage in the baseline (the two runs may show different rows) */
+    while (j < nb && strcmp(br[j].key, lr[i].key)) j++;
+    if (j == nb) continue;
+    lad = lad_row(f, lr[i].desc, 0, br[j].v, lr[i].v);
     if (lad > best) {
       best = lad;
       best_row = &lr[i];
