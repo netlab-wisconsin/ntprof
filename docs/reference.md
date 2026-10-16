@@ -226,6 +226,10 @@ sudo ntprof record -r both -t rdma --spdk-host spdk/build/bin/spdk_nvme_perf \
   target. `SPDK=` names the SPDK tree (default `~/spdk`); `tests/demo-spdk.sh down` cleans up.
 - An SPDK host has no block layer: the host block layer is not shown, and the throughput line is estimated from the sampled
   commands.
+- Over NVMe/RDMA on the two servers of [`use_cases/`](../use_cases), SPDK on both sides and the same drive (AIO
+  bdev), a 4 KiB read at queue depth 1 took 68.2 µs: network 6.4 µs, host and target drivers 0.4 µs together,
+  storage 61.4 µs, the drive's own time. With the Linux drivers on both sides it took 72.8 µs (network 10.0 µs,
+  drivers 2.3 µs). ntprof at one command in 1000 added 0.11 µs.
 
 ## Kernels without BTF
 
