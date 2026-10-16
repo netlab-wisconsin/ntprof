@@ -45,6 +45,21 @@ static void make_host(struct ntp_host_rec* h) {
   h->c2h_skbs = 3;
 }
 
+static void make_tgt(struct ntp_tgt_rec* t) {
+  memset(t, 0, sizeof(*t));
+  t->hdr.kind = NTP_REC_TARGET;
+  t->hdr.transport = NTP_TR_TCP;
+  t->id.cid = 9;
+  t->ts[NTP_T_CMD_ARR] = 200;
+  t->ts[NTP_T_SEND_DONE] = 42;
+  t->ts[NTP_T_DATA_DONE] = 600;
+  t->h2c_busy_ns = 66;
+  t->h2c_skbs = 4;
+}
+
+/* Target records of versions 3 and 4 end at ts[NTP_T_SEND_DONE]. */
+static const size_t tgt_v4 = offsetof(struct ntp_tgt_rec, ts) + NTP_T_NR_V4 * sizeof(__u64);
+
 static int temp_file(char* path) {
   int fd = mkstemp(path);
 
@@ -64,9 +79,7 @@ static void test_round_trip(void) {
   memset(&s, 0, sizeof(s));
   CHECK_EQ(temp_file(path), 0);
   make_host(&h);
-  memset(&t, 0, sizeof(t));
-  t.hdr.kind = NTP_REC_TARGET;
-  t.ts[NTP_T_SEND_DONE] = 42;
+  make_tgt(&t);
   ntp_header_init(&hdr, 1, NTP_TR_TCP, 10);
   CHECK_EQ(ntp_writer_open(&w, path, &hdr), 0);
   CHECK_EQ(ntp_writer_add(&w, &h, sizeof(h)), 0);
@@ -80,6 +93,56 @@ static void test_round_trip(void) {
   CHECK_EQ(s.host.c2h_skbs, 3);
   CHECK_EQ(s.host.ts[NTP_H_C2H_DONE], 800);
   CHECK_EQ(s.tgt.ts[NTP_T_SEND_DONE], 42);
+  CHECK_EQ(s.tgt.ts[NTP_T_DATA_DONE], 600);
+  CHECK_EQ(s.tgt.h2c_busy_ns, 66);
+  CHECK_EQ(s.tgt.h2c_skbs, 4);
+  unlink(path);
+}
+
+/* Version 4: host records as now, target records without the write's data phase. */
+static void test_version4(void) {
+  char path[] = "/tmp/ntp_test_XXXXXX";
+  struct ntp_file_header hdr, rd;
+  struct ntp_host_rec h;
+  struct ntp_tgt_rec t;
+  struct seen s;
+  FILE* f;
+
+  memset(&s, 0, sizeof(s));
+  CHECK_EQ(temp_file(path), 0);
+  make_host(&h);
+  make_tgt(&t);
+  ntp_header_init(&hdr, 1, NTP_TR_TCP, 10);
+  hdr.version = 4;
+  hdr.tgt_rec_size = (uint32_t)tgt_v4;
+  f = fopen(path, "wb");
+  CHECK(f != NULL);
+  if (!f) return;
+  fwrite(&hdr, sizeof(hdr), 1, f);
+  /* target, host, target: each kind at its own size */
+  fwrite(&t, tgt_v4, 1, f);
+  fwrite(&h, sizeof(h), 1, f);
+  fwrite(&t, tgt_v4, 1, f);
+  fclose(f);
+  CHECK_EQ(ntp_read_file(path, &rd, &ops, &s), 0);
+  CHECK_EQ(rd.version, 4);
+  CHECK_EQ(s.nhost, 1);
+  CHECK_EQ(s.ntgt, 2);
+  CHECK_EQ(s.host.c2h_busy_ns, 55);
+  CHECK_EQ(s.tgt.id.cid, 9);
+  CHECK_EQ(s.tgt.ts[NTP_T_SEND_DONE], 42);
+  CHECK_EQ(s.tgt.ts[NTP_T_DATA_DONE], 0);
+  CHECK_EQ(s.tgt.h2c_busy_ns, 0);
+  CHECK_EQ(s.tgt.h2c_skbs, 0);
+
+  /* version 4 with today's target record size is not a file ntprof wrote */
+  hdr.tgt_rec_size = sizeof(struct ntp_tgt_rec);
+  f = fopen(path, "wb");
+  CHECK(f != NULL);
+  if (!f) return;
+  fwrite(&hdr, sizeof(hdr), 1, f);
+  fclose(f);
+  CHECK_EQ(ntp_read_file(path, &rd, &ops, &s), -1);
   unlink(path);
 }
 
@@ -98,6 +161,7 @@ static void test_version3(void) {
   ntp_header_init(&hdr, 1, NTP_TR_TCP, 10);
   hdr.version = 3;
   hdr.host_rec_size = (uint32_t)old_host;
+  hdr.tgt_rec_size = (uint32_t)tgt_v4;
   f = fopen(path, "wb");
   CHECK(f != NULL);
   if (!f) return;
@@ -115,6 +179,7 @@ static void test_version3(void) {
   /* a file from a newer ntprof is refused */
   hdr.version = NTP_FILE_VERSION + 1;
   hdr.host_rec_size = sizeof(struct ntp_host_rec);
+  hdr.tgt_rec_size = sizeof(struct ntp_tgt_rec);
   f = fopen(path, "wb");
   CHECK(f != NULL);
   if (!f) return;
@@ -126,6 +191,7 @@ static void test_version3(void) {
 
 int main(void) {
   RUN(test_round_trip);
+  RUN(test_version4);
   RUN(test_version3);
   TEST_DONE();
 }

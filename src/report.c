@@ -13,7 +13,8 @@ static const struct {
   int indent;
 } display[] = {
     {NTP_C_BLK_SUB, 0},      {NTP_C_TR_SUB, 0},      {NTP_C_NET, 0},
-    {NTP_C_NET_DATA, 2},     {NTP_C_TGT_RX, 0},       {NTP_C_TGT_SUB, 0},     {NTP_C_TGT_BE, 0},
+    {NTP_C_NET_DATA, 2},     {NTP_C_TGT_RX, 0},       {NTP_C_TGT_SUB, 0},
+    {NTP_C_TGT_WAIT, 0},     {NTP_C_TGT_DATA, 0},     {NTP_C_TGT_BE, 0},
     {NTP_C_TGT_BE_SUB, 2},   {NTP_C_TGT_DEV, 2},     {NTP_C_TGT_BE_CMPL, 2},
     {NTP_C_TGT_CMPL, 0},     {NTP_C_REMOTE, 0},      {NTP_C_HOST_RX, 0},
     {NTP_C_HOST_WAIT, 0},    {NTP_C_HOST_DATA, 0},

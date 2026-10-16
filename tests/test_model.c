@@ -122,35 +122,38 @@ static void test_inline_write(void) {
   CHECK_EQ(b.comp[NTP_C_E2E], 1000);
 }
 
+static void r2t_write(struct ntp_host_rec* h, struct ntp_tgt_rec* t) {
+  memset(h, 0, sizeof(*h));
+  h->hdr.flags = NTP_F_WRITE | NTP_F_R2T;
+  h->ts[NTP_H_START] = 0 + 5;
+  h->ts[NTP_H_QUEUE_RQ] = 10;
+  h->ts[NTP_H_CMD_SENT] = 20;
+  h->ts[NTP_H_R2T_ARR] = 120;
+  h->ts[NTP_H_R2T_PROC] = 130;
+  h->ts[NTP_H_DATA_START] = 200;
+  h->ts[NTP_H_DATA_SENT] = 260; /* informational only */
+  h->ts[NTP_H_RSP_ARR] = 900;
+  h->ts[NTP_H_RSP_PROC] = 910;
+  h->ts[NTP_H_BLK_DONE] = 915;
+  memset(t, 0, sizeof(*t));
+  t->hdr.flags = NTP_F_WRITE | NTP_F_R2T;
+  t->ts[NTP_T_CMD_ARR] = 1000;
+  t->ts[NTP_T_CMD_PROC] = 1010;
+  t->ts[NTP_T_R2T_QUEUED] = 1015;
+  t->ts[NTP_T_R2T_SENT] = 1030;
+  t->ts[NTP_T_DATA_ARR] = 1100;
+  t->ts[NTP_T_DATA_PROC] = 1110;
+  t->ts[NTP_T_EXEC] = 1200;
+  t->ts[NTP_T_COMPLETE] = 1700;
+  t->ts[NTP_T_RSP_SENT] = 1720;
+}
+
 static void test_r2t_write(void) {
   struct ntp_host_rec h;
   struct ntp_tgt_rec t;
   struct ntp_breakdown b;
 
-  memset(&h, 0, sizeof(h));
-  h.hdr.flags = NTP_F_WRITE | NTP_F_R2T;
-  h.ts[NTP_H_START] = 0 + 5;
-  h.ts[NTP_H_QUEUE_RQ] = 10;
-  h.ts[NTP_H_CMD_SENT] = 20;
-  h.ts[NTP_H_R2T_ARR] = 120;
-  h.ts[NTP_H_R2T_PROC] = 130;
-  h.ts[NTP_H_DATA_START] = 200;
-  h.ts[NTP_H_DATA_SENT] = 260; /* informational only */
-  h.ts[NTP_H_RSP_ARR] = 900;
-  h.ts[NTP_H_RSP_PROC] = 910;
-  h.ts[NTP_H_BLK_DONE] = 915;
-  memset(&t, 0, sizeof(t));
-  t.hdr.flags = NTP_F_WRITE | NTP_F_R2T;
-  t.ts[NTP_T_CMD_ARR] = 1000;
-  t.ts[NTP_T_CMD_PROC] = 1010;
-  t.ts[NTP_T_R2T_QUEUED] = 1015;
-  t.ts[NTP_T_R2T_SENT] = 1030;
-  t.ts[NTP_T_DATA_ARR] = 1100;
-  t.ts[NTP_T_DATA_PROC] = 1110;
-  t.ts[NTP_T_EXEC] = 1200;
-  t.ts[NTP_T_COMPLETE] = 1700;
-  t.ts[NTP_T_RSP_SENT] = 1720;
-
+  r2t_write(&h, &t);
   CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
   CHECK_EQ(b.io_class, NTP_IO_CLASS_WRITE_R2T);
   CHECK_EQ(b.comp[NTP_C_TR_SUB], 10 + 70);
@@ -161,6 +164,87 @@ static void test_r2t_write(void) {
   CHECK_EQ(b.comp[NTP_C_NET], 70 + 80);
   CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
   CHECK_EQ(b.comp[NTP_C_E2E], 910);
+  CHECK(!ntp_comp_valid(&b, NTP_C_TGT_WAIT) && !ntp_comp_valid(&b, NTP_C_TGT_DATA));
+  CHECK_EQ(b.stage[NTP_S6], 110 + 20);
+}
+
+/*
+ * A TCP write whose data came in several skbs: from its PDU header parsed
+ * (1110) to the end of the last copy (1190) the target copied the data for
+ * 50 ns and waited the other 30 for it; the command executes at 1200.
+ */
+static void test_write_data_phase(void) {
+  struct ntp_host_rec h;
+  struct ntp_tgt_rec t;
+  struct ntp_breakdown b;
+
+  r2t_write(&h, &t);
+  t.ts[NTP_T_DATA_LAST_ARR] = 1170;
+  t.ts[NTP_T_DATA_DONE] = 1190;
+  t.h2c_busy_ns = 50;
+  t.h2c_skbs = 3;
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK(b.joined);
+  CHECK_EQ(b.comp[NTP_C_TGT_RX], 10 + 10);  /* first data: arrival to parsed */
+  CHECK_EQ(b.comp[NTP_C_TGT_DATA], 50);
+  CHECK_EQ(b.comp[NTP_C_TGT_WAIT], 30);
+  CHECK_EQ(b.comp[NTP_C_TGT_SUB], 20 + 10); /* R2T, then last copy to execute */
+  CHECK_EQ(b.comp[NTP_C_NET], 70 + 80);     /* the residence did not change */
+  CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
+  CHECK_EQ(b.comp[NTP_C_E2E], 910);
+  CHECK_EQ(b.stage[NTP_S6], 30 + 20 + 50);
+  CHECK_EQ(b.stage[NTP_S3_S5], 150 + 20 + 20 + 30);
+  CHECK_EQ(b.stage[NTP_S1] + b.stage[NTP_S2] + b.stage[NTP_S3_S5] + b.stage[NTP_S6] +
+               b.stage[NTP_S7_S9],
+           b.comp[NTP_C_E2E]);
+  /* the host's side is that of any write after R2T */
+  CHECK(!ntp_comp_valid(&b, NTP_C_HOST_WAIT) && !ntp_comp_valid(&b, NTP_C_HOST_DATA));
+  CHECK_EQ(b.comp[NTP_C_TR_CMPL], 0);
+
+  /* host only: the target's record is what has the split */
+  CHECK_EQ(ntp_breakdown(&h, NULL, &b), NTP_MODEL_OK);
+  CHECK(!ntp_comp_valid(&b, NTP_C_TGT_WAIT) && !ntp_comp_valid(&b, NTP_C_TGT_DATA));
+  CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
+
+  /* the copying never stopped: no wait */
+  t.h2c_busy_ns = 80;
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK_EQ(b.comp[NTP_C_TGT_WAIT], 0);
+  CHECK_EQ(b.comp[NTP_C_TGT_DATA], 80);
+  CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
+  /* more than the span cannot be: capped, never a negative wait */
+  t.h2c_busy_ns = 100;
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK_EQ(b.comp[NTP_C_TGT_WAIT], 0);
+  CHECK_EQ(b.comp[NTP_C_TGT_DATA], 80);
+  CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
+
+  /* executed right after the last copy */
+  t.h2c_busy_ns = 50;
+  t.ts[NTP_T_DATA_DONE] = t.ts[NTP_T_EXEC];
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK_EQ(b.comp[NTP_C_TGT_SUB], 20);
+  CHECK_EQ(b.comp[NTP_C_TGT_WAIT], 90 - 50);
+  CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
+
+  /* a record without the data phase (file version 4, SPDK): as before */
+  t.h2c_busy_ns = 0;
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK(!ntp_comp_valid(&b, NTP_C_TGT_WAIT) && !ntp_comp_valid(&b, NTP_C_TGT_DATA));
+  CHECK_EQ(b.comp[NTP_C_TGT_SUB], 20 + 90);
+  CHECK_EQ(b.stage[NTP_S6], 110 + 20);
+  CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
+  /* nor with stamps that do not fit the record */
+  t.h2c_busy_ns = 50;
+  t.ts[NTP_T_DATA_DONE] = 1250; /* after the command executed */
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK(!ntp_comp_valid(&b, NTP_C_TGT_WAIT));
+  CHECK_EQ(b.comp[NTP_C_TGT_SUB], 20 + 90);
+  t.ts[NTP_T_DATA_DONE] = 1105; /* before the data's header was parsed */
+  CHECK_EQ(ntp_breakdown(&h, &t, &b), NTP_MODEL_OK);
+  CHECK(!ntp_comp_valid(&b, NTP_C_TGT_DATA));
+  CHECK_EQ(b.comp[NTP_C_TGT_SUB], 20 + 90);
+  CHECK_EQ(main_sum(&b), b.comp[NTP_C_E2E]);
 }
 
 static void test_incomplete(void) {
@@ -393,6 +477,7 @@ int main(void) {
   RUN(test_read_data_phase);
   RUN(test_inline_write);
   RUN(test_r2t_write);
+  RUN(test_write_data_phase);
   RUN(test_incomplete);
   RUN(test_no_start_time);
   TEST_DONE();

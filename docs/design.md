@@ -56,6 +56,7 @@ and tells the NVMe/TCP calls apart with a per-thread context.
 | `nvmet_tcp_queue_response` while data is still due | `NTP_T_R2T_QUEUED` |
 | `sock_sendmsg` (`kernel_sendpage` up to 6.4) on a queue socket of a sampled command, `queue->snd_cmd->state == SEND_R2T`, offset 0 | `NTP_T_R2T_SENT` |
 | `nvmet_tcp_build_pdu_iovec` after an R2T | `NTP_T_DATA_*` |
+| exit of `skb_copy_datagram_iter` on a queue socket receiving a sampled write's data after R2T (`rcv_state == RECV_DATA`, `queue->cmd` the write) | `NTP_T_DATA_DONE`, `NTP_T_DATA_LAST_ARR`, the copy's time |
 | `nvmet_{bdev,file}_execute_rw`, `nvmet_passthru_execute_cmd` | `NTP_T_EXEC` |
 | `raw_tp/block_rq_issue` / `block_rq_complete` of the backing request (`bio->bi_private` is the `nvmet_req`) | `NTP_T_BE_ISSUE`, `NTP_T_BE_DONE` |
 | `raw_tp/nvmet_req_complete` | `NTP_T_COMPLETE` |
@@ -221,7 +222,9 @@ can be slightly negative (the target may see a packet before the host's
 | host driver, submission | H_CMD_SENT - H_QUEUE_RQ | same | + (H_DATA_START - H_R2T_PROC) |
 | network: wire and NICs (computed) | (H_C2H_ARR - H_CMD_SENT) - (T_C2H_SENT - T_CMD_ARR) | (H_RSP_ARR - H_CMD_SENT) - (T_RSP_SENT - T_CMD_ARR) | two round trips: (H_R2T_ARR - H_CMD_SENT) - (T_R2T_SENT - T_CMD_ARR) + (H_RSP_ARR - H_DATA_START) - (T_RSP_SENT - T_DATA_ARR) |
 | network: target receive path | T_CMD_PROC - T_CMD_ARR | same | + (T_DATA_PROC - T_DATA_ARR) |
-| target driver, submission | T_EXEC - T_CMD_PROC | same (includes receiving the data) | (T_R2T_SENT - T_CMD_PROC) + (T_EXEC - T_DATA_PROC) |
+| target driver, submission | T_EXEC - T_CMD_PROC | same (includes receiving the data) | (T_R2T_SENT - T_CMD_PROC) + (T_EXEC - T_DATA_DONE) |
+| network: rest of the data arriving at the target | - | - | (T_DATA_DONE - T_DATA_PROC) - busy |
+| target driver, processing the data | - | - | busy |
 | storage: target block layer and drive | T_COMPLETE - T_EXEC | same | same |
 | target driver, completion | T_C2H_SENT - T_COMPLETE | T_RSP_SENT - T_COMPLETE | same |
 | network: host receive path | H_C2H_PROC - H_C2H_ARR | H_RSP_PROC - H_RSP_ARR | + (H_R2T_PROC - H_R2T_ARR) |
@@ -241,8 +244,8 @@ they are what LAD is computed on:
 |---|---|---|
 | host block layer | both host block layer components | S1 |
 | host driver | the host driver components | S2 |
-| network | the computed part, both receive paths, and a TCP read's wait for the rest of its data | S3-S5 |
-| target driver | both target driver components | S6 |
+| network | the computed part, both receive paths, and a TCP transfer's wait for the rest of its data | S3-S5 |
+| target driver | the target driver components | S6 |
 | storage | target block layer and drive | S7-S9 (the drive alone: S8-S9) |
 
 For a write after R2T the second round trip starts when the host *starts*
@@ -263,6 +266,25 @@ The wait is never negative, and a read whose copying never pauses has none.
 Records without the data phase (file version 3 and older, SPDK) keep the whole
 span in the completion: H_RSP_PROC - H_C2H_PROC. The arrival of the read's last
 data (H_C2H_LAST_ARR) is recorded too, for the overlap of the two.
+
+**A TCP write's data phase** is the same on the target, for a write whose
+data follows an R2T. nvmet-tcp receives the data with `sock_recvmsg()` from
+functions that are inlined into `nvmet_tcp_io_work()` on every kernel checked
+(5.15 with MLNX OFED, 6.8, 6.11), so the target times the copies themselves:
+each `skb_copy_datagram_iter()` that moves the write's data into the
+command's buffer. The copy that starts inside the skb that carried the PDU
+header counts from the header's parsing (T_DATA_PROC), since that data was
+already there; every other copy counts from its own start. The copies follow
+each other between T_DATA_PROC and the end of the last one (T_DATA_DONE);
+their sum is *busy*, the target driver processing the data, and the rest of
+that span is the target waiting for data. TCP's own work between the copies
+(freeing skbs, ACKs, the socket backlog) is in the wait, as it is on the host,
+where `tcp_read_sock()` does the same work between `nvme_tcp_recv_skb()`
+calls. What follows the last copy, a data digest's CRC and check and the
+hand-over to the back end, stays in the target driver's submission. Records
+without the data phase (file version 4 and older, SPDK) keep the whole span
+T_EXEC - T_DATA_PROC there. T_DATA_LAST_ARR is the arrival of the write's last
+data.
 
 Without a target record (host only, or a target record that misses events)
 the network and target components are reported together as "network and
@@ -344,7 +366,15 @@ debug build of the same source ([reference](reference.md#kernels-without-btf)), 
   was ready. The busy time is wall-clock time of the calls, so an interrupt
   that runs the receive stack on the same CPU during a call counts as busy.
   At queue depth above 1 a call can also carry another command's data after
-  the read's, and counts in full. Writes are not split this way yet.
+  the read's, and counts in full.
+- **A TCP write's data phase** (section 4), likewise: the wait holds the host's
+  time to hand the data to TCP, the wire and NICs, both TCP/IP stacks and
+  TCP's work on the target between copies. A write sent as several H2C data
+  PDUs (over 4 MiB, nvmet-tcp's limit, or a host with a smaller one) has its
+  later PDU headers, and with a data digest each earlier PDU's CRC, inside the
+  span: they count as wait. The exit hook runs for every copy on the target,
+  a kretprobe where the target uses kprobes; `NTPROF_SKIP=ntp_t_copy_done`
+  turns it off, and write records then keep the old formula.
 - **Not covered:** NVMe/TCP with TLS (`nvme connect --tls`), polled-mode
   completions on the target, admin commands, and commands other than read and
   write. Data digests are covered on the host (`skb_copy_and_hash_datagram_iter`).

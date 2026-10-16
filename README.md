@@ -35,7 +35,7 @@ PM9A3 behind the kernel's NVMe target), both sides recorded and joined:
 The stages add up to the end-to-end latency, and `avg QD` is the mean number of commands in each (Little's law).
 Over NVMe/TCP the same read spends 19.7 µs in the network instead of 10.0 µs. `--detail` splits
 each stage into its parts: the receive paths, the drive itself, over NVMe/RDMA each request's data transfer, and
-for a large NVMe/TCP read the host's processing of the data apart from its wait for the rest of it.
+for a large NVMe/TCP read or write the receiver's processing of the data apart from its wait for the rest of it.
 
 ## The stages
 
@@ -49,8 +49,8 @@ for a large NVMe/TCP read the host's processing of the data apart from its wait 
 |---|---|
 | host block layer | blk-mq on the host, on the way down and back up |
 | host driver | `nvme-tcp`, `nvme-rdma` or SPDK's NVMe/TCP host: sending the command, and processing a TCP read's data |
-| network | the NICs, the wire, and the TCP/IP or RDMA receive paths on both machines; for a large TCP read, also the host's wait for the rest of its data |
-| target driver | `nvmet-tcp`, `nvmet-rdma` or SPDK's `nvmf_tgt`: parsing the command, fetching a write's data, sending the response |
+| network | the NICs, the wire, and the TCP/IP or RDMA receive paths on both machines; for a large TCP read or write, also the receiver's wait for the rest of its data |
+| target driver | `nvmet-tcp`, `nvmet-rdma` or SPDK's `nvmf_tgt`: parsing the command, fetching or processing a write's data, sending the response |
 | storage | the target's block layer and the drive |
 
 The NSDI '25 paper names the same stages S1 (host block layer), S2 (host driver), S3–S5 (network), S6 (target

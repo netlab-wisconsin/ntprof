@@ -31,6 +31,8 @@ enum ntp_comp {
   NTP_C_NET,         /* S3-S5     wire + both stacks' unaccounted time     */
   NTP_C_TGT_RX,      /* S5 (S)    target receive stack to transport        */
   NTP_C_TGT_SUB,     /* S6 (S)    target transport submission              */
+  NTP_C_TGT_WAIT,    /* S3-S5 (S) TCP write: rest of the data arriving      */
+  NTP_C_TGT_DATA,    /* S6 (S)    TCP write: transport processing the data  */
   NTP_C_TGT_BE,      /* S7-S9     target block layer + device              */
   NTP_C_TGT_CMPL,    /* S6 (C)    target transport completion              */
   NTP_C_HOST_RX,     /* S3 (C)    initiator receive stack to transport     */

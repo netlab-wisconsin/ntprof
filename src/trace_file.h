@@ -14,12 +14,14 @@
 
 #define NTP_FILE_MAGIC "NTPROF2"
 /*
- * 4: host records end with NTP_H_C2H_LAST_ARR, NTP_H_C2H_DONE, c2h_busy_ns and
- * c2h_skbs (a TCP read's data phase). 3: NTP_T_SEND_DONE added at the end of
- * target records. 2: NTP_H_SEND_DONE added (records of 3dd367a and earlier: 1,
- * not read). Versions 2 and 3 are still read; what their records lack is 0.
+ * 5: target records end with NTP_T_DATA_LAST_ARR, NTP_T_DATA_DONE, h2c_busy_ns
+ * and h2c_skbs (a TCP write's data phase). 4: host records end with
+ * NTP_H_C2H_LAST_ARR, NTP_H_C2H_DONE, c2h_busy_ns and c2h_skbs (a TCP read's
+ * data phase). 3: NTP_T_SEND_DONE added at the end of target records. 2:
+ * NTP_H_SEND_DONE added (records of 3dd367a and earlier: 1, not read).
+ * Versions 2 to 4 are still read; what their records lack is 0.
  */
-#define NTP_FILE_VERSION 4
+#define NTP_FILE_VERSION 5
 
 struct ntp_file_header {
   char magic[8];

@@ -164,6 +164,12 @@ depth 1 arrived in about three packets over 30 µs; the host spent 19.7 µs proc
 the rest of the data. Record files written before this split (file version 3) show the whole time as "host driver,
 completion".
 
+A large NVMe/TCP write after R2T is the same seen from the target: `nvmet-tcp` copies each packet of the write's
+data into its buffer while later ones are still on their way. From the data's PDU header parsed to the end of its
+last copy, `--detail` shows "target driver, processing the data", the time those copies took, and "network: rest of
+the data arriving at the target", the rest of that time. Record files written before this split (file version 4 and
+older) show the whole time in "target driver, submission".
+
 `ntprof compare` prints, per group present in both runs, each stage's mean in the baseline and under load, its
 LAD (loaded ÷ baseline), and the stage with the largest LAD.
 

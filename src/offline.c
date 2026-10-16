@@ -133,7 +133,8 @@ static const char* const host_ts_names[] = {
 static const char* const tgt_ts_names[] = {
     "cmd_arr",  "cmd_proc", "r2t_queued", "r2t_sent", "data_arr",
     "data_proc", "exec",    "be_issue",   "be_done",  "complete",
-    "rsp_queued", "c2h_sent", "rsp_sent", "send_done",
+    "rsp_queued", "c2h_sent", "rsp_sent", "send_done", "data_last_arr",
+    "data_done",
 };
 
 /* an event added to bpf/ntprof.h needs its name here too */
@@ -177,6 +178,7 @@ static int dump_target(const struct ntp_tgt_rec* t, void* arg) {
   dump_id(&t->hdr, &t->id);
   printf(",%u,,,%u,%u", t->bytes, t->q_outstanding, t->q_resp_queue);
   dump_ts(t->ts, NTP_T_NR);
+  printf(",%llu,%u", (unsigned long long)t->h2c_busy_ns, t->h2c_skbs);
   putchar('\n');
   return 0;
 }
@@ -194,7 +196,7 @@ int cmd_dump(char* const* files, int nfiles) {
   for (int i = 0; i < NTP_H_NR; i++) printf(",h_%s", host_ts_names[i]);
   printf(",h_c2h_busy_ns,h_c2h_skbs  (target rows: base_ns");
   for (int i = 0; i < NTP_T_NR; i++) printf(",t_%s", tgt_ts_names[i]);
-  printf(")\n");
+  printf(",t_h2c_busy_ns,t_h2c_skbs)\n");
   for (int i = 0; i < nfiles; i++) {
     struct ntp_file_header hdr;
 

@@ -177,10 +177,20 @@ struct nvmet_tcp_cmd {
   enum nvmet_tcp_send_state state;
 } __core;
 
+/* The receive state, likewise (values stable since 5.0). */
+enum nvmet_tcp_recv_state {
+  NVMET_TCP_RECV_PDU = 0,
+  NVMET_TCP_RECV_DATA = 1,
+  NVMET_TCP_RECV_DDGST = 2,
+  NVMET_TCP_RECV_ERR = 3,
+};
+
 struct nvmet_tcp_queue {
   struct socket* sock;
   struct work_struct io_work;
   struct nvmet_sq nvme_sq;
+  struct nvmet_tcp_cmd* cmd; /* the command whose PDU or data is being received */
+  enum nvmet_tcp_recv_state rcv_state;
   struct nvmet_tcp_cmd* snd_cmd;
 } __core;
 

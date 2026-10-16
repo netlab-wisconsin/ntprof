@@ -6,9 +6,9 @@
 #include "util.h"
 
 /* In the NSDI'25 paper's terms, in path order: S1(S), S2(S), S3-S5, S5(S),
- * S6(S), S7-S9, S6(C), S3(C), a TCP read's data phase in S3-S5 and S2(C),
- * S2(C), S1(C); then S3-S9, S1-S9, S7(S), S8-S9, S7(C), part of S1(C), and the
- * RDMA data transfer within S3-S5. */
+ * S6(S), a TCP write's data phase in S3-S5 and S6(S), S7-S9, S6(C), S3(C), a
+ * TCP read's data phase in S3-S5 and S2(C), S2(C), S1(C); then S3-S9, S1-S9,
+ * S7(S), S8-S9, S7(C), part of S1(C), and the RDMA data transfer within S3-S5. */
 const struct ntp_comp_info ntp_comps[NTP_C_NR] = {
     [NTP_C_BLK_SUB] = {"blk_submission", "host_block_layer",
                        "host block layer, submission", false},
@@ -20,6 +20,10 @@ const struct ntp_comp_info ntp_comps[NTP_C_NR] = {
                       false},
     [NTP_C_TGT_SUB] = {"target_transport_submission", "target_driver",
                        "target driver, submission", false},
+    [NTP_C_TGT_WAIT] = {"target_data_wait", "network",
+                        "network: rest of the data arriving at the target", false},
+    [NTP_C_TGT_DATA] = {"target_data_processing", "target_driver",
+                        "target driver, processing the data", false},
     [NTP_C_TGT_BE] = {"target_subsystem", "storage",
                       "storage: target block layer and drive", false},
     [NTP_C_TGT_CMPL] = {"target_transport_completion", "target_driver",
@@ -142,29 +146,59 @@ static void backend_details(const __u64* T, struct ntp_breakdown* b) {
 }
 
 /*
- * NVMe/TCP read, from the transport's first copy of its data to the response.
- * The data comes in many skbs, and the transport copies each as it is read
+ * A TCP data phase, on the side that receives the data: from @first, the
+ * transport's first work on the data, to @done, the end of its last work on
+ * it. The data comes in many skbs, and the transport takes each as it is read
  * while later ones are still on their way. The record holds the transport's
- * own time on the read's data, the nvme_tcp_recv_skb calls that carried it:
- * those calls follow each other inside [C2H_PROC, C2H_DONE], so the rest of
- * that span is time the host waited for data still in flight. Records without
- * it (file version 3 and older, SPDK) keep the whole span as the transport's
- * completion.
+ * own time on the data, @busy_ns: periods that follow each other inside
+ * [@first, @done], so the rest of that span is time the receiver waited for
+ * data still in flight. @done must not pass @next, the receiver's next event.
+ * Returns false, setting nothing, for a record without a data phase.
+ */
+static bool data_phase(uint64_t first, uint64_t done, uint64_t next, uint64_t busy_ns,
+                       enum ntp_comp busy_c, enum ntp_comp wait_c,
+                       struct ntp_breakdown* b) {
+  int64_t span, busy;
+
+  if (!busy_ns || !done || done < first || done > next) return false;
+  span = d(done, first);
+  busy = busy_ns > (uint64_t)span ? span : (int64_t)busy_ns;
+  set(b, busy_c, busy);
+  set(b, wait_c, span - busy);
+  return true;
+}
+
+/*
+ * NVMe/TCP read, from the transport's first copy of its data to the response:
+ * the host's data phase lasts until its last nvme_tcp_recv_skb call that
+ * carried the read's data (C2H_DONE). Records without it (file version 3 and
+ * older, SPDK) keep the whole span as the transport's completion.
  */
 static void read_data_phase(const struct ntp_host_rec* h, struct ntp_breakdown* b) {
   const __u64* H = h->ts;
-  int64_t span, busy;
 
-  if (!h->c2h_busy_ns || !H[NTP_H_C2H_DONE] || H[NTP_H_C2H_DONE] < H[NTP_H_C2H_PROC] ||
-      H[NTP_H_C2H_DONE] > H[NTP_H_RSP_PROC]) {
+  if (data_phase(H[NTP_H_C2H_PROC], H[NTP_H_C2H_DONE], H[NTP_H_RSP_PROC], h->c2h_busy_ns,
+                 NTP_C_HOST_DATA, NTP_C_HOST_WAIT, b))
+    set(b, NTP_C_TR_CMPL, d(H[NTP_H_RSP_PROC], H[NTP_H_C2H_DONE]));
+  else
     set(b, NTP_C_TR_CMPL, d(H[NTP_H_RSP_PROC], H[NTP_H_C2H_PROC]));
-    return;
-  }
-  span = d(H[NTP_H_C2H_DONE], H[NTP_H_C2H_PROC]);
-  busy = h->c2h_busy_ns > (uint64_t)span ? span : (int64_t)h->c2h_busy_ns;
-  set(b, NTP_C_HOST_DATA, busy);
-  set(b, NTP_C_HOST_WAIT, span - busy);
-  set(b, NTP_C_TR_CMPL, d(H[NTP_H_RSP_PROC], H[NTP_H_C2H_DONE]));
+}
+
+/*
+ * NVMe/TCP write after R2T, from the H2C data PDU's header parsed to the
+ * command's execution: the target's data phase lasts until the end of its
+ * last copy of the write's data (DATA_DONE); what follows (a data digest's
+ * check, the hand-over to the back end) is the transport's submission. Records
+ * without it (file version 4 and older, SPDK) keep the whole span there.
+ * Returns the part of the span that is the transport's submission.
+ */
+static int64_t write_data_phase(const struct ntp_tgt_rec* t, struct ntp_breakdown* b) {
+  const __u64* T = t->ts;
+
+  if (data_phase(T[NTP_T_DATA_PROC], T[NTP_T_DATA_DONE], T[NTP_T_EXEC], t->h2c_busy_ns,
+                 NTP_C_TGT_DATA, NTP_C_TGT_WAIT, b))
+    return d(T[NTP_T_EXEC], T[NTP_T_DATA_DONE]);
+  return d(T[NTP_T_EXEC], T[NTP_T_DATA_PROC]);
 }
 
 /*
@@ -225,8 +259,8 @@ static void target_side(const struct ntp_tgt_rec* t, struct ntp_breakdown* b) {
     default:
       set(b, NTP_C_TGT_RX, d(T[NTP_T_CMD_PROC], T[NTP_T_CMD_ARR]) +
                                d(T[NTP_T_DATA_PROC], T[NTP_T_DATA_ARR]));
-      set(b, NTP_C_TGT_SUB, d(T[NTP_T_R2T_SENT], T[NTP_T_CMD_PROC]) +
-                                d(T[NTP_T_EXEC], T[NTP_T_DATA_PROC]));
+      set(b, NTP_C_TGT_SUB,
+          d(T[NTP_T_R2T_SENT], T[NTP_T_CMD_PROC]) + write_data_phase(t, b));
       set(b, NTP_C_TGT_CMPL, d(T[NTP_T_RSP_SENT], T[NTP_T_COMPLETE]));
       residence = d(T[NTP_T_R2T_SENT], T[NTP_T_CMD_ARR]) +
                   d(T[NTP_T_RSP_SENT], T[NTP_T_DATA_ARR]);
@@ -308,16 +342,17 @@ static bool rdma_target_side(const struct ntp_tgt_rec* t, struct ntp_breakdown* 
   return true;
 }
 
-/* A stage needs every one of @parts; @extra count where present. */
+/* A stage needs every one of @parts; @extras (up to NTP_C_NR) count where present. */
 static void stage(struct ntp_breakdown* b, enum ntp_stage s, const enum ntp_comp* parts,
-                  size_t n, enum ntp_comp extra) {
+                  size_t n, const enum ntp_comp* extras) {
   int64_t sum = 0;
 
   for (size_t i = 0; i < n; i++) {
     if (!ntp_comp_valid(b, parts[i])) return;
     sum += b->comp[parts[i]];
   }
-  if (extra != NTP_C_NR && ntp_comp_valid(b, extra)) sum += b->comp[extra];
+  for (; *extras != NTP_C_NR; extras++)
+    if (ntp_comp_valid(b, *extras)) sum += b->comp[*extras];
   b->stage[s] = sum;
   b->stage_valid |= 1u << s;
 }
@@ -328,12 +363,17 @@ static void stages(struct ntp_breakdown* b) {
   static const enum ntp_comp s3_5[] = {NTP_C_NET, NTP_C_TGT_RX, NTP_C_HOST_RX};
   static const enum ntp_comp s6[] = {NTP_C_TGT_SUB, NTP_C_TGT_CMPL};
   static const enum ntp_comp s7_9[] = {NTP_C_TGT_BE};
+  /* the TCP data phases, where a record has them */
+  static const enum ntp_comp none[] = {NTP_C_NR};
+  static const enum ntp_comp s2_x[] = {NTP_C_HOST_DATA, NTP_C_NR};
+  static const enum ntp_comp s3_5_x[] = {NTP_C_HOST_WAIT, NTP_C_TGT_WAIT, NTP_C_NR};
+  static const enum ntp_comp s6_x[] = {NTP_C_TGT_DATA, NTP_C_NR};
 
-  stage(b, NTP_S1, s1, ARRAY_SIZE(s1), NTP_C_NR);
-  stage(b, NTP_S2, s2, ARRAY_SIZE(s2), NTP_C_HOST_DATA);
-  stage(b, NTP_S3_S5, s3_5, ARRAY_SIZE(s3_5), NTP_C_HOST_WAIT);
-  stage(b, NTP_S6, s6, ARRAY_SIZE(s6), NTP_C_NR);
-  stage(b, NTP_S7_S9, s7_9, ARRAY_SIZE(s7_9), NTP_C_NR);
+  stage(b, NTP_S1, s1, ARRAY_SIZE(s1), none);
+  stage(b, NTP_S2, s2, ARRAY_SIZE(s2), s2_x);
+  stage(b, NTP_S3_S5, s3_5, ARRAY_SIZE(s3_5), s3_5_x);
+  stage(b, NTP_S6, s6, ARRAY_SIZE(s6), s6_x);
+  stage(b, NTP_S7_S9, s7_9, ARRAY_SIZE(s7_9), none);
 }
 
 enum ntp_model_err ntp_breakdown(const struct ntp_host_rec* h,

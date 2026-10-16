@@ -7,6 +7,8 @@
  *
  *   skb_copy_datagram_iter             -> the last skb this thread copied, and
  *                                         its socket (arrival of what is parsed)
+ *   skb_copy_datagram_iter exit        -> a write's time copying its data,
+ *                                         NTP_T_DATA_DONE / NTP_T_DATA_LAST_ARR
  *   nvmet_tcp_queue_response           -> NTP_T_R2T_QUEUED / NTP_T_RSP_QUEUED
  *   nvmet_tcp_build_pdu_iovec          -> NTP_T_DATA_* (solicited H2C data)
  *   sock_sendmsg, kernel_sendpage      -> NTP_T_R2T_SENT / C2H_SENT / RSP_SENT
@@ -40,8 +42,10 @@ static __always_inline struct nvmet_tcp_queue* queue_of_sq(const struct nvmet_sq
 
 struct tcp_rx {
   u64 tid;
-  u64 skb; /* the last skb copied */
-  u64 sk;  /* its socket */
+  u64 skb;    /* the last skb copied */
+  u64 sk;     /* its socket */
+  u64 enter;  /* when that copy started; 0 while no record is in flight */
+  s64 offset; /* where in the skb's data it started */
 };
 NTP_CPU_CTX(tcp_rx, struct tcp_rx);
 
@@ -50,7 +54,7 @@ NTP_CPU_CTX(tcp_rx, struct tcp_rx);
  * command or data being parsed next came in the last one copied. Its arrival
  * is looked up only for sampled commands.
  */
-static __always_inline int on_copy(const struct sk_buff* skb) {
+static __always_inline int on_copy(const struct sk_buff* skb, int offset) {
   u32 zero = 0;
   struct tcp_rx* r = bpf_map_lookup_elem(&tcp_rx, &zero);
 
@@ -58,14 +62,83 @@ static __always_inline int on_copy(const struct sk_buff* skb) {
   r->tid = ntp_tid();
   r->skb = (u64)skb;
   r->sk = (u64)BPF_CORE_READ(skb, sk);
+  r->enter = ntp_inflight ? bpf_ktime_get_ns() : 0;
+  r->offset = offset;
   return 0;
 }
 
 SEC("fentry/skb_copy_datagram_iter")
-int BPF_PROG(ntp_t_copy_fe, const struct sk_buff* skb) { return on_copy(skb); }
+int BPF_PROG(ntp_t_copy_fe, const struct sk_buff* skb, int offset) {
+  return on_copy(skb, offset);
+}
 
 SEC("kprobe/skb_copy_datagram_iter")
-int BPF_KPROBE(ntp_t_copy_kp, const struct sk_buff* skb) { return on_copy(skb); }
+int BPF_KPROBE(ntp_t_copy_kp, const struct sk_buff* skb, int offset) {
+  return on_copy(skb, offset);
+}
+
+/*
+ * A copy is over. If it moved data of a sampled write solicited by R2T into
+ * the command's buffer, its time counts as the transport's processing of the
+ * write's data (model.c: the rest of the data phase is the wait for data).
+ * nvmet-tcp receives the data with sock_recvmsg() in functions inlined into
+ * nvmet_tcp_io_work() on every kernel checked (5.15 with MLNX OFED, 6.8,
+ * 6.11), so the copies are what is left to time. TCP's own work between them
+ * (freeing skbs, ACKs, the socket backlog) is not counted, as on the host,
+ * where nvme_tcp_recv_skb() runs between the same steps of tcp_read_sock().
+ */
+static __always_inline int on_copy_done(int ret) {
+  struct nvmet_tcp_queue* queue;
+  struct nvmet_tcp_cmd* cmd;
+  struct ntp_tgt_rec* rec;
+  struct tgt_entry* e;
+  struct tcp_rx* r;
+  u64 enter, from, now;
+
+  if (!ntp_inflight) return 0;
+  r = NTP_CTX_GET(tcp_rx);
+  if (!r) return 0;
+  enter = r->enter;
+  r->enter = 0;
+  if (!enter || ret) return 0;
+
+  /* nvmet-tcp's socket: the queue in sk_user_data points back to it */
+  queue = BPF_CORE_READ((struct sock*)r->sk, sk_user_data);
+  if (!queue || (u64)BPF_CORE_READ(queue, sock, sk) != r->sk) return 0;
+  /* receiving a command's data (not a PDU header or a digest) */
+  if (BPF_CORE_READ(queue, rcv_state) != NVMET_TCP_RECV_DATA) return 0;
+  cmd = BPF_CORE_READ(queue, cmd);
+  if (!cmd) return 0;
+  e = tgt_entry(req_of(cmd));
+  if (!e) return 0;
+  rec = &e->rec;
+  /* data after an R2T, its PDU header parsed (on_h2c), not yet executed */
+  if (!(rec->hdr.flags & NTP_F_R2T) || !rec->ts[NTP_T_DATA_PROC] || rec->ts[NTP_T_EXEC])
+    return 0;
+
+  now = bpf_ktime_get_ns();
+  /*
+   * The first copy of the data counts from the header's parsing when it
+   * starts inside an skb: the PDU header came in the same skb, so the data
+   * was already here and the transport has been working on it since.
+   */
+  from = (!rec->h2c_skbs && r->offset > 0) ? rec->ts[NTP_T_DATA_PROC] : enter;
+  if (now < from) return 0;
+  rec->h2c_busy_ns += now - from;
+  rec->h2c_skbs += 1;
+  rec->ts[NTP_T_DATA_DONE] = now;
+  rec->ts[NTP_T_DATA_LAST_ARR] = ntp_skb_arrival((void*)r->skb, now);
+  return 0;
+}
+
+SEC("fexit/skb_copy_datagram_iter")
+int BPF_PROG(ntp_t_copy_done_fx, const struct sk_buff* skb, int offset, void* to, int len,
+             int ret) {
+  return on_copy_done(ret);
+}
+
+SEC("kretprobe/skb_copy_datagram_iter")
+int BPF_KRETPROBE(ntp_t_copy_done_kr, int ret) { return on_copy_done(ret); }
 
 /* When what this thread parses from socket @sk arrived, or @now. */
 static __always_inline u64 rx_arrival(u64 sk, u64 now) {

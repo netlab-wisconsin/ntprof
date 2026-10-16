@@ -86,9 +86,9 @@ int ntp_read_file(const char* path, struct ntp_file_header* hdr,
   host_size = hdr->version >= 4
                   ? sizeof(struct ntp_host_rec)
                   : offsetof(struct ntp_host_rec, ts) + NTP_H_NR_V3 * sizeof(__u64);
-  tgt_size = hdr->version == 2
-                 ? offsetof(struct ntp_tgt_rec, ts) + NTP_T_SEND_DONE * sizeof(__u64)
-                 : sizeof(struct ntp_tgt_rec);
+  tgt_size = hdr->version >= 5   ? sizeof(struct ntp_tgt_rec)
+             : hdr->version >= 3 ? offsetof(struct ntp_tgt_rec, ts) + NTP_T_NR_V4 * sizeof(__u64)
+                                 : offsetof(struct ntp_tgt_rec, ts) + NTP_T_SEND_DONE * sizeof(__u64);
   if (hdr->version < 2 || hdr->version > NTP_FILE_VERSION ||
       hdr->header_size != sizeof(*hdr) || hdr->host_rec_size != host_size ||
       hdr->tgt_rec_size != tgt_size) {

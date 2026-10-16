@@ -78,8 +78,13 @@ enum ntp_tgt_ts {
   NTP_T_RSP_SENT,     /* response capsule handed to the socket / posted    */
   NTP_T_SEND_DONE,    /* RDMA: the response's send completion (after the
                          data's RDMA WRITE, for a read)                     */
+  NTP_T_DATA_LAST_ARR, /* TCP: skb carrying the write's last data arrived */
+  NTP_T_DATA_DONE,    /* TCP: the transport copied the write's last data   */
   NTP_T_NR,
 };
+
+/* Target events up to file version 4; later ones were added at the end. */
+#define NTP_T_NR_V4 NTP_T_DATA_LAST_ARR
 
 /* What identifies a command on the wire, on both sides. */
 struct ntp_cmd_id {
@@ -138,6 +143,16 @@ struct ntp_tgt_rec {
   __u16 q_outstanding; /* commands of this queue not yet answered, at arrival */
   __u16 q_resp_queue;  /* responses of this queue waiting to be sent, at arrival */
   __u64 ts[NTP_T_NR];
+  /*
+   * TCP writes after R2T: time the transport spent copying this write's data
+   * into its buffer (each skb_copy_datagram_iter call, the first from the PDU
+   * header parsed on when the data came with it), and how many copies. Within
+   * [NTP_T_DATA_PROC, NTP_T_DATA_DONE] the rest is the target waiting for
+   * data. Fields after ts[] are new in file version 5.
+   */
+  __u64 h2c_busy_ns;
+  __u32 h2c_skbs;
+  __u32 pad2;
 };
 
 /* Per-CPU counters exported to user space for throughput (all commands). */
