@@ -159,8 +159,10 @@ as a staged NIC-and-drive pipeline would time them ([design.md](design.md) §4).
 A large NVMe/TCP read arrives in many packets, and the host copies each one while later ones are still on their
 way. From the host's first copy of the data to the last data processed, `--detail` shows two parts: "host driver,
 processing the data", the time `nvme-tcp` spent on the packets with the read's data, and "network: rest of the data
-arriving", the rest of that time. Record files written before this split (file version 3) show the whole
-time as "host driver, completion".
+arriving", the rest of that time. On the two servers of [`use_cases/`](../use_cases), a 128 KiB read at queue
+depth 1 arrived in about three packets over 30 µs; the host spent 19.7 µs processing them and waited 24.2 µs for
+the rest of the data. Record files written before this split (file version 3) show the whole time as "host driver,
+completion".
 
 `ntprof compare` prints, per group present in both runs, each stage's mean in the baseline and under load, its
 LAD (loaded ÷ baseline), and the stage with the largest LAD.
