@@ -93,6 +93,7 @@ static __always_inline int on_copy_done(int ret) {
   struct ntp_tgt_rec* rec;
   struct tgt_entry* e;
   struct tcp_rx* r;
+  struct sock* sk;
   u64 enter, from, now;
 
   if (!ntp_inflight) return 0;
@@ -102,9 +103,14 @@ static __always_inline int on_copy_done(int ret) {
   r->enter = 0;
   if (!enter || ret) return 0;
 
-  /* nvmet-tcp's socket: the queue in sk_user_data points back to it */
-  queue = BPF_CORE_READ((struct sock*)r->sk, sk_user_data);
-  if (!queue || (u64)BPF_CORE_READ(queue, sock, sk) != r->sk) return 0;
+  /*
+   * nvmet-tcp's socket: the queue in sk_user_data points back to it. (The
+   * socket goes through a variable: inside BPF_CORE_READ, r->sk would be a
+   * CO-RE access to struct tcp_rx, which no kernel BTF has.)
+   */
+  sk = (struct sock*)r->sk;
+  queue = BPF_CORE_READ(sk, sk_user_data);
+  if (!queue || BPF_CORE_READ(queue, sock, sk) != sk) return 0;
   /* receiving a command's data (not a PDU header or a digest) */
   if (BPF_CORE_READ(queue, rcv_state) != NVMET_TCP_RECV_DATA) return 0;
   cmd = BPF_CORE_READ(queue, cmd);
