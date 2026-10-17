@@ -427,8 +427,9 @@ debug build of the same source ([reference](reference.md#kernels-without-btf)), 
 
 SPDK's NVMe/TCP host (`lib/nvme/nvme_tcp.c`) and target
 (`lib/nvmf/tcp.c`) run in user space over kernel TCP sockets.
-`spdk/ntprof-usdt-v26.05.patch` (about 110 lines in six files, and the
-header `include/spdk_internal/ntprof.h`) lets ntprof see them.
+`spdk/ntprof-usdt-v26.05.patch` (about 190 lines in nine files, NVMe/RDMA
+and a unit-test helper included, and the new header
+`include/spdk_internal/ntprof.h`) lets ntprof see them.
 
 **Times recorded by SPDK, one probe per command.** A USDT probe that a tracer
 is attached to traps into the kernel on every hit, about a microsecond, as

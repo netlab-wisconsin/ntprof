@@ -1,5 +1,5 @@
 diff --git a/include/spdk/sock.h b/include/spdk/sock.h
-index fdf54b0..86de126 100644
+index fdf54b031..86de126ab 100644
 --- a/include/spdk/sock.h
 +++ b/include/spdk/sock.h
 @@ -61,6 +61,13 @@ struct spdk_sock_request {
@@ -18,7 +18,7 @@ index fdf54b0..86de126 100644
  	int				iovcnt;
 diff --git a/include/spdk_internal/ntprof.h b/include/spdk_internal/ntprof.h
 new file mode 100644
-index 0000000..a21ee7f
+index 000000000..a21ee7fb0
 --- /dev/null
 +++ b/include/spdk_internal/ntprof.h
 @@ -0,0 +1,317 @@
@@ -340,7 +340,7 @@ index 0000000..a21ee7f
 +
 +#endif /* SPDK_INTERNAL_NTPROF_H */
 diff --git a/include/spdk_internal/sock_module.h b/include/spdk_internal/sock_module.h
-index 8cacca3..46f1656 100644
+index 8cacca34c..46f16569e 100644
 --- a/include/spdk_internal/sock_module.h
 +++ b/include/spdk_internal/sock_module.h
 @@ -17,6 +17,7 @@
@@ -371,7 +371,7 @@ index 8cacca3..46f1656 100644
  	closed = sock->flags.closed;
  	sock->cb_cnt++;
 diff --git a/lib/nvme/nvme_rdma.c b/lib/nvme/nvme_rdma.c
-index a4ec58c..2188c48 100644
+index a4ec58cc3..2188c48ff 100644
 --- a/lib/nvme/nvme_rdma.c
 +++ b/lib/nvme/nvme_rdma.c
 @@ -26,6 +26,7 @@
@@ -514,7 +514,7 @@ index a4ec58c..2188c48 100644
  		SPDK_ERRLOG("Error polling CQ of poller(%p)! (%d): %s\n", poller, errno, spdk_strerror(errno));
  		return -ECANCELED;
 diff --git a/lib/nvme/nvme_tcp.c b/lib/nvme/nvme_tcp.c
-index cf9a837..427b74f 100644
+index cf9a837a6..427b74f5e 100644
 --- a/lib/nvme/nvme_tcp.c
 +++ b/lib/nvme/nvme_tcp.c
 @@ -22,6 +22,7 @@
@@ -623,7 +623,7 @@ index cf9a837..427b74f 100644
  
  	if (spdk_likely(tcp_req->ordering.bits.send_ack)) {
 diff --git a/lib/nvmf/rdma.c b/lib/nvmf/rdma.c
-index e98b549..f196b79 100644
+index e98b549b7..f196b79b2 100644
 --- a/lib/nvmf/rdma.c
 +++ b/lib/nvmf/rdma.c
 @@ -19,6 +19,7 @@
@@ -788,7 +788,7 @@ index e98b549..f196b79 100644
  				}
  			} else {
 diff --git a/lib/nvmf/tcp.c b/lib/nvmf/tcp.c
-index 8819b93..fcd0e5c 100644
+index 8819b93fd..fcd0e5c59 100644
 --- a/lib/nvmf/tcp.c
 +++ b/lib/nvmf/tcp.c
 @@ -20,6 +20,7 @@
@@ -882,7 +882,7 @@ index 8819b93..fcd0e5c 100644
  			if (spdk_unlikely(spdk_nvmf_request_get_dif_ctx(&tcp_req->req, &tcp_req->req.dif.dif_ctx))) {
  				tcp_req->req.dif_enabled = true;
 diff --git a/lib/sock/sock.c b/lib/sock/sock.c
-index ca84311..a3e2772 100644
+index ca843111a..a3e2772c1 100644
 --- a/lib/sock/sock.c
 +++ b/lib/sock/sock.c
 @@ -32,6 +32,9 @@ static struct spdk_sock_initialize_opts g_init_opts = {
@@ -896,7 +896,7 @@ index ca84311..a3e2772 100644
  	int placement_id;
  	uint32_t ref;
 diff --git a/lib/sock/spdk_sock.map b/lib/sock/spdk_sock.map
-index ecb7d6b..3152920 100644
+index ecb7d6b2a..315292072 100644
 --- a/lib/sock/spdk_sock.map
 +++ b/lib/sock/spdk_sock.map
 @@ -59,5 +59,8 @@
@@ -908,3 +908,17 @@ index ecb7d6b..3152920 100644
 +
  	local: *;
  };
+diff --git a/test/common/lib/test_rdma.c b/test/common/lib/test_rdma.c
+index 66d4c3c56..f0eb6489b 100644
+--- a/test/common/lib/test_rdma.c
++++ b/test/common/lib/test_rdma.c
+@@ -17,6 +17,9 @@ struct spdk_nvme_transport_opts g_spdk_nvme_transport_opts = {};
+ struct spdk_rdma_provider_qp g_spdk_rdma_qp = {};
+ struct spdk_rdma_provider_srq g_spdk_rdma_srq = {};
+ 
++/* ntprof: defined in lib/sock/sock.c, which the RDMA tests do not link */
++volatile uint32_t g_ntprof_sample_every;
++
+ DEFINE_STUB(spdk_rdma_provider_qp_create, struct spdk_rdma_provider_qp *, (struct rdma_cm_id *cm_id,
+ 		struct spdk_rdma_provider_qp_init_attr *qp_attr), &g_spdk_rdma_qp);
+ DEFINE_STUB(spdk_rdma_provider_qp_accept, int, (struct spdk_rdma_provider_qp *spdk_rdma_qp,
